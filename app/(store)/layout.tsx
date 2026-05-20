@@ -1,18 +1,18 @@
 export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
-import { Home, ShoppingCart, Package, Receipt, User, Bell } from 'lucide-react'
+import { Home, ShoppingCart, Package, Truck, User, Bell } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import type { Store, Profile, Notification } from '@/types'
 
-async function getStoreData(): Promise<{ store: Store | null; unreadCount: number }> {
+async function getStoreData(): Promise<{ store: Store | null; unreadCount: number; pendingDOs: number }> {
   const supabase = await createClient()
 
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (!user) return { store: null, unreadCount: 0 }
+  if (!user) return { store: null, unreadCount: 0, pendingDOs: 0 }
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -20,9 +20,9 @@ async function getStoreData(): Promise<{ store: Store | null; unreadCount: numbe
     .eq('id', user.id)
     .single<Profile>()
 
-  if (!profile?.store_id) return { store: null, unreadCount: 0 }
+  if (!profile?.store_id) return { store: null, unreadCount: 0, pendingDOs: 0 }
 
-  const [{ data: store }, { count }] = await Promise.all([
+  const [{ data: store }, { count: notifCount }, { count: doCount }] = await Promise.all([
     supabase
       .from('stores')
       .select('*')
@@ -33,13 +33,18 @@ async function getStoreData(): Promise<{ store: Store | null; unreadCount: numbe
       .select('id', { count: 'exact', head: true })
       .eq('recipient_store_id', profile.store_id)
       .eq('is_read', false),
+    supabase
+      .from('delivery_orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('store_id', profile.store_id)
+      .in('status', ['confirmed', 'dispatched', 'delivered']),
   ])
 
-  return { store: store ?? null, unreadCount: count ?? 0 }
+  return { store: store ?? null, unreadCount: notifCount ?? 0, pendingDOs: doCount ?? 0 }
 }
 
 export default async function StoreLayout({ children }: { children: React.ReactNode }) {
-  const { store, unreadCount } = await getStoreData()
+  const { store, unreadCount, pendingDOs } = await getStoreData()
 
   return (
     <div className="min-h-screen bg-[#F8F8F8] flex flex-col">
@@ -79,7 +84,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
             <span className="text-[10px] font-bold text-[#0A0A0A]">Sale</span>
           </Link>
           <NavItem href="/store/inventory" icon={<Package size={22} />} label="Inventory" />
-          <NavItem href="/store/sales-history" icon={<Receipt size={22} />} label="History" />
+          <NavItem href="/store/delivery-orders" icon={<Truck size={22} />} label="Deliveries" badge={pendingDOs} />
           <NavItem href="/store/commissions" icon={<User size={22} />} label="Commission" />
         </div>
       </nav>
@@ -87,10 +92,17 @@ export default async function StoreLayout({ children }: { children: React.ReactN
   )
 }
 
-function NavItem({ href, icon, label }: { href: string; icon: React.ReactNode; label: string }) {
+function NavItem({ href, icon, label, badge }: { href: string; icon: React.ReactNode; label: string; badge?: number }) {
   return (
-    <Link href={href} className="flex flex-col items-center gap-0.5 px-3 py-1 text-gray-400 hover:text-[#0A0A0A] transition-colors">
-      {icon}
+    <Link href={href} className="flex flex-col items-center gap-0.5 px-3 py-1 text-gray-400 hover:text-[#0A0A0A] transition-colors relative">
+      <div className="relative">
+        {icon}
+        {badge && badge > 0 ? (
+          <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 bg-[#EF4444] rounded-full text-white text-[9px] font-bold flex items-center justify-center leading-none">
+            {badge > 9 ? '9+' : badge}
+          </span>
+        ) : null}
+      </div>
       <span className="text-[10px] font-medium">{label}</span>
     </Link>
   )
