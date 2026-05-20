@@ -1,7 +1,15 @@
 import type { NextConfig } from "next";
+import fs from "fs";
 
-const nextConfig: NextConfig = {
-  /* config options here */
-};
+// If the shell has ANTHROPIC_API_KEY set to empty, read it directly from .env.local
+if (!process.env.ANTHROPIC_API_KEY) {
+  try {
+    const envLocal = fs.readFileSync(".env.local", "utf8");
+    const match = envLocal.match(/^ANTHROPIC_API_KEY=(.+)$/m);
+    if (match) process.env.ANTHROPIC_API_KEY = match[1].trim();
+  } catch {}
+}
+
+const nextConfig: NextConfig = {};
 
 export default nextConfig;

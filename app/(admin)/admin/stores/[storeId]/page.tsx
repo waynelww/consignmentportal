@@ -1,0 +1,846 @@
+'use client'
+
+import { useEffect, useState, use } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import QRCode from 'react-qr-code'
+import {
+  Download,
+  CheckCircle,
+  XCircle,
+  ChevronDown,
+  ChevronUp,
+  X,
+} from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+import {
+  formatCurrency,
+  formatMYDate,
+  cn,
+  STORE_TYPE_LABELS,
+} from '@/lib/utils'
+import type {
+  Store,
+  StoreInventory,
+  Sale,
+  DeliveryOrder,
+  CommissionPeriod,
+  Product,
+  CommissionStatus,
+} from '@/types'
+import { toast } from 'sonner'
+
+const TABS = ['overview', 'inventory', 'sales', 'delivery-orders', 'commissions'] as const
+type Tab = (typeof TABS)[number]
+
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap',
+        active
+          ? 'border-[#FFD700] text-[#0A0A0A]'
+          : 'border-transparent text-gray-500 hover:text-gray-700'
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function CommissionStatusBadge({ status }: { status: CommissionStatus }) {
+  const map: Record<CommissionStatus, string> = {
+    pending: 'bg-yellow-100 text-yellow-700',
+    approved: 'bg-blue-100 text-blue-700',
+    paid: 'bg-green-100 text-green-700',
+    disputed: 'bg-red-100 text-red-700',
+  }
+  return (
+    <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-medium capitalize', map[status])}>
+      {status}
+    </span>
+  )
+}
+
+interface AdjustModalState {
+  open: boolean
+  inventory: StoreInventory | null
+}
+
+export default function StoreDetailPage({ params }: { params: Promise<{ storeId: string }> }) {
+  const { storeId } = use(params)
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const activeTab: Tab = (searchParams.get('tab') as Tab) || 'overview'
+
+  const [store, setStore] = useState<Store | null>(null)
+  const [inventory, setInventory] = useState<StoreInventory[]>([])
+  const [sales, setSales] = useState<Sale[]>([])
+  const [dos, setDos] = useState<DeliveryOrder[]>([])
+  const [commissions, setCommissions] = useState<CommissionPeriod[]>([])
+  const [loading, setLoading] = useState(true)
+  const [notes, setNotes] = useState('')
+  const [savingNotes, setSavingNotes] = useState(false)
+  const [salesFrom, setSalesFrom] = useState('')
+  const [salesTo, setSalesTo] = useState('')
+  const [adjustModal, setAdjustModal] = useState<AdjustModalState>({ open: false, inventory: null })
+  const [adjustQty, setAdjustQty] = useState(0)
+  const [adjustType, setAdjustType] = useState<'adjustment_add' | 'adjustment_remove'>('adjustment_add')
+  const [adjustNotes, setAdjustNotes] = useState('')
+  const [paymentRef, setPaymentRef] = useState('')
+  const supabase = createClient()
+
+  function setTab(tab: Tab) {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('tab', tab)
+    router.replace(`?${params.toString()}`, { scroll: false })
+  }
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      const { data } = await supabase.from('stores').select('*').eq('id', storeId).single()
+      if (data) {
+        setStore(data as Store)
+        setNotes(data.notes || '')
+      }
+      setLoading(false)
+    }
+    load()
+  }, [storeId])
+
+  useEffect(() => {
+    if (activeTab === 'inventory') loadInventory()
+    if (activeTab === 'sales') loadSales()
+    if (activeTab === 'delivery-orders') loadDOs()
+    if (activeTab === 'commissions') loadCommissions()
+  }, [activeTab, storeId])
+
+  async function loadInventory() {
+    const { data } = await supabase
+      .from('store_inventory')
+      .select('*, product:products(*)')
+      .eq('store_id', storeId)
+      .order('created_at')
+    setInventory((data || []) as StoreInventory[])
+  }
+
+  async function loadSales() {
+    let query = supabase
+      .from('sales')
+      .select('*, product:products(name, sku)')
+      .eq('store_id', storeId)
+      .order('sale_date', { ascending: false })
+      .limit(200)
+    if (salesFrom) query = query.gte('sale_date', salesFrom)
+    if (salesTo) query = query.lte('sale_date', salesTo)
+    const { data } = await query
+    setSales((data || []) as Sale[])
+  }
+
+  async function loadDOs() {
+    const { data } = await supabase
+      .from('delivery_orders')
+      .select('*')
+      .eq('store_id', storeId)
+      .order('created_at', { ascending: false })
+    setDos((data || []) as DeliveryOrder[])
+  }
+
+  async function loadCommissions() {
+    const { data } = await supabase
+      .from('commission_periods')
+      .select('*')
+      .eq('store_id', storeId)
+      .order('period_year', { ascending: false })
+      .order('period_month', { ascending: false })
+    setCommissions((data || []) as CommissionPeriod[])
+  }
+
+  async function saveNotes() {
+    setSavingNotes(true)
+    const { error } = await supabase
+      .from('stores')
+      .update({ notes, updated_at: new Date().toISOString() })
+      .eq('id', storeId)
+    setSavingNotes(false)
+    if (error) toast.error('Failed to save notes')
+    else toast.success('Notes saved')
+  }
+
+  async function adjustStock() {
+    if (!adjustModal.inventory) return
+    const inv = adjustModal.inventory
+    const { error } = await supabase.from('stock_movements').insert({
+      store_id: storeId,
+      product_id: inv.product_id,
+      movement_type: adjustType,
+      quantity: Math.abs(adjustQty),
+      notes: adjustNotes,
+      created_by: null,
+    })
+    if (error) {
+      toast.error('Failed to adjust stock')
+      return
+    }
+    // Update inventory
+    const newQty =
+      adjustType === 'adjustment_add'
+        ? inv.quantity_on_hand + adjustQty
+        : Math.max(0, inv.quantity_on_hand - adjustQty)
+    await supabase
+      .from('store_inventory')
+      .update({ quantity_on_hand: newQty, updated_at: new Date().toISOString() })
+      .eq('id', inv.id)
+    toast.success('Stock adjusted')
+    setAdjustModal({ open: false, inventory: null })
+    loadInventory()
+  }
+
+  async function approveCommission(id: string) {
+    const { error } = await supabase
+      .from('commission_periods')
+      .update({ status: 'approved', approved_at: new Date().toISOString() })
+      .eq('id', id)
+    if (error) toast.error('Failed to approve')
+    else { toast.success('Commission approved'); loadCommissions() }
+  }
+
+  async function markPaidCommission(id: string) {
+    if (!paymentRef.trim()) {
+      toast.error('Enter payment reference')
+      return
+    }
+    const { error } = await supabase
+      .from('commission_periods')
+      .update({ status: 'paid', paid_at: new Date().toISOString(), payment_reference: paymentRef })
+      .eq('id', id)
+    if (error) toast.error('Failed to mark paid')
+    else { toast.success('Marked as paid'); setPaymentRef(''); loadCommissions() }
+  }
+
+  function downloadQR() {
+    const svg = document.getElementById('store-qr-svg')
+    if (!svg) return
+    const data = new XMLSerializer().serializeToString(svg)
+    const blob = new Blob([data], { type: 'image/svg+xml' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${store?.store_code || 'store'}-qr.svg`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function exportSalesCSV() {
+    if (sales.length === 0) { toast.error('No sales data'); return }
+    const headers = ['Date', 'Product', 'Qty', 'Unit Price', 'Total', 'Payment']
+    const rows = sales.map((s) => [
+      s.sale_date,
+      (s.product as any)?.name || s.product_id,
+      s.quantity,
+      s.unit_price,
+      s.total_amount,
+      s.payment_method,
+    ])
+    const csv = [headers, ...rows].map((r) => r.join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `sales-${store?.store_code || storeId}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="h-10 bg-gray-200 animate-pulse rounded-xl w-64" />
+        <div className="h-64 bg-gray-200 animate-pulse rounded-xl" />
+      </div>
+    )
+  }
+
+  if (!store) {
+    return <div className="text-center py-20 text-gray-400">Store not found</div>
+  }
+
+  const scoreColor =
+    store.performance_score >= 50
+      ? 'text-green-600'
+      : store.performance_score >= 20
+      ? 'text-amber-600'
+      : 'text-red-600'
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-500">
+                {store.store_code}
+              </span>
+              <span
+                className={cn(
+                  'px-2.5 py-0.5 rounded-full text-xs font-medium capitalize',
+                  store.status === 'active'
+                    ? 'bg-green-100 text-green-700'
+                    : store.status === 'suspended'
+                    ? 'bg-red-100 text-red-700'
+                    : store.status === 'pending'
+                    ? 'bg-yellow-100 text-yellow-700'
+                    : 'bg-gray-100 text-gray-600'
+                )}
+              >
+                {store.status}
+              </span>
+            </div>
+            <h1 className="text-xl font-bold text-gray-900">{store.store_name}</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {STORE_TYPE_LABELS[store.store_type] || store.store_type} · {store.city}, {store.state}
+            </p>
+          </div>
+          <div className={cn('text-right')}>
+            <p className="text-xs text-gray-400">Performance Score</p>
+            <p className={cn('text-3xl font-black', scoreColor)}>{store.performance_score}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100">
+        <div className="flex overflow-x-auto border-b border-gray-100 px-4">
+          {TABS.map((tab) => (
+            <TabButton key={tab} active={activeTab === tab} onClick={() => setTab(tab)}>
+              {tab.charAt(0).toUpperCase() + tab.slice(1).replace('-', ' ')}
+            </TabButton>
+          ))}
+        </div>
+
+        <div className="p-6">
+          {/* ── Overview Tab ── */}
+          {activeTab === 'overview' && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Store Info */}
+              <div className="space-y-4">
+                <div className="bg-gray-50 rounded-xl p-5">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Store Information</h3>
+                  <dl className="space-y-2">
+                    {[
+                      ['PIC Name', store.pic_name],
+                      ['PIC Phone', store.pic_phone],
+                      ['Email', store.email || '—'],
+                      ['Address', store.address],
+                      ['City', store.city],
+                      ['State', store.state],
+                      ['Postcode', store.postcode],
+                      ['Commission Rate', `${store.commission_rate}%`],
+                    ].map(([label, value]) => (
+                      <div key={label} className="flex gap-2">
+                        <dt className="text-xs text-gray-500 w-32 flex-shrink-0">{label}</dt>
+                        <dd className="text-sm text-gray-800 font-medium">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+
+                {/* Bank Info */}
+                <div className="bg-gray-50 rounded-xl p-5">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Bank Information</h3>
+                  <dl className="space-y-2">
+                    {[
+                      ['Bank Name', store.bank_name || '—'],
+                      ['Account No.', store.bank_account_number || '—'],
+                      ['Account Name', store.bank_account_name || '—'],
+                    ].map(([label, value]) => (
+                      <div key={label} className="flex gap-2">
+                        <dt className="text-xs text-gray-500 w-32 flex-shrink-0">{label}</dt>
+                        <dd className="text-sm text-gray-800 font-medium">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+
+                {/* Notes */}
+                <div className="bg-gray-50 rounded-xl p-5">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Notes</h3>
+                  <textarea
+                    rows={4}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="w-full text-sm border border-gray-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-[#FFD700] resize-none"
+                    placeholder="Add notes about this store..."
+                  />
+                  <button
+                    onClick={saveNotes}
+                    disabled={savingNotes}
+                    className="mt-2 px-4 py-2 bg-[#0A0A0A] text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
+                  >
+                    {savingNotes ? 'Saving...' : 'Save Notes'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Performance + QR */}
+              <div className="space-y-4">
+                <div className="bg-gray-50 rounded-xl p-5">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Performance</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="text-center">
+                      <p className={cn('text-3xl font-black', scoreColor)}>{store.performance_score}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Score</p>
+                    </div>
+                    <div className="text-center">
+                      <p className={cn('text-3xl font-black', store.consecutive_low_months >= 2 ? 'text-red-600' : 'text-green-600')}>
+                        {store.consecutive_low_months}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">Low Months</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 rounded-xl p-5">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Agreement</h3>
+                  <div className="flex items-center gap-2 mb-2">
+                    {store.agreement_signed_at ? (
+                      <CheckCircle size={16} className="text-green-500" />
+                    ) : (
+                      <XCircle size={16} className="text-gray-400" />
+                    )}
+                    <span className="text-sm text-gray-700">
+                      {store.agreement_signed_at
+                        ? `Signed ${formatMYDate(store.agreement_signed_at)}`
+                        : 'Not yet signed'}
+                    </span>
+                  </div>
+                  {store.agreement_signed_by && (
+                    <p className="text-xs text-gray-500">By: {store.agreement_signed_by}</p>
+                  )}
+                </div>
+
+                {/* QR Code */}
+                <div className="bg-gray-50 rounded-xl p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-700">Store QR Code</h3>
+                    <button
+                      onClick={downloadQR}
+                      className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 px-2.5 py-1.5 rounded-lg hover:bg-white transition-colors"
+                    >
+                      <Download size={13} />
+                      Download
+                    </button>
+                  </div>
+                  <div className="flex justify-center bg-white p-4 rounded-xl">
+                    <QRCode
+                      id="store-qr-svg"
+                      value={store.qr_code_ref || store.store_code}
+                      size={160}
+                    />
+                  </div>
+                  <p className="text-xs text-center text-gray-400 mt-2">{store.qr_code_ref || store.store_code}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Inventory Tab ── */}
+          {activeTab === 'inventory' && (
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-sm font-semibold text-gray-700">
+                  {inventory.length} SKU{inventory.length !== 1 ? 's' : ''} stocked
+                </h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100">
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Product</th>
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">SKU</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">On Hand</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Threshold</th>
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Status</th>
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Last Restocked</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {inventory.map((inv) => {
+                      const qty = inv.quantity_on_hand
+                      const thr = inv.restock_threshold
+                      const status = qty === 0 ? 'Out' : qty <= thr ? 'Low' : 'OK'
+                      const statusColor =
+                        status === 'Out'
+                          ? 'bg-red-100 text-red-700'
+                          : status === 'Low'
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-green-100 text-green-700'
+                      return (
+                        <tr key={inv.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                          <td className="py-3 px-3 font-medium text-gray-800">
+                            {(inv.product as Product)?.name || '—'}
+                          </td>
+                          <td className="py-3 px-3 font-mono text-xs text-gray-500">
+                            {(inv.product as Product)?.sku || '—'}
+                          </td>
+                          <td className="py-3 px-3 text-right font-semibold">{qty}</td>
+                          <td className="py-3 px-3 text-right text-gray-500">{thr}</td>
+                          <td className="py-3 px-3">
+                            <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', statusColor)}>
+                              {status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-xs text-gray-500">
+                            {inv.last_restocked_at ? formatMYDate(inv.last_restocked_at) : '—'}
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <button
+                              onClick={() => {
+                                setAdjustModal({ open: true, inventory: inv })
+                                setAdjustQty(0)
+                                setAdjustNotes('')
+                              }}
+                              className="text-xs px-2.5 py-1 bg-[#0A0A0A] text-white rounded-lg hover:bg-gray-800 transition-colors"
+                            >
+                              Adjust
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    {inventory.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="py-10 text-center text-gray-400 text-sm">
+                          No inventory records
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── Sales Tab ── */}
+          {activeTab === 'sales' && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-3 items-end">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">From</label>
+                  <input
+                    type="date"
+                    value={salesFrom}
+                    onChange={(e) => setSalesFrom(e.target.value)}
+                    className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">To</label>
+                  <input
+                    type="date"
+                    value={salesTo}
+                    onChange={(e) => setSalesTo(e.target.value)}
+                    className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                  />
+                </div>
+                <button
+                  onClick={loadSales}
+                  className="px-4 py-2 bg-[#0A0A0A] text-white text-sm rounded-lg hover:bg-gray-800 transition-colors"
+                >
+                  Apply
+                </button>
+                <button
+                  onClick={exportSalesCSV}
+                  className="px-4 py-2 border border-gray-200 text-sm rounded-lg hover:bg-gray-50 transition-colors flex items-center gap-2"
+                >
+                  <Download size={14} />
+                  Export CSV
+                </button>
+              </div>
+
+              {/* Summary */}
+              {sales.length > 0 && (
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <p className="text-xs text-gray-500">Total Pairs</p>
+                    <p className="text-xl font-bold text-gray-900">
+                      {sales.reduce((a, s) => a + s.quantity, 0)}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <p className="text-xs text-gray-500">Total Revenue</p>
+                    <p className="text-xl font-bold text-gray-900">
+                      {formatCurrency(sales.reduce((a, s) => a + s.total_amount, 0))}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <p className="text-xs text-gray-500">Commission</p>
+                    <p className="text-xl font-bold text-gray-900">
+                      {formatCurrency(sales.reduce((a, s) => a + s.commission_amount, 0))}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100">
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Date</th>
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Product</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Qty</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Unit</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Total</th>
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Payment</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sales.map((s) => (
+                      <tr key={s.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                        <td className="py-2.5 px-3 text-gray-600">{formatMYDate(s.sale_date)}</td>
+                        <td className="py-2.5 px-3 text-gray-800">{(s.product as any)?.name || '—'}</td>
+                        <td className="py-2.5 px-3 text-right">{s.quantity}</td>
+                        <td className="py-2.5 px-3 text-right text-gray-500">{formatCurrency(s.unit_price)}</td>
+                        <td className="py-2.5 px-3 text-right font-medium">{formatCurrency(s.total_amount)}</td>
+                        <td className="py-2.5 px-3">
+                          <span className={cn(
+                            'px-2 py-0.5 rounded-full text-xs font-medium uppercase',
+                            s.payment_method === 'qr' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'
+                          )}>
+                            {s.payment_method}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {sales.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-10 text-center text-gray-400 text-sm">
+                          No sales data
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── Delivery Orders Tab ── */}
+          {activeTab === 'delivery-orders' && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">DO Number</th>
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Type</th>
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Status</th>
+                    <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Dispatch Date</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Pairs</th>
+                    <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">PDF</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dos.map((d) => (
+                    <tr key={d.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                      <td className="py-2.5 px-3 font-mono text-xs text-gray-700">{d.do_number}</td>
+                      <td className="py-2.5 px-3 capitalize text-gray-600">{d.do_type}</td>
+                      <td className="py-2.5 px-3">
+                        <span className={cn(
+                          'px-2 py-0.5 rounded-full text-xs font-medium capitalize',
+                          d.status === 'delivered' || d.status === 'acknowledged' ? 'bg-green-100 text-green-700' :
+                          d.status === 'dispatched' ? 'bg-blue-100 text-blue-700' :
+                          d.status === 'confirmed' ? 'bg-purple-100 text-purple-700' :
+                          'bg-gray-100 text-gray-600'
+                        )}>
+                          {d.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-gray-500 text-xs">
+                        {d.dispatch_date ? formatMYDate(d.dispatch_date) : '—'}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-medium">{d.total_pairs}</td>
+                      <td className="py-2.5 px-3 text-right">
+                        {d.pdf_url ? (
+                          <a
+                            href={d.pdf_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            Download
+                          </a>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {dos.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-10 text-center text-gray-400 text-sm">
+                        No delivery orders
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ── Commissions Tab ── */}
+          {activeTab === 'commissions' && (
+            <div className="space-y-4">
+              <div className="mb-3 flex items-center gap-3">
+                <label className="text-xs text-gray-500">Payment Reference:</label>
+                <input
+                  type="text"
+                  value={paymentRef}
+                  onChange={(e) => setPaymentRef(e.target.value)}
+                  placeholder="e.g. TT-20240601"
+                  className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                />
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100">
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Period</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Units</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Revenue</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Commission</th>
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Status</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {commissions.map((c) => (
+                      <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                        <td className="py-2.5 px-3 text-gray-800 font-medium">
+                          {String(c.period_month).padStart(2, '0')}/{c.period_year}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">{c.total_units_sold}</td>
+                        <td className="py-2.5 px-3 text-right">{formatCurrency(c.total_revenue)}</td>
+                        <td className="py-2.5 px-3 text-right font-semibold">{formatCurrency(c.commission_amount)}</td>
+                        <td className="py-2.5 px-3">
+                          <CommissionStatusBadge status={c.status} />
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center justify-end gap-2">
+                            {c.pdf_url && (
+                              <a
+                                href={c.pdf_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-blue-600 hover:underline"
+                              >
+                                PDF
+                              </a>
+                            )}
+                            {c.status === 'pending' && (
+                              <button
+                                onClick={() => approveCommission(c.id)}
+                                className="text-xs px-2.5 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                              >
+                                Approve
+                              </button>
+                            )}
+                            {c.status === 'approved' && (
+                              <button
+                                onClick={() => markPaidCommission(c.id)}
+                                className="text-xs px-2.5 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                              >
+                                Mark Paid
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {commissions.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-10 text-center text-gray-400 text-sm">
+                          No commission periods
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Adjust Stock Modal */}
+      {adjustModal.open && adjustModal.inventory && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold text-gray-900">Adjust Stock</h3>
+              <button onClick={() => setAdjustModal({ open: false, inventory: null })}>
+                <X size={18} className="text-gray-400 hover:text-gray-600" />
+              </button>
+            </div>
+            <div className="mb-3">
+              <p className="text-sm text-gray-700 font-medium">
+                {(adjustModal.inventory.product as Product)?.name}
+              </p>
+              <p className="text-xs text-gray-500">
+                Current: {adjustModal.inventory.quantity_on_hand} units
+              </p>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Type</label>
+                <select
+                  value={adjustType}
+                  onChange={(e) => setAdjustType(e.target.value as typeof adjustType)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                >
+                  <option value="adjustment_add">Add Stock</option>
+                  <option value="adjustment_remove">Remove Stock</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Quantity</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={adjustQty}
+                  onChange={(e) => setAdjustQty(Number(e.target.value))}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Notes</label>
+                <textarea
+                  rows={2}
+                  value={adjustNotes}
+                  onChange={(e) => setAdjustNotes(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] resize-none"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => setAdjustModal({ open: false, inventory: null })}
+                className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={adjustStock}
+                className="flex-1 px-4 py-2 bg-[#0A0A0A] text-white rounded-lg text-sm hover:bg-gray-800 transition-colors"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
