@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { ExternalLink, Info } from 'lucide-react'
+import { useEffect, useState, useCallback } from 'react'
+import { FileText, ExternalLink, Info } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMonthYear } from '@/lib/utils'
 import type { CommissionPeriod, Profile, Sale, Store } from '@/types'
@@ -19,70 +19,96 @@ export default function CommissionsPage() {
   const [commissionRate, setCommissionRate] = useState(0)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    async function load() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setLoading(false); return }
+  const load = useCallback(async () => {
+    setLoading(true)
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setLoading(false); return }
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('store_id')
-        .eq('id', user.id)
-        .single<Profile>()
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('store_id')
+      .eq('id', user.id)
+      .single<Profile>()
 
-      if (!profile?.store_id) { setLoading(false); return }
+    if (!profile?.store_id) { setLoading(false); return }
 
-      const now = getMYNow()
-      const thisMonth = now.getMonth() + 1
-      const thisYear = now.getFullYear()
-      const pad = (n: number) => String(n).padStart(2, '0')
-      const firstOfMonth = `${thisYear}-${pad(thisMonth)}-01`
+    const now = getMYNow()
+    const thisMonth = now.getMonth() + 1
+    const thisYear = now.getFullYear()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const firstOfMonth = `${thisYear}-${pad(thisMonth)}-01`
 
-      const [storeRes, periodsRes, salesRes] = await Promise.all([
-        supabase.from('stores').select('commission_rate').eq('id', profile.store_id).single<Pick<Store, 'commission_rate'>>(),
-        supabase
-          .from('commission_periods')
-          .select('*')
-          .eq('store_id', profile.store_id)
-          .order('period_year', { ascending: false })
-          .order('period_month', { ascending: false }),
-        supabase
-          .from('sales')
-          .select('quantity, total_amount, commission_amount')
-          .eq('store_id', profile.store_id)
-          .gte('sale_date', firstOfMonth),
-      ])
+    const [storeRes, periodsRes, salesRes] = await Promise.all([
+      supabase.from('stores').select('commission_rate').eq('id', profile.store_id).single<Pick<Store, 'commission_rate'>>(),
+      supabase
+        .from('commission_periods')
+        .select('*')
+        .eq('store_id', profile.store_id)
+        .order('period_year', { ascending: false })
+        .order('period_month', { ascending: false }),
+      supabase
+        .from('sales')
+        .select('quantity, total_amount, commission_amount')
+        .eq('store_id', profile.store_id)
+        .gte('sale_date', firstOfMonth),
+    ])
 
-      setCommissionRate(storeRes.data?.commission_rate ?? 0)
-      setPeriods((periodsRes.data as CommissionPeriod[]) ?? [])
+    setCommissionRate(storeRes.data?.commission_rate ?? 0)
+    setPeriods((periodsRes.data as CommissionPeriod[]) ?? [])
 
-      const sales = (salesRes.data as Pick<Sale, 'quantity' | 'total_amount' | 'commission_amount'>[]) ?? []
-      setCurrentMonthSales(sales.reduce((s, x) => s + x.quantity, 0))
-      setCurrentMonthRevenue(sales.reduce((s, x) => s + x.total_amount, 0))
-      setCurrentMonthCommission(sales.reduce((s, x) => s + x.commission_amount, 0))
-      setLoading(false)
+    const sales = (salesRes.data as Pick<Sale, 'quantity' | 'total_amount' | 'commission_amount'>[]) ?? []
+    setCurrentMonthSales(sales.reduce((s, x) => s + x.quantity, 0))
+    setCurrentMonthRevenue(sales.reduce((s, x) => s + x.total_amount, 0))
+    setCurrentMonthCommission(sales.reduce((s, x) => s + x.commission_amount, 0))
+
+    // Auto-generate the PREVIOUS month's invoice if it doesn't exist yet
+    const prevMonth = thisMonth === 1 ? 12 : thisMonth - 1
+    const prevYear = thisMonth === 1 ? thisYear - 1 : thisYear
+    const alreadyExists = (periodsRes.data ?? []).some(
+      (p: CommissionPeriod) => p.period_month === prevMonth && p.period_year === prevYear
+    )
+    if (!alreadyExists) {
+      fetch('/api/commissions/ensure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month: prevMonth, year: prevYear }),
+      }).then((res) => {
+        if (res.ok) {
+          // Reload to show the newly generated period
+          supabase
+            .from('commission_periods')
+            .select('*')
+            .eq('store_id', profile.store_id)
+            .order('period_year', { ascending: false })
+            .order('period_month', { ascending: false })
+            .then(({ data }) => {
+              if (data) setPeriods(data as CommissionPeriod[])
+            })
+        }
+      })
     }
-    load()
+
+    setLoading(false)
   }, [])
 
+  useEffect(() => { load() }, [load])
+
   const now = getMYNow()
-  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1)
-  const payoutMonth = nextMonth.toLocaleString('en-MY', { month: 'long', year: 'numeric' })
   const currentMonthLabel = now.toLocaleString('en-MY', { month: 'long', year: 'numeric' })
 
   const statusConfig: Record<string, { label: string; classes: string }> = {
-    pending: { label: 'Pending', classes: 'bg-amber-100 text-amber-700' },
+    pending:  { label: 'Pending',  classes: 'bg-amber-100 text-amber-700' },
     approved: { label: 'Approved', classes: 'bg-blue-100 text-blue-700' },
-    paid: { label: 'Paid', classes: 'bg-green-100 text-green-700' },
+    paid:     { label: 'Paid',     classes: 'bg-green-100 text-green-700' },
     disputed: { label: 'Disputed', classes: 'bg-red-100 text-red-600' },
   }
 
   return (
     <div className="px-4 py-5 max-w-lg mx-auto space-y-5">
-      <h1 className="text-xl font-bold text-[#0A0A0A]">Commissions</h1>
+      <h1 className="text-xl font-bold text-[#0A0A0A]">Commissions & Invoices</h1>
 
-      {/* Current month card */}
+      {/* Current month live card */}
       {loading ? (
         <div className="bg-white rounded-xl shadow-sm p-5 animate-pulse space-y-3">
           <div className="h-4 bg-gray-200 rounded w-1/3" />
@@ -91,10 +117,9 @@ export default function CommissionsPage() {
         </div>
       ) : (
         <div className="bg-[#0A0A0A] rounded-xl p-5">
-          <p className="text-gray-400 text-xs mb-1">{currentMonthLabel}</p>
+          <p className="text-gray-400 text-xs mb-0.5">{currentMonthLabel} — Live</p>
           <p className="text-sm text-gray-400">You've earned this month</p>
           <p className="text-4xl font-bold text-[#FFD700] mt-1">{formatCurrency(currentMonthCommission)}</p>
-
           <div className="mt-4 grid grid-cols-3 gap-3 text-center">
             <div>
               <p className="text-xs text-gray-400">Pairs Sold</p>
@@ -109,10 +134,9 @@ export default function CommissionsPage() {
               <p className="text-xl font-bold text-[#FFD700]">{commissionRate}%</p>
             </div>
           </div>
-
           <div className="mt-4 pt-4 border-t border-white/10">
             <p className="text-xs text-gray-400 text-center">
-              Estimated payout: End of {currentMonthLabel}
+              Invoice auto-generated on the 2nd of next month
             </p>
           </div>
         </div>
@@ -122,14 +146,13 @@ export default function CommissionsPage() {
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-2">
         <Info size={16} className="text-amber-600 mt-0.5 shrink-0" />
         <p className="text-sm text-amber-800">
-          Every sale you record earns you <strong>{commissionRate}% commission</strong>. Payouts are processed on the{' '}
-          <strong>5th of the following month</strong>.
+          Every sale you record earns you <strong>{commissionRate}% commission</strong>. Invoices are generated automatically at the end of each month and reviewed by your admin.
         </p>
       </div>
 
-      {/* Past payouts */}
+      {/* Past invoices */}
       <section>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Past Payouts</h2>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Past Invoices</h2>
 
         {loading ? (
           <div className="space-y-3">
@@ -141,7 +164,11 @@ export default function CommissionsPage() {
             ))}
           </div>
         ) : periods.length === 0 ? (
-          <p className="text-center text-gray-400 py-10">No past payout records yet.</p>
+          <div className="text-center py-10">
+            <FileText size={32} className="text-gray-300 mx-auto mb-2" />
+            <p className="text-sm text-gray-400">No invoices yet</p>
+            <p className="text-xs text-gray-300 mt-1">Your first invoice generates automatically at end of month</p>
+          </div>
         ) : (
           <div className="space-y-3">
             {periods.map((period) => {
@@ -150,45 +177,42 @@ export default function CommissionsPage() {
                 <div key={period.id} className="bg-white rounded-xl shadow-sm p-4">
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-[#0A0A0A]">
-                        {formatMonthYear(period.period_month, period.period_year)}
-                      </p>
-                      <div className="mt-2 space-y-1">
-                        <p className="text-xs text-gray-500">
-                          {period.total_units_sold} pairs · {formatCurrency(period.total_revenue)} revenue
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-sm font-bold text-[#0A0A0A]">
+                          {formatMonthYear(period.period_month, period.period_year)}
                         </p>
-                        <p className="text-base font-bold text-[#22C55E]">
-                          {formatCurrency(period.commission_amount)}
-                        </p>
+                        <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', cfg.classes)}>
+                          {cfg.label}
+                        </span>
                       </div>
+                      <p className="text-xs text-gray-500">
+                        {period.total_units_sold} pairs · {formatCurrency(period.total_revenue)} revenue
+                      </p>
+                      <p className="text-lg font-bold text-[#22C55E] mt-1">
+                        {formatCurrency(period.commission_amount)}
+                      </p>
                     </div>
-                    <div className="flex flex-col items-end gap-2 ml-3 shrink-0">
-                      <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', cfg.classes)}>
-                        {cfg.label}
-                      </span>
-                      {period.pdf_url && (
-                        <a
-                          href={`/api/commissions/${period.id}/pdf`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-xs text-[#0A0A0A] font-medium underline"
-                        >
-                          Statement
-                          <ExternalLink size={10} />
-                        </a>
-                      )}
-                    </div>
+                    {period.pdf_url && (
+                      <a
+                        href={`/api/commissions/${period.id}/pdf`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs text-[#0A0A0A] font-medium underline ml-3 shrink-0 mt-0.5"
+                      >
+                        <FileText size={12} />
+                        Invoice PDF
+                        <ExternalLink size={10} />
+                      </a>
+                    )}
                   </div>
 
-                  {period.payment_reference && (
-                    <p className="mt-2 text-xs text-gray-400 font-mono">
-                      Ref: {period.payment_reference}
-                    </p>
-                  )}
-                  {period.paid_at && (
-                    <p className="mt-1 text-xs text-gray-400">
-                      Paid on {new Date(period.paid_at).toLocaleDateString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}
-                    </p>
+                  {period.status === 'paid' && (
+                    <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
+                      <span>Paid {period.paid_at ? new Date(period.paid_at).toLocaleDateString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' }) : ''}</span>
+                      {period.payment_reference && (
+                        <span className="font-mono">Ref: {period.payment_reference}</span>
+                      )}
+                    </div>
                   )}
                 </div>
               )

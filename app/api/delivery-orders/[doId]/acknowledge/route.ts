@@ -1,11 +1,13 @@
 import { type NextRequest } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ doId: string }> }
 ) {
   const { doId } = await params
+
+  // Validate the user with the regular client (respects RLS for auth check)
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
@@ -21,8 +23,11 @@ export async function POST(
     return Response.json({ error: 'Forbidden: store owners only' }, { status: 403 })
   }
 
+  // Use service role for all writes — store_owner RLS would block inventory/movements
+  const svc = await createServiceClient()
+
   // Fetch the DO and verify it belongs to this store
-  const { data: deliveryOrder, error: doErr } = await supabase
+  const { data: deliveryOrder, error: doErr } = await svc
     .from('delivery_orders')
     .select('id, do_number, store_id, status, do_type, total_pairs')
     .eq('id', doId)
@@ -41,7 +46,7 @@ export async function POST(
   }
 
   // Fetch the DO items
-  const { data: items, error: itemsErr } = await supabase
+  const { data: items, error: itemsErr } = await svc
     .from('delivery_order_items')
     .select('product_id, quantity')
     .eq('delivery_order_id', doId)
@@ -54,8 +59,7 @@ export async function POST(
 
   // Upsert inventory and record stock movements for each item
   for (const item of items) {
-    // Get existing inventory row
-    const { data: existing } = await supabase
+    const { data: existing } = await svc
       .from('store_inventory')
       .select('id, quantity_on_hand')
       .eq('store_id', profile.store_id)
@@ -63,7 +67,7 @@ export async function POST(
       .single()
 
     if (existing) {
-      await supabase
+      await svc
         .from('store_inventory')
         .update({
           quantity_on_hand: existing.quantity_on_hand + item.quantity,
@@ -72,7 +76,7 @@ export async function POST(
         })
         .eq('id', existing.id)
     } else {
-      await supabase.from('store_inventory').insert({
+      await svc.from('store_inventory').insert({
         store_id: profile.store_id,
         product_id: item.product_id,
         quantity_on_hand: item.quantity,
@@ -81,7 +85,7 @@ export async function POST(
       })
     }
 
-    await supabase.from('stock_movements').insert({
+    await svc.from('stock_movements').insert({
       store_id: profile.store_id,
       product_id: item.product_id,
       movement_type: movementType,
@@ -93,7 +97,7 @@ export async function POST(
   }
 
   // Mark DO as acknowledged
-  await supabase
+  await svc
     .from('delivery_orders')
     .update({
       status: 'acknowledged',
@@ -103,7 +107,7 @@ export async function POST(
     .eq('id', doId)
 
   // Fetch store name for notification
-  const { data: store } = await supabase
+  const { data: store } = await svc
     .from('stores')
     .select('store_name')
     .eq('id', profile.store_id)
@@ -112,12 +116,12 @@ export async function POST(
   const storeName = store?.store_name ?? 'A store'
 
   // Notify admins
-  await supabase.from('notifications').insert({
+  await svc.from('notifications').insert({
     recipient_role: 'super_admin',
     recipient_store_id: null,
     type: 'do_delivered',
-    title: 'DO Acknowledged',
-    message: `${storeName} confirmed receipt of ${deliveryOrder.do_number} (${deliveryOrder.total_pairs} pairs). Stock has been added.`,
+    title: 'Stock Received',
+    message: `${storeName} confirmed receipt of ${deliveryOrder.do_number} (${deliveryOrder.total_pairs} pairs). Stock has been added to their inventory.`,
     reference_id: doId,
     reference_type: 'delivery_order',
     is_read: false,

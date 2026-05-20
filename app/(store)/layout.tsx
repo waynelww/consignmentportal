@@ -3,7 +3,8 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 import { Home, ShoppingCart, Package, Truck, User, Bell } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
-import type { Store, Profile, Notification } from '@/types'
+import LogoutButton from '@/components/store/LogoutButton'
+import type { Store, Profile } from '@/types'
 
 async function getStoreData(): Promise<{ store: Store | null; unreadCount: number; pendingDOs: number }> {
   const supabase = await createClient()
@@ -58,14 +59,17 @@ export default async function StoreLayout({ children }: { children: React.ReactN
             <span className="text-gray-400 text-xs">{store.store_code}</span>
           )}
         </div>
-        <Link href="/store/notifications" className="relative p-2 -mr-2">
-          <Bell size={22} className="text-white" />
-          {unreadCount > 0 && (
-            <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 bg-[#EF4444] rounded-full text-white text-[10px] font-bold flex items-center justify-center leading-none">
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </span>
-          )}
-        </Link>
+        <div className="flex items-center gap-1">
+          <Link href="/store/notifications" className="relative p-2">
+            <Bell size={22} className="text-white" />
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 bg-[#EF4444] rounded-full text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </Link>
+          <LogoutButton />
+        </div>
       </header>
 
       {/* Page content */}
