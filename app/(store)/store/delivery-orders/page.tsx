@@ -67,17 +67,20 @@ export default function StoreDeliveryOrdersPage() {
     setAcknowledging(doId)
     try {
       const res = await fetch(`/api/delivery-orders/${doId}/acknowledge`, { method: 'POST' })
-      const json = await res.json()
+      let json: { error?: string; details?: unknown; success?: boolean } = {}
+      try { json = await res.json() } catch { /* non-JSON response */ }
       if (!res.ok) {
-        toast.error(json.error ?? 'Failed to accept delivery')
+        const msg = json.error ?? `Error ${res.status}`
+        toast.error(msg, { duration: 6000 })
       } else {
-        toast.success(`${doNumber} received — stock has been added to your inventory`)
+        toast.success(`${doNumber} received! Stock has been added to your inventory.`, { duration: 5000 })
         loadOrders()
       }
-    } catch {
-      toast.error('Something went wrong')
+    } catch (e) {
+      toast.error(`Network error: ${e instanceof Error ? e.message : 'Unknown'}`, { duration: 6000 })
+    } finally {
+      setAcknowledging(null)
     }
-    setAcknowledging(null)
   }
 
   const pending = orders.filter((o) => ['confirmed', 'dispatched', 'delivered'].includes(o.status))
@@ -181,7 +184,7 @@ export default function StoreDeliveryOrdersPage() {
                           ) : (
                             <>
                               <CheckCircle size={16} />
-                              Confirm Receipt
+                              Receive Stock
                             </>
                           )}
                         </button>
