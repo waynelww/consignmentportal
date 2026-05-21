@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Home, ShoppingCart, Package, Truck, UserCircle, Bell } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/store/LogoutButton'
+import PushSubscriber from '@/components/store/PushSubscriber'
 import type { Store, Profile } from '@/types'
 
 async function getStoreData(): Promise<{ store: Store | null; unreadCount: number; pendingDOs: number }> {
@@ -71,6 +72,9 @@ export default async function StoreLayout({ children }: { children: React.ReactN
           <LogoutButton />
         </div>
       </header>
+
+      {/* Web Push subscription — registers SW and requests permission silently */}
+      <PushSubscriber />
 
       {/* Page content */}
       <main className="flex-1 pt-[60px] pb-[72px]">{children}</main>

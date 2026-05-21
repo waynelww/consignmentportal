@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/generate-commissions",
-      "schedule": "0 1 2 * *"
+      "schedule": "0 1 1 * *"
     }
   ]
 }
