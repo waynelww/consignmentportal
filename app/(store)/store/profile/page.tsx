@@ -1,20 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { QrCode, CreditCard, Store, ChevronRight, CheckCircle, ExternalLink } from 'lucide-react'
-import QRCode from 'react-qr-code'
+import { CreditCard, Store, ChevronRight, Building2, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { toast } from 'sonner'
 import type { Store as StoreType, Profile } from '@/types'
 import Link from 'next/link'
 
 export default function StoreProfilePage() {
   const [store, setStore] = useState<StoreType | null>(null)
-  const [storeId, setStoreId] = useState<string | null>(null)
-  const [paymentUrl, setPaymentUrl] = useState('')
-  const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [previewUrl, setPreviewUrl] = useState('')
 
   useEffect(() => {
     async function load() {
@@ -29,7 +23,6 @@ export default function StoreProfilePage() {
         .single<Profile>()
 
       if (!profile?.store_id) { setLoading(false); return }
-      setStoreId(profile.store_id)
 
       const { data: s } = await supabase
         .from('stores')
@@ -37,34 +30,11 @@ export default function StoreProfilePage() {
         .eq('id', profile.store_id)
         .single<StoreType>()
 
-      if (s) {
-        setStore(s)
-        setPaymentUrl(s.payment_qr_url ?? '')
-        setPreviewUrl(s.payment_qr_url ?? '')
-      }
+      if (s) setStore(s)
       setLoading(false)
     }
     load()
   }, [])
-
-  async function savePaymentQr() {
-    if (!storeId) return
-    setSaving(true)
-    const supabase = createClient()
-    const { error } = await supabase
-      .from('stores')
-      .update({ payment_qr_url: paymentUrl.trim() || null, updated_at: new Date().toISOString() })
-      .eq('id', storeId)
-
-    setSaving(false)
-    if (error) {
-      toast.error('Failed to save. Try again.')
-    } else {
-      setPreviewUrl(paymentUrl.trim())
-      setStore((prev) => prev ? { ...prev, payment_qr_url: paymentUrl.trim() || null } : prev)
-      toast.success('Payment QR saved!')
-    }
-  }
 
   if (loading) {
     return (
@@ -84,39 +54,45 @@ export default function StoreProfilePage() {
           <Store size={16} className="text-gray-400" />
           <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Store Info</span>
         </div>
-        {[
+        {([
           ['Store Name', store?.store_name],
           ['Store Code', store?.store_code],
           ['PIC Name', store?.pic_name],
           ['Phone', store?.pic_phone],
           ['Address', [store?.address, store?.city, store?.state, store?.postcode].filter(Boolean).join(', ')],
-        ].map(([label, value]) => value ? (
-          <div key={label as string} className="flex items-start justify-between gap-4">
-            <span className="text-xs text-gray-400 shrink-0 w-24">{label}</span>
+          ['Commission Rate', store?.commission_rate ? `${store.commission_rate}%` : null],
+        ] as [string, string | null | undefined][]).map(([label, value]) => value ? (
+          <div key={label} className="flex items-start justify-between gap-4">
+            <span className="text-xs text-gray-400 shrink-0 w-28">{label}</span>
             <span className="text-sm text-gray-800 text-right">{value}</span>
           </div>
         ) : null)}
       </div>
 
-      {/* Bank info */}
-      {(store?.bank_name || store?.bank_account_number) && (
-        <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
-          <div className="flex items-center gap-2 mb-1">
-            <CreditCard size={16} className="text-gray-400" />
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Bank Details (for commission payout)</span>
-          </div>
-          {[
-            ['Bank', store?.bank_name],
-            ['Account No.', store?.bank_account_number],
-            ['Account Name', store?.bank_account_name],
-          ].map(([label, value]) => value ? (
-            <div key={label as string} className="flex items-start justify-between gap-4">
-              <span className="text-xs text-gray-400 shrink-0 w-28">{label}</span>
-              <span className="text-sm text-gray-800 font-mono text-right">{value}</span>
-            </div>
-          ) : null)}
+      {/* Pay commission to — company bank details */}
+      <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
+        <div className="flex items-center gap-2 mb-1">
+          <Building2 size={16} className="text-gray-400" />
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pay Your Commission To</span>
         </div>
-      )}
+        <div className="bg-[#FFD700]/10 border border-[#FFD700]/30 rounded-lg px-3 py-2 flex items-start gap-2">
+          <AlertCircle size={14} className="text-amber-600 mt-0.5 shrink-0" />
+          <p className="text-xs text-amber-700">Transfer your monthly commission by the <strong>7th of each month</strong>. Use your store code as the payment reference.</p>
+        </div>
+        {([
+          ['Bank', 'CIMB Bank'],
+          ['Account Name', 'WAYNE GROUP HOLDING SDN BHD'],
+          ['Account No.', '8605806682'],
+        ] as [string, string][]).map(([label, value]) => (
+          <div key={label} className="flex items-start justify-between gap-4">
+            <span className="text-xs text-gray-400 shrink-0 w-28">{label}</span>
+            <span className="text-sm text-gray-800 font-mono font-medium text-right">{value}</span>
+          </div>
+        ))}
+        <div className="border-t border-gray-100 pt-2 mt-1">
+          <p className="text-xs text-gray-400">Payment reference: <span className="font-mono font-semibold text-gray-700">{store?.store_code ?? '—'}</span></p>
+        </div>
+      </div>
 
       {/* Commission shortcut */}
       <Link
@@ -125,71 +101,10 @@ export default function StoreProfilePage() {
       >
         <div>
           <p className="text-sm font-semibold text-[#0A0A0A]">Commission & Invoices</p>
-          <p className="text-xs text-gray-400 mt-0.5">View earnings and monthly invoices</p>
+          <p className="text-xs text-gray-400 mt-0.5">View earnings and monthly statements</p>
         </div>
         <ChevronRight size={18} className="text-gray-400" />
       </Link>
-
-      {/* Payment QR setup */}
-      <div className="bg-white rounded-xl shadow-sm p-4 space-y-4">
-        <div className="flex items-center gap-2">
-          <QrCode size={16} className="text-gray-400" />
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">My Payment QR</span>
-        </div>
-
-        <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-700 space-y-1">
-          <p className="font-semibold">How to get your payment link:</p>
-          <ol className="list-decimal ml-4 space-y-0.5">
-            <li>Open your TNG, Maybank, CIMB, or any bank app</li>
-            <li>Go to "Receive" / "Collect Money" / "My QR"</li>
-            <li>Tap "Share" and copy the payment link</li>
-            <li>Paste it below</li>
-          </ol>
-          <p className="text-blue-500 mt-1">Works with TNG, DuitNow, Boost, MAE, and all Malaysian banks.</p>
-        </div>
-
-        <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1.5">Payment link (DuitNow / TNG / Bank)</label>
-          <input
-            type="url"
-            value={paymentUrl}
-            onChange={(e) => setPaymentUrl(e.target.value)}
-            placeholder="https://pay.tngd.my/... or https://..."
-            className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
-          />
-        </div>
-
-        {/* Preview */}
-        {previewUrl && (
-          <div className="flex flex-col items-center gap-3 py-4 border border-gray-100 rounded-xl bg-gray-50">
-            <p className="text-xs text-gray-400">Preview — this is what customers will see</p>
-            <div className="p-3 bg-white border border-gray-200 rounded-xl shadow-sm">
-              <QRCode value={previewUrl} size={180} />
-            </div>
-            <a
-              href={previewUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 text-xs text-blue-500 underline"
-            >
-              Test the link <ExternalLink size={11} />
-            </a>
-          </div>
-        )}
-
-        <button
-          onClick={savePaymentQr}
-          disabled={saving}
-          className="w-full h-12 rounded-xl bg-[#0A0A0A] text-[#FFD700] font-semibold text-sm flex items-center justify-center gap-2 disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : (
-            <>
-              <CheckCircle size={16} />
-              Save Payment QR
-            </>
-          )}
-        </button>
-      </div>
     </div>
   )
 }

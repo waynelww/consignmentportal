@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { Search, Plus, Download, ChevronLeft, ChevronRight, Eye, Edit, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Search, Plus, Download, ChevronLeft, ChevronRight, Edit, ToggleLeft, ToggleRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, formatCurrency, MALAYSIAN_STATES, STORE_TYPE_LABELS, cn } from '@/lib/utils'
 import type { Store, StoreStatus, StoreType } from '@/types'
@@ -310,13 +310,6 @@ export default function StoresPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">
-                          <Link
-                            href={`/admin/stores/${store.id}`}
-                            className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                            title="View"
-                          >
-                            <Eye size={15} />
-                          </Link>
                           <Link
                             href={`/admin/stores/${store.id}?tab=overview`}
                             className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"

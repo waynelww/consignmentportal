@@ -5,11 +5,8 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams, useParams } from 'next/navigation'
 import Link from 'next/link'
-import QRCode from 'react-qr-code'
 import {
   Download,
-  CheckCircle,
-  XCircle,
   X,
   ArrowLeft,
   Save,
@@ -126,7 +123,8 @@ export default function StoreDetailPage() {
   const [adjustQty, setAdjustQty] = useState(0)
   const [adjustType, setAdjustType] = useState<'adjustment_add' | 'adjustment_remove'>('adjustment_add')
   const [adjustNotes, setAdjustNotes] = useState('')
-  const [paymentRef, setPaymentRef] = useState('')
+  const [paidModal, setPaidModal] = useState<{ open: boolean; periodId: string | null }>({ open: false, periodId: null })
+  const [paidRef, setPaidRef] = useState('')
   // Edit store mode
   const [editMode, setEditMode] = useState(false)
   const [editFields, setEditFields] = useState<Partial<Store>>({})
@@ -224,9 +222,6 @@ export default function StoreDetailPage() {
       state: store.state,
       postcode: store.postcode,
       commission_rate: store.commission_rate,
-      bank_name: store.bank_name ?? '',
-      bank_account_number: store.bank_account_number ?? '',
-      bank_account_name: store.bank_account_name ?? '',
     })
     setEditMode(true)
     setTab('overview')
@@ -286,30 +281,23 @@ export default function StoreDetailPage() {
     else { toast.success('Commission approved'); loadCommissions() }
   }
 
-  async function markPaidCommission(id: string) {
-    if (!paymentRef.trim()) {
+  async function markPaidCommission() {
+    if (!paidModal.periodId) return
+    if (!paidRef.trim()) {
       toast.error('Enter payment reference')
       return
     }
     const { error } = await supabase
       .from('commission_periods')
-      .update({ status: 'paid', paid_at: new Date().toISOString(), payment_reference: paymentRef })
-      .eq('id', id)
+      .update({ status: 'paid', paid_at: new Date().toISOString(), payment_reference: paidRef })
+      .eq('id', paidModal.periodId)
     if (error) toast.error('Failed to mark paid')
-    else { toast.success('Marked as paid'); setPaymentRef(''); loadCommissions() }
-  }
-
-  function downloadQR() {
-    const svg = document.getElementById('store-qr-svg')
-    if (!svg) return
-    const data = new XMLSerializer().serializeToString(svg)
-    const blob = new Blob([data], { type: 'image/svg+xml' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${store?.store_code || 'store'}-qr.svg`
-    a.click()
-    URL.revokeObjectURL(url)
+    else {
+      toast.success('Marked as paid')
+      setPaidModal({ open: false, periodId: null })
+      setPaidRef('')
+      loadCommissions()
+    }
   }
 
   function exportSalesCSV() {
@@ -493,41 +481,6 @@ export default function StoreDetailPage() {
                   )}
                 </div>
 
-                {/* Bank Info */}
-                <div className="bg-gray-50 rounded-xl p-5">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Bank Information</h3>
-                  {editMode ? (
-                    <div className="space-y-3">
-                      <EditField label="Bank Name" value={editFields.bank_name ?? ''} onChange={(v) => setEditFields(f => ({ ...f, bank_name: v }))} />
-                      <EditField label="Account Number" value={editFields.bank_account_number ?? ''} onChange={(v) => setEditFields(f => ({ ...f, bank_account_number: v }))} />
-                      <EditField label="Account Name" value={editFields.bank_account_name ?? ''} onChange={(v) => setEditFields(f => ({ ...f, bank_account_name: v }))} />
-                    </div>
-                  ) : (
-                    <dl className="space-y-2">
-                      {[
-                        ['Bank Name', store.bank_name || '—'],
-                        ['Account No.', store.bank_account_number || '—'],
-                        ['Account Name', store.bank_account_name || '—'],
-                      ].map(([label, value]) => (
-                        <div key={label} className="flex gap-2">
-                          <dt className="text-xs text-gray-500 w-32 flex-shrink-0">{label}</dt>
-                          <dd className="text-sm text-gray-800 font-medium">{value}</dd>
-                        </div>
-                      ))}
-                      {store.payment_qr_url && (
-                        <div className="flex gap-2">
-                          <dt className="text-xs text-gray-500 w-32 flex-shrink-0">Payment QR</dt>
-                          <dd className="text-sm text-blue-600 truncate max-w-[180px]">
-                            <a href={store.payment_qr_url} target="_blank" rel="noopener noreferrer" className="underline">
-                              Configured ↗
-                            </a>
-                          </dd>
-                        </div>
-                      )}
-                    </dl>
-                  )}
-                </div>
-
                 {/* Notes */}
                 <div className="bg-gray-50 rounded-xl p-5">
                   <h3 className="text-sm font-semibold text-gray-700 mb-3">Notes</h3>
@@ -564,47 +517,6 @@ export default function StoreDetailPage() {
                       <p className="text-xs text-gray-500 mt-0.5">Low Months</p>
                     </div>
                   </div>
-                </div>
-
-                <div className="bg-gray-50 rounded-xl p-5">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Agreement</h3>
-                  <div className="flex items-center gap-2 mb-2">
-                    {store.agreement_signed_at ? (
-                      <CheckCircle size={16} className="text-green-500" />
-                    ) : (
-                      <XCircle size={16} className="text-gray-400" />
-                    )}
-                    <span className="text-sm text-gray-700">
-                      {store.agreement_signed_at
-                        ? `Signed ${formatMYDate(store.agreement_signed_at)}`
-                        : 'Not yet signed'}
-                    </span>
-                  </div>
-                  {store.agreement_signed_by && (
-                    <p className="text-xs text-gray-500">By: {store.agreement_signed_by}</p>
-                  )}
-                </div>
-
-                {/* QR Code */}
-                <div className="bg-gray-50 rounded-xl p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-700">Store QR Code</h3>
-                    <button
-                      onClick={downloadQR}
-                      className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 px-2.5 py-1.5 rounded-lg hover:bg-white transition-colors"
-                    >
-                      <Download size={13} />
-                      Download
-                    </button>
-                  </div>
-                  <div className="flex justify-center bg-white p-4 rounded-xl">
-                    <QRCode
-                      id="store-qr-svg"
-                      value={store.qr_code_ref || store.store_code}
-                      size={160}
-                    />
-                  </div>
-                  <p className="text-xs text-center text-gray-400 mt-2">{store.qr_code_ref || store.store_code}</p>
                 </div>
 
                 {/* Quick actions */}
@@ -887,16 +799,6 @@ export default function StoreDetailPage() {
           {/* ── Commissions Tab ── */}
           {activeTab === 'commissions' && (
             <div className="space-y-4">
-              <div className="mb-3 flex items-center gap-3">
-                <label className="text-xs text-gray-500">Payment Reference:</label>
-                <input
-                  type="text"
-                  value={paymentRef}
-                  onChange={(e) => setPaymentRef(e.target.value)}
-                  placeholder="e.g. TT-20240601"
-                  className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
-                />
-              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -923,11 +825,14 @@ export default function StoreDetailPage() {
                         </td>
                         <td className="py-2.5 px-3">
                           <div className="flex items-center justify-end gap-2">
-                            {c.pdf_url && (
-                              <a href={c.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
-                                PDF
-                              </a>
-                            )}
+                            <a
+                              href={`/api/commissions/${c.id}/pdf`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs px-2.5 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                              Invoice PDF
+                            </a>
                             {c.status === 'pending' && (
                               <button
                                 onClick={() => approveCommission(c.id)}
@@ -938,7 +843,7 @@ export default function StoreDetailPage() {
                             )}
                             {c.status === 'approved' && (
                               <button
-                                onClick={() => markPaidCommission(c.id)}
+                                onClick={() => { setPaidModal({ open: true, periodId: c.id }); setPaidRef('') }}
                                 className="text-xs px-2.5 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                               >
                                 Mark Paid
@@ -962,6 +867,48 @@ export default function StoreDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Mark as Paid Modal */}
+      {paidModal.open && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold text-gray-900">Mark Commission as Paid</h3>
+              <button onClick={() => setPaidModal({ open: false, periodId: null })}>
+                <X size={18} className="text-gray-400 hover:text-gray-600" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">Enter the payment/transfer reference number for your records.</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Payment Reference *</label>
+                <input
+                  type="text"
+                  value={paidRef}
+                  onChange={(e) => setPaidRef(e.target.value)}
+                  placeholder="e.g. TT-20240601 or IBG ref"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={() => setPaidModal({ open: false, periodId: null })}
+                className="flex-1 px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={markPaidCommission}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+              >
+                Confirm Paid
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Adjust Stock Modal */}
       {adjustModal.open && adjustModal.inventory && (
