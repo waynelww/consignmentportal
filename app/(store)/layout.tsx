@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
-import { Home, ShoppingCart, Package, Truck, UserCircle, Bell } from 'lucide-react'
+import { Home, ShoppingCart, Package, Truck, Info, Bell } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/store/LogoutButton'
 import PushSubscriber from '@/components/store/PushSubscriber'
@@ -10,10 +10,7 @@ import type { Store, Profile } from '@/types'
 async function getStoreData(): Promise<{ store: Store | null; unreadCount: number; pendingDOs: number }> {
   const supabase = await createClient()
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
+  const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { store: null, unreadCount: 0, pendingDOs: 0 }
 
   const { data: profile } = await supabase
@@ -25,11 +22,7 @@ async function getStoreData(): Promise<{ store: Store | null; unreadCount: numbe
   if (!profile?.store_id) return { store: null, unreadCount: 0, pendingDOs: 0 }
 
   const [{ data: store }, { count: notifCount }, { count: doCount }] = await Promise.all([
-    supabase
-      .from('stores')
-      .select('*')
-      .eq('id', profile.store_id)
-      .single<Store>(),
+    supabase.from('stores').select('*').eq('id', profile.store_id).single<Store>(),
     supabase
       .from('notifications')
       .select('id', { count: 'exact', head: true })
@@ -79,31 +72,36 @@ export default async function StoreLayout({ children }: { children: React.ReactN
       {/* Page content */}
       <main className="flex-1 pt-[60px] pb-[72px]">{children}</main>
 
-      {/* Bottom navigation */}
+      {/* Bottom navigation — 5 equal tabs */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-100 safe-area-pb">
-        <div className="flex items-center justify-around h-[64px]">
-          <NavItem href="/store/dashboard" icon={<Home size={22} />} label="Home" />
-          {/* Record Sale — gold accent, larger */}
-          <Link
-            href="/store/record-sale"
-            className="flex flex-col items-center gap-0.5 -mt-4 bg-[#FFD700] rounded-2xl px-4 py-2 shadow-lg"
-          >
-            <ShoppingCart size={26} className="text-[#0A0A0A]" />
-            <span className="text-[10px] font-bold text-[#0A0A0A]">Sale</span>
-          </Link>
-          <NavItem href="/store/inventory" icon={<Package size={22} />} label="Inventory" />
-          <NavItem href="/store/delivery-orders" icon={<Truck size={22} />} label="Deliveries" badge={pendingDOs} />
-          <NavItem href="/store/profile" icon={<UserCircle size={22} />} label="Me" />
+        <div className="flex items-stretch h-[64px]">
+          <NavItem href="/store/dashboard"      icon={<Home size={22} />}         label="Home" />
+          <NavItem href="/store/profile"        icon={<Info size={22} />}         label="Info" />
+          <NavItem href="/store/record-sale"    icon={<ShoppingCart size={22} />} label="Sales" highlight />
+          <NavItem href="/store/inventory"      icon={<Package size={22} />}      label="Inventory" />
+          <NavItem href="/store/delivery-orders" icon={<Truck size={22} />}       label="Deliveries" badge={pendingDOs} />
         </div>
       </nav>
     </div>
   )
 }
 
-function NavItem({ href, icon, label, badge }: { href: string; icon: React.ReactNode; label: string; badge?: number }) {
+function NavItem({
+  href, icon, label, badge, highlight,
+}: {
+  href: string
+  icon: React.ReactNode
+  label: string
+  badge?: number
+  highlight?: boolean
+}) {
   return (
-    <Link href={href} className="flex flex-col items-center gap-0.5 px-3 py-1 text-gray-400 hover:text-[#0A0A0A] transition-colors relative">
-      <div className="relative">
+    <Link
+      href={href}
+      className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors relative
+        ${highlight ? 'text-[#0A0A0A]' : 'text-gray-400 hover:text-[#0A0A0A]'}`}
+    >
+      <div className={`relative ${highlight ? 'bg-[#FFD700] rounded-xl p-2' : ''}`}>
         {icon}
         {badge && badge > 0 ? (
           <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 bg-[#EF4444] rounded-full text-white text-[9px] font-bold flex items-center justify-center leading-none">
@@ -111,7 +109,7 @@ function NavItem({ href, icon, label, badge }: { href: string; icon: React.React
           </span>
         ) : null}
       </div>
-      <span className="text-[10px] font-medium">{label}</span>
+      <span className={`text-[10px] font-medium ${highlight ? 'font-bold' : ''}`}>{label}</span>
     </Link>
   )
 }
