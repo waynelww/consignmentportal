@@ -1,6 +1,13 @@
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazy singleton — avoids crashing at module load time when RESEND_API_KEY is
+// not present (e.g. during Next.js build-time static page collection).
+let _resend: Resend | null = null
+function getResend(): Resend {
+  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY)
+  return _resend
+}
+
 const FROM = process.env.RESEND_FROM_EMAIL || 'noreply@xocks.co'
 
 // ── Shared HTML helpers ──────────────────────────────────────────────────────
@@ -107,7 +114,7 @@ export async function sendWelcomeEmail(params: {
       ${ctaButton('Log In to Xocks', 'https://xcms.xocks.co/login')}
       ${p('If you have any questions, contact your Xocks account manager.')}
     `
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM,
       to: params.to,
       subject: `Welcome to Xocks — ${params.storeName}`,
@@ -139,7 +146,7 @@ export async function sendDODispatchedEmail(params: {
       ${p('Please acknowledge receipt in the system once the delivery arrives.')}
       ${ctaButton('View Delivery Order', `https://xcms.xocks.co/store/deliveries`)}
     `
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM,
       to: params.to,
       subject: `DO Dispatched: ${params.doNumber} — ${params.storeName}`,
@@ -171,7 +178,7 @@ export async function sendCommissionStatementEmail(params: {
         : ctaButton('View Statement', 'https://xcms.xocks.co/store/commissions')}
       ${p('Payment will be processed once the statement is approved. Contact your account manager for queries.')}
     `
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM,
       to: params.to,
       subject: `Commission Statement Ready — ${params.month} ${params.year}`,
@@ -199,7 +206,7 @@ export async function sendCommissionPaidEmail(params: {
       ${p('Thank you for your continued partnership with Xocks!')}
       ${ctaButton('View Commission History', 'https://xcms.xocks.co/store/commissions')}
     `
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM,
       to: params.to,
       subject: `Commission Paid — ${formatCurrency(params.amount)}`,
@@ -222,7 +229,7 @@ export async function sendLowStockEmail(params: {
       ${p('Please submit a restock request to avoid running out of stock.')}
       ${ctaButton('Request Restock', 'https://xcms.xocks.co/store/restock')}
     `
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM,
       to: params.to,
       subject: `Low Stock Alert — ${params.productName} at ${params.storeName}`,
@@ -249,7 +256,7 @@ export async function sendRestockRequestEmail(params: {
       ${p('Please review and approve the request in the admin panel.')}
       ${ctaButton('Review Request', 'https://xcms.xocks.co/admin/restock')}
     `
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM,
       to: params.to,
       subject: `Restock Request — ${params.storeName} (${params.totalPairs} pairs)`,
@@ -277,7 +284,7 @@ export async function sendAtRiskAlertEmail(params: {
       ${p('Please review the store performance and consider scheduling a check-in call.')}
       ${ctaButton('View Store Performance', 'https://xcms.xocks.co/admin/stores')}
     `
-    await resend.emails.send({
+    await getResend().emails.send({
       from: FROM,
       to: params.to,
       subject: `At-Risk Alert — ${params.storeName} (${params.consecutiveMonths} months low)`,
