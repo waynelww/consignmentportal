@@ -139,10 +139,13 @@ export default function DashboardPage() {
     ])
 
     const salesMTD = salesMTDRes.data || []
-    const totalPairs = salesMTD.reduce((a, s) => a + (s.quantity || 0), 0)
-    const revenueMTD = salesMTD.reduce((a, s) => a + (s.xocks_revenue || 0), 0)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const totalPairs = salesMTD.reduce((a: number, s: any) => a + (s.quantity || 0), 0)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const revenueMTD = salesMTD.reduce((a: number, s: any) => a + (s.xocks_revenue || 0), 0)
     const commissionsDue = (commissionsRes.data || []).reduce(
-      (a, c) => a + (c.commission_amount || 0),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (a: number, c: any) => a + (c.commission_amount || 0),
       0
     )
 
@@ -172,7 +175,8 @@ export default function DashboardPage() {
     )
 
     // Store performance
-    const stores = storePerformanceRes.data || []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stores: any[] = storePerformanceRes.data || []
     const storeIds = stores.map((s) => s.id)
     let saleMTDByStore: Record<string, { pairs: number; revenue: number }> = {}
     if (storeIds.length > 0) {
@@ -228,7 +232,8 @@ export default function DashboardPage() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'sales' },
-        async (payload) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async (payload: any) => {
           const sale = payload.new as Sale & { store_id: string; product_id: string }
           const [{ data: storeData }, { data: productData }] = await Promise.all([
             supabase.from('stores').select('store_name').eq('id', sale.store_id).single(),
