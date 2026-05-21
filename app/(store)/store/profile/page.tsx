@@ -155,7 +155,7 @@ export default function InfoPage() {
           <div className="flex flex-col items-center gap-2 shrink-0">
             <div className="relative rounded-xl overflow-hidden p-2.5 bg-white shadow-[0_0_0_3px_#D4AC3A]" style={{ width: 116, height: 116 }}>
               <Image
-                src="/wayne-group-qr.png"
+                src="/wayne-group-qr.jpg"
                 alt="Wayne Group Holding payment QR"
                 width={96}
                 height={96}
