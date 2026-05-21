@@ -10,6 +10,9 @@ if (!process.env.ANTHROPIC_API_KEY) {
   } catch {}
 }
 
-const nextConfig: NextConfig = {};
+const nextConfig: NextConfig = {
+  // web-push uses Node.js built-ins (crypto, http2) — must not be bundled by webpack
+  serverExternalPackages: ['web-push'],
+};
 
 export default nextConfig;
