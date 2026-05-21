@@ -19,28 +19,25 @@ function getDateRange(quick: QuickFilter, customFrom: string, customTo: string):
   const pad = (n: number) => String(n).padStart(2, '0')
   const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 
-  if (quick === 'today') {
-    return { from: today, to: today }
-  }
+  if (quick === 'today') return { from: today, to: today }
   if (quick === 'week') {
     const day = now.getDay()
-    const diff = day === 0 ? 6 : day - 1 // Monday start
+    const diff = day === 0 ? 6 : day - 1
     const monday = new Date(now)
     monday.setDate(now.getDate() - diff)
     const fromStr = `${monday.getFullYear()}-${pad(monday.getMonth() + 1)}-${pad(monday.getDate())}`
     return { from: fromStr, to: today }
   }
-  if (quick === 'month') {
-    const from = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`
-    return { from, to: today }
-  }
+  if (quick === 'month') return { from: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`, to: today }
   return { from: customFrom, to: customTo }
 }
 
 export default function SalesHistoryPage() {
-  const [allSales, setAllSales] = useState<Sale[]>([])
+  const [sales, setSales] = useState<Sale[]>([])
   const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading] = useState(true)
+  const [storeId, setStoreId] = useState<string | null>(null)
+  const [initLoading, setInitLoading] = useState(true)
+  const [salesLoading, setSalesLoading] = useState(false)
 
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('month')
   const [customFrom, setCustomFrom] = useState('')
@@ -48,55 +45,65 @@ export default function SalesHistoryPage() {
   const [productFilter, setProductFilter] = useState<string>('all')
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all')
 
+  // One-time init: resolve store + load product list from inventory
   useEffect(() => {
-    async function load() {
+    async function init() {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setLoading(false); return }
+      if (!user) { setInitLoading(false); return }
 
       const { data: profile } = await supabase
-        .from('profiles')
-        .select('store_id')
-        .eq('id', user.id)
-        .single<Profile>()
+        .from('profiles').select('store_id').eq('id', user.id).single<Profile>()
+      if (!profile?.store_id) { setInitLoading(false); return }
 
-      if (!profile?.store_id) { setLoading(false); return }
+      setStoreId(profile.store_id)
 
-      const { data: salesData } = await supabase
-        .from('sales')
-        .select('*, product:products(*)')
+      // Products from inventory (not from sales) — faster & complete
+      const { data: inv } = await supabase
+        .from('store_inventory')
+        .select('product:products(id, name, sku)')
         .eq('store_id', profile.store_id)
-        .order('sale_date', { ascending: false })
-        .order('created_at', { ascending: false })
-
-      const sales = (salesData as Sale[]) ?? []
-      setAllSales(sales)
-
-      // Extract unique products from sales
-      const productMap = new Map<string, Product>()
-      for (const s of sales) {
-        if (s.product && !productMap.has(s.product_id)) {
-          productMap.set(s.product_id, s.product)
-        }
-      }
-      setProducts(Array.from(productMap.values()))
-      setLoading(false)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setProducts(((inv || []).map((i: any) => i.product).filter(Boolean)) as Product[])
+      setInitLoading(false)
     }
-    load()
+    init()
   }, [])
 
-  const { from, to } = getDateRange(quickFilter, customFrom, customTo)
+  // Re-fetch sales whenever store or date range changes — server-side filtering
+  useEffect(() => {
+    if (!storeId) return
+    const { from, to } = getDateRange(quickFilter, customFrom, customTo)
+    if (!from || !to) return // wait for both custom dates
 
+    setSalesLoading(true)
+    const supabase = createClient()
+    supabase
+      .from('sales')
+      .select('*, product:products(id, name, sku)')
+      .eq('store_id', storeId)
+      .gte('sale_date', from)
+      .lte('sale_date', to)
+      .order('sale_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(500)
+      .then(({ data }) => {
+        setSales((data as Sale[]) ?? [])
+        setSalesLoading(false)
+      })
+  }, [storeId, quickFilter, customFrom, customTo])
+
+  const { from, to } = getDateRange(quickFilter, customFrom, customTo)
+  const loading = initLoading || salesLoading
+
+  // Only product + payment filters are applied client-side (within already-fetched date range)
   const filtered = useMemo(() => {
-    return allSales.filter((sale) => {
-      const saleDate = sale.sale_date?.slice(0, 10) ?? ''
-      if (from && saleDate < from) return false
-      if (to && saleDate > to) return false
+    return sales.filter((sale) => {
       if (productFilter !== 'all' && sale.product_id !== productFilter) return false
       if (paymentFilter !== 'all' && sale.payment_method !== paymentFilter) return false
       return true
     })
-  }, [allSales, from, to, productFilter, paymentFilter])
+  }, [sales, productFilter, paymentFilter])
 
   const summary = useMemo(() => ({
     pairs: filtered.reduce((s, x) => s + x.quantity, 0),

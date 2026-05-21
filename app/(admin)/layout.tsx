@@ -25,7 +25,8 @@ import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import type { Profile } from '@/types'
 import { toast } from 'sonner'
-import AiAssistant from '@/components/AiAssistant'
+import dynamic from 'next/dynamic'
+const AiAssistant = dynamic(() => import('@/components/AiAssistant'), { ssr: false })
 
 const NAV_ITEMS = [
   {

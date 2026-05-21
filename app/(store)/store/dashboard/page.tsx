@@ -68,19 +68,39 @@ export default function DashboardPage() {
 
     const storeId = profile.store_id
 
-    const [storeRes, inventoryRes, salesRes, commissionRes] = await Promise.all([
+    // Compute date strings in MYT before firing queries
+    const myNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const todayStr     = `${myNow.getFullYear()}-${pad(myNow.getMonth() + 1)}-${pad(myNow.getDate())}`
+    const firstOfMonth = `${myNow.getFullYear()}-${pad(myNow.getMonth() + 1)}-01`
+
+    const [storeRes, inventoryRes, todaySalesRes, monthSalesRes, recentSalesRes, commissionRes] = await Promise.all([
       supabase.from('stores').select('*').eq('id', storeId).single<Store>(),
       supabase
         .from('store_inventory')
         .select('*, product:products(*)')
         .eq('store_id', storeId)
         .order('quantity_on_hand', { ascending: true }),
+      // Today's totals only — lightweight, no product join
+      supabase
+        .from('sales')
+        .select('quantity, total_amount, commission_amount')
+        .eq('store_id', storeId)
+        .eq('sale_date', todayStr),
+      // This month's totals only — lightweight, no product join
+      supabase
+        .from('sales')
+        .select('quantity, total_amount, commission_amount')
+        .eq('store_id', storeId)
+        .gte('sale_date', firstOfMonth)
+        .lte('sale_date', todayStr),
+      // Recent sales — just 5 rows with product name
       supabase
         .from('sales')
         .select('*, product:products(*)')
         .eq('store_id', storeId)
         .order('created_at', { ascending: false })
-        .limit(100),
+        .limit(5),
       supabase
         .from('commission_periods')
         .select('*')
@@ -91,35 +111,24 @@ export default function DashboardPage() {
         .single<CommissionPeriod>(),
     ])
 
-    const store = storeRes.data
+    type SaleTotals = { quantity: number; total_amount: number; commission_amount: number }
+    const store     = storeRes.data
     const inventory = (inventoryRes.data as StoreInventory[]) ?? []
-    const allSales = (salesRes.data as Sale[]) ?? []
-
-    const now = new Date()
-    const myTZ = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
-    const todayStr = myTZ.toISOString().slice(0, 10)
-    const thisMonth = myTZ.getMonth() + 1
-    const thisYear = myTZ.getFullYear()
-
-    const todaySalesArr = allSales.filter((s) => s.sale_date?.slice(0, 10) === todayStr)
-    const monthSalesArr = allSales.filter((s) => {
-      const d = new Date(s.sale_date)
-      return d.getFullYear() === thisYear && d.getMonth() + 1 === thisMonth
-    })
-
-    const recentSales = allSales.slice(0, 5)
+    const todayArr  = (todaySalesRes.data ?? []) as SaleTotals[]
+    const monthArr  = (monthSalesRes.data ?? []) as SaleTotals[]
+    const recentSales = (recentSalesRes.data as Sale[]) ?? []
 
     const totalStock = inventory.reduce((sum, i) => sum + i.quantity_on_hand, 0)
 
     setData({
       store: store ?? null,
-      todaySales: todaySalesArr.reduce((s, x) => s + x.quantity, 0),
-      todayRevenue: todaySalesArr.reduce((s, x) => s + x.total_amount, 0),
-      todayCommission: todaySalesArr.reduce((s, x) => s + x.commission_amount, 0),
+      todaySales:      todayArr.reduce((s, x) => s + x.quantity, 0),
+      todayRevenue:    todayArr.reduce((s, x) => s + x.total_amount, 0),
+      todayCommission: todayArr.reduce((s, x) => s + x.commission_amount, 0),
       inventory,
-      monthSales: monthSalesArr.reduce((s, x) => s + x.quantity, 0),
-      monthRevenue: monthSalesArr.reduce((s, x) => s + x.total_amount, 0),
-      monthCommission: monthSalesArr.reduce((s, x) => s + x.commission_amount, 0),
+      monthSales:      monthArr.reduce((s, x) => s + x.quantity, 0),
+      monthRevenue:    monthArr.reduce((s, x) => s + x.total_amount, 0),
+      monthCommission: monthArr.reduce((s, x) => s + x.commission_amount, 0),
       commissionRate: store?.commission_rate ?? 0,
       recentSales,
       totalStock,

@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Store, Building2, AlertCircle, FileText } from 'lucide-react'
+import Image from 'next/image'
+import { Store, Building2, AlertCircle, FileText, QrCode } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMonthYear } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -129,32 +130,78 @@ export default function InfoPage() {
       </div>
 
       {/* ── Pay the balance to ─────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
-        <div className="flex items-center gap-2 mb-1">
-          <Building2 size={16} className="text-gray-400" />
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pay the Balance To</span>
-        </div>
-        <div className="bg-[#FFD700]/10 border border-[#FFD700]/30 rounded-lg px-3 py-2 flex items-start gap-2">
-          <AlertCircle size={14} className="text-amber-600 mt-0.5 shrink-0" />
-          <p className="text-xs text-amber-700">
-            Pay the balance before the <strong>7th of each month</strong>. Use your store code as the payment reference.{' '}
-            <strong className="text-red-600">Late payment will incur a 10% surcharge on the outstanding amount.</strong>
-          </p>
-        </div>
-        {([
-          ['Bank',         'CIMB Bank'],
-          ['Account Name', 'WAYNE GROUP HOLDING SDN BHD'],
-          ['Account No.',  '8605806682'],
-        ] as [string, string][]).map(([label, value]) => (
-          <div key={label} className="flex items-start justify-between gap-4">
-            <span className="text-xs text-gray-400 shrink-0 w-28">{label}</span>
-            <span className="text-sm text-gray-800 font-mono font-medium text-right">{value}</span>
+      <div className="rounded-2xl overflow-hidden shadow-lg" style={{ background: 'linear-gradient(160deg, #111 0%, #1a1a1a 100%)', border: '1px solid #2a2a2a' }}>
+        {/* Header */}
+        <div className="px-5 pt-5 pb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Building2 size={15} className="text-[#D4AC3A]" />
+            <span className="text-xs font-bold text-[#D4AC3A] uppercase tracking-widest">Pay Balance To</span>
           </div>
-        ))}
-        <div className="border-t border-gray-100 pt-2 mt-1">
-          <p className="text-xs text-gray-400">
-            Payment reference: <span className="font-mono font-semibold text-gray-700">{store?.store_code ?? '—'}</span>
+          <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">Wayne Group Holding</span>
+        </div>
+
+        {/* Warning banner */}
+        <div className="mx-5 mb-4 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-start gap-2">
+          <AlertCircle size={13} className="text-amber-400 mt-0.5 shrink-0" />
+          <p className="text-[11px] text-amber-300/90 leading-relaxed">
+            Pay before the <strong className="text-amber-300">7th of each month</strong>. Use your store code as reference.{' '}
+            <strong className="text-red-400">Late payments incur a 10% surcharge.</strong>
           </p>
+        </div>
+
+        {/* QR code + bank details side by side */}
+        <div className="px-5 pb-5 flex gap-4 items-stretch">
+          {/* QR code block */}
+          <div className="flex flex-col items-center gap-2 shrink-0">
+            <div className="relative rounded-xl overflow-hidden p-2.5 bg-white shadow-[0_0_0_3px_#D4AC3A]" style={{ width: 116, height: 116 }}>
+              <Image
+                src="/wayne-group-qr.png"
+                alt="Wayne Group Holding payment QR"
+                width={96}
+                height={96}
+                className="object-contain w-full h-full"
+                priority
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              <QrCode size={10} className="text-[#D4AC3A]" />
+              <span className="text-[10px] font-semibold text-[#D4AC3A] tracking-wider uppercase">Scan to Pay</span>
+            </div>
+            <span className="text-[9px] text-white/30 -mt-1">DuitNow QR</span>
+          </div>
+
+          {/* Divider */}
+          <div className="flex flex-col items-center gap-1 shrink-0">
+            <div className="flex-1 w-px bg-white/10" />
+            <span className="text-[9px] text-white/20 font-semibold uppercase tracking-widest rotate-0">or</span>
+            <div className="flex-1 w-px bg-white/10" />
+          </div>
+
+          {/* Bank details */}
+          <div className="flex-1 flex flex-col justify-center gap-2.5 min-w-0">
+            {([
+              ['Bank',        'CIMB Bank'],
+              ['Acc Name',    'WAYNE GROUP HOLDING SDN BHD'],
+              ['Acc No.',     '8605806682'],
+            ] as [string, string][]).map(([label, value]) => (
+              <div key={label} className="flex flex-col gap-0.5">
+                <span className="text-[9px] text-white/30 uppercase tracking-wider">{label}</span>
+                <span className={cn(
+                  'text-white font-semibold leading-tight break-words',
+                  label === 'Acc Name' ? 'text-[10px]' : 'text-sm font-mono'
+                )}>{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Footer: payment reference */}
+        <div className="mx-5 mb-5 rounded-lg px-3 py-2.5 flex items-center justify-between"
+          style={{ background: 'rgba(212,172,58,0.08)', border: '1px solid rgba(212,172,58,0.2)' }}>
+          <span className="text-[11px] text-[#D4AC3A]/70">Payment Reference</span>
+          <span className="font-mono font-bold text-[#D4AC3A] text-sm tracking-widest">
+            {store?.store_code ?? '—'}
+          </span>
         </div>
       </div>
 

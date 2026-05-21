@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { X, Bot } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, cn } from '@/lib/utils'
@@ -22,6 +22,8 @@ interface RequestWithStore extends RestockRequest {
   city: string
   total_pairs: number
   is_auto: boolean
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  restock_request_items: any[]
 }
 
 interface ReviewItem extends RestockRequestItem {
@@ -30,7 +32,7 @@ interface ReviewItem extends RestockRequestItem {
 }
 
 export default function RestocksPage() {
-  const [requests, setRequests] = useState<RequestWithStore[]>([])
+  const [allRequests, setAllRequests] = useState<RequestWithStore[]>([])
   const [counts, setCounts] = useState<Record<TabStatus, number>>({} as Record<TabStatus, number>)
   const [activeTab, setActiveTab] = useState<TabStatus>('pending')
   const [loading, setLoading] = useState(true)
@@ -40,62 +42,48 @@ export default function RestocksPage() {
   const [submitting, setSubmitting] = useState(false)
   const supabase = createClient()
 
+  // Single query with items + products joined — eliminates N+1
   const fetchRequests = useCallback(async () => {
     setLoading(true)
-    let query = supabase
+    const { data } = await supabase
       .from('restock_requests')
-      .select('*, store:stores(store_name, city)')
+      .select('*, store:stores(store_name, city), restock_request_items(*, product:products(*))')
       .order('created_at', { ascending: false })
 
-    if (activeTab !== 'all') {
-      query = query.eq('status', activeTab)
-    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const enriched: RequestWithStore[] = (data || []).map((r: any) => ({
+      ...r,
+      store_name: r.store?.store_name || '—',
+      city: r.store?.city || '—',
+      total_pairs: (r.restock_request_items || []).reduce((a: number, i: any) => a + i.quantity_requested, 0),
+      is_auto: !r.requested_by,
+    }))
+    setAllRequests(enriched)
 
-    const { data } = await query
-
-    const enriched: RequestWithStore[] = await Promise.all(
-      (data || []).map(async (r: any) => {
-        const { data: items } = await supabase
-          .from('restock_request_items')
-          .select('*')
-          .eq('restock_request_id', r.id)
-        const total = (items || []).reduce((a: number, i: any) => a + i.quantity_requested, 0)
-        return {
-          ...r,
-          store_name: r.store?.store_name || '—',
-          city: r.store?.city || '—',
-          total_pairs: total,
-          items: items || [],
-          is_auto: !r.requested_by,
-        }
-      })
-    )
-    setRequests(enriched)
-
-    // Get counts
-    const { data: allData } = await supabase
-      .from('restock_requests')
-      .select('status')
-    const c: Record<string, number> = { all: (allData || []).length }
-    for (const r of allData || []) {
+    // Compute tab counts client-side — no extra query needed
+    const c: Record<string, number> = { all: enriched.length }
+    for (const r of enriched) {
       c[r.status] = (c[r.status] || 0) + 1
     }
     setCounts(c as Record<TabStatus, number>)
     setLoading(false)
-  }, [activeTab])
+  }, [])
 
   useEffect(() => { fetchRequests() }, [fetchRequests])
 
-  async function openReview(req: RequestWithStore) {
+  // Tab filtering is instant — no network round-trip
+  const requests = useMemo(
+    () => activeTab === 'all' ? allRequests : allRequests.filter(r => r.status === activeTab),
+    [allRequests, activeTab]
+  )
+
+  // Open review using pre-fetched items — no extra query
+  function openReview(req: RequestWithStore) {
     setReviewRequest(req)
     setAdminNotes(req.admin_notes || '')
-    // Load items with product info
-    const { data } = await supabase
-      .from('restock_request_items')
-      .select('*, product:products(*)')
-      .eq('restock_request_id', req.id)
     setReviewItems(
-      (data || []).map((item: any) => ({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (req.restock_request_items || []).map((item: any) => ({
         ...item,
         product: item.product,
         approved_qty: item.quantity_approved ?? item.quantity_requested,
