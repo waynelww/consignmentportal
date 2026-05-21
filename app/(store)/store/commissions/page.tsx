@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { FileText, ExternalLink, Info } from 'lucide-react'
+import { FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMonthYear } from '@/lib/utils'
 import type { CommissionPeriod, Profile, Sale, Store } from '@/types'
@@ -136,19 +136,11 @@ export default function CommissionsPage() {
           </div>
           <div className="mt-4 pt-4 border-t border-white/10">
             <p className="text-xs text-gray-400 text-center">
-              Invoice auto-generated on the 2nd of next month
+              Invoice auto-generated on the 1st of next month
             </p>
           </div>
         </div>
       )}
-
-      {/* Info box */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-2">
-        <Info size={16} className="text-amber-600 mt-0.5 shrink-0" />
-        <p className="text-sm text-amber-800">
-          Every sale you record earns you <strong>{commissionRate}% commission</strong>. Invoices are generated automatically at the end of each month and reviewed by your admin.
-        </p>
-      </div>
 
       {/* Past invoices */}
       <section>
@@ -192,18 +184,15 @@ export default function CommissionsPage() {
                         {formatCurrency(period.commission_amount)}
                       </p>
                     </div>
-                    {period.pdf_url && (
-                      <a
-                        href={`/api/commissions/${period.id}/pdf`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-xs text-[#0A0A0A] font-medium underline ml-3 shrink-0 mt-0.5"
-                      >
-                        <FileText size={12} />
-                        Invoice PDF
-                        <ExternalLink size={10} />
-                      </a>
-                    )}
+                    <a
+                      href={`/api/commissions/${period.id}/pdf`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 text-xs bg-[#0A0A0A] text-white font-medium px-3 py-1.5 rounded-lg ml-3 shrink-0 mt-0.5"
+                    >
+                      <FileText size={12} />
+                      Invoice
+                    </a>
                   </div>
 
                   {period.status === 'paid' && (

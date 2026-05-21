@@ -73,11 +73,14 @@ export default function StoreProfilePage() {
       <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <div className="flex items-center gap-2 mb-1">
           <Building2 size={16} className="text-gray-400" />
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pay Your Commission To</span>
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Pay the Balance To</span>
         </div>
         <div className="bg-[#FFD700]/10 border border-[#FFD700]/30 rounded-lg px-3 py-2 flex items-start gap-2">
           <AlertCircle size={14} className="text-amber-600 mt-0.5 shrink-0" />
-          <p className="text-xs text-amber-700">Transfer your monthly commission by the <strong>7th of each month</strong>. Use your store code as the payment reference.</p>
+          <p className="text-xs text-amber-700">
+            Pay the balance before the <strong>7th of each month</strong>. Use your store code as the payment reference.{' '}
+            <strong className="text-red-600">Late payment will incur a 10% surcharge on the outstanding amount.</strong>
+          </p>
         </div>
         {([
           ['Bank', 'CIMB Bank'],

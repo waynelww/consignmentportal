@@ -38,8 +38,7 @@ export async function GET(
         address,
         city,
         state,
-        commission_rate,
-        payment_terms_days
+        commission_rate
       )
     `)
     .eq('id', periodId)
@@ -142,7 +141,6 @@ export async function GET(
     city: string | null
     state: string | null
     commission_rate: number
-    payment_terms_days: number | null
   } | null
 
   if (!store) {
@@ -168,6 +166,17 @@ export async function GET(
   const addressParts = [store.address, store.city, store.state].filter(Boolean)
   const storeAddress = addressParts.length > 0 ? addressParts.join(', ') : undefined
 
+  // Fetch payment_terms_days separately — column may not exist yet on older DBs, default to 7
+  let paymentTermsDays = 7
+  const { data: termsData } = await supabase
+    .from('stores')
+    .select('payment_terms_days')
+    .eq('id', period.store_id)
+    .single()
+  if (termsData && typeof (termsData as Record<string, unknown>).payment_terms_days === 'number') {
+    paymentTermsDays = (termsData as Record<string, unknown>).payment_terms_days as number
+  }
+
   const pdfBytes = await generateStatementPdf({
     storeName: store.store_name,
     storeCode: store.store_code,
@@ -177,7 +186,7 @@ export async function GET(
     periodYear: period.period_year,
     generatedDate,
     commissionRate: store.commission_rate ?? 30,
-    paymentTermsDays: store.payment_terms_days ?? 7,
+    paymentTermsDays,
     companyName: settingsMap['company_name'],
     companyAddress: settingsMap['company_address'],
     companyContact: settingsMap['company_contact'],
