@@ -30,6 +30,9 @@ export async function generateStatementPdf(params: {
   periodYear: number
   generatedDate: string
   commissionRate: number
+  companyName?: string
+  companyAddress?: string
+  companyContact?: string
   items: Array<{
     productName: string
     sku: string
@@ -89,7 +92,7 @@ export async function generateStatementPdf(params: {
   y = PAGE_HEIGHT - headerBarH - 16
 
   // Company name
-  page.drawText('Wayne Group Holding Sdn Bhd', {
+  page.drawText(params.companyName ?? 'Wayne Group Holding Sdn Bhd', {
     x: MARGIN,
     y,
     size: 10,
@@ -389,7 +392,10 @@ export async function generateStatementPdf(params: {
 
   y -= 12
 
-  page.drawText('For enquiries, contact us at hello@xocks.co or WhatsApp your account manager.', {
+  const contactLine = params.companyContact
+    ? `For enquiries, contact us at ${params.companyContact} or WhatsApp your account manager.`
+    : 'For enquiries, contact us at hello@xocks.co or WhatsApp your account manager.'
+  page.drawText(contactLine, {
     x: MARGIN,
     y,
     size: 8,
@@ -399,7 +405,8 @@ export async function generateStatementPdf(params: {
 
   y -= 12
 
-  page.drawText('This is a computer-generated document. Wayne Group Holding Sdn Bhd.', {
+  const companyDisclaimer = `This is a computer-generated document. ${params.companyName ?? 'Wayne Group Holding Sdn Bhd'}.`
+  page.drawText(companyDisclaimer, {
     x: MARGIN,
     y,
     size: 7,

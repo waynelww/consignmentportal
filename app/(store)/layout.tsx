@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
-import { Home, ShoppingCart, Package, Truck, User, Bell } from 'lucide-react'
+import { Home, ShoppingCart, Package, Truck, UserCircle, Bell } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/store/LogoutButton'
 import type { Store, Profile } from '@/types'
@@ -51,14 +51,14 @@ export default async function StoreLayout({ children }: { children: React.ReactN
     <div className="min-h-screen bg-[#F8F8F8] flex flex-col">
       {/* Top header */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-[#0A0A0A] px-4 py-3 flex items-center justify-between shadow-md">
-        <div className="flex flex-col">
+        <Link href="/store/profile" className="flex flex-col">
           <span className="text-[#FFD700] font-bold text-base leading-tight truncate max-w-[220px]">
             {store?.store_name ?? 'My Store'}
           </span>
           {store?.store_code && (
             <span className="text-gray-400 text-xs">{store.store_code}</span>
           )}
-        </div>
+        </Link>
         <div className="flex items-center gap-1">
           <Link href="/store/notifications" className="relative p-2">
             <Bell size={22} className="text-white" />
@@ -89,7 +89,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
           </Link>
           <NavItem href="/store/inventory" icon={<Package size={22} />} label="Inventory" />
           <NavItem href="/store/delivery-orders" icon={<Truck size={22} />} label="Deliveries" badge={pendingDOs} />
-          <NavItem href="/store/commissions" icon={<User size={22} />} label="Commission" />
+          <NavItem href="/store/profile" icon={<UserCircle size={22} />} label="Me" />
         </div>
       </nav>
     </div>

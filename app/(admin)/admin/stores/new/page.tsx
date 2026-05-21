@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Check, Copy, ChevronRight } from 'lucide-react'
+import { Check, Copy, ChevronRight, ArrowLeft } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { MALAYSIAN_STATES, STORE_TYPE_LABELS, generateRef, cn } from '@/lib/utils'
 import type { Product } from '@/types'
@@ -155,8 +156,8 @@ export default function NewStorePage() {
           bank_account_number: data.bank_account_number,
           bank_account_name: data.bank_account_name,
           agreement_signed_by: data.agreement_signed_by,
-          login_email: data.login_email,
-          temp_password: tempPassword,
+          email: step1Data.email,
+          password: tempPassword,
         }),
       })
 
@@ -167,9 +168,9 @@ export default function NewStorePage() {
         return
       }
 
-      const { store } = await res.json()
+      const { store_id } = await res.json()
       toast.success('Store created successfully!')
-      router.push(`/stores/${store.id}`)
+      router.push(`/admin/stores/${store_id}`)
     } catch {
       toast.error('An error occurred')
       setSubmitting(false)
@@ -196,6 +197,14 @@ export default function NewStorePage() {
 
   return (
     <div className="max-w-2xl mx-auto">
+      {/* Back link */}
+      <div className="mb-4">
+        <Link href="/admin/stores" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors">
+          <ArrowLeft size={16} />
+          Back to Stores
+        </Link>
+      </div>
+
       {/* Steps header */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-5">
         <div className="flex items-center gap-4 flex-wrap">

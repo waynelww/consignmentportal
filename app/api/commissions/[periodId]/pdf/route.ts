@@ -57,6 +57,15 @@ export async function GET(
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  // ── Fetch company settings ────────────────────────────────────────────────────
+  const { data: settingsRows } = await supabase
+    .from('settings')
+    .select('key, value')
+    .in('key', ['company_name', 'company_address', 'company_contact'])
+
+  const settingsMap: Record<string, string> = {}
+  for (const row of settingsRows ?? []) settingsMap[row.key] = row.value
+
   // ── Fetch sales for this period ───────────────────────────────────────────────
   const startDate = `${period.period_year}-${String(period.period_month).padStart(2, '0')}-01`
   const endYear = period.period_month === 12 ? period.period_year + 1 : period.period_year
@@ -164,6 +173,9 @@ export async function GET(
     periodYear: period.period_year,
     generatedDate,
     commissionRate: store.commission_rate ?? 30,
+    companyName: settingsMap['company_name'],
+    companyAddress: settingsMap['company_address'],
+    companyContact: settingsMap['company_contact'],
     items,
     totalUnits: period.total_units_sold,
     totalRevenue: period.total_revenue,

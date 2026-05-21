@@ -1,15 +1,18 @@
 'use client'
 
-import { useEffect, useState, use } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+export const dynamic = 'force-dynamic'
+
+import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams, useParams } from 'next/navigation'
+import Link from 'next/link'
 import QRCode from 'react-qr-code'
 import {
   Download,
   CheckCircle,
   XCircle,
-  ChevronDown,
-  ChevronUp,
   X,
+  ArrowLeft,
+  Save,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -17,6 +20,7 @@ import {
   formatMYDate,
   cn,
   STORE_TYPE_LABELS,
+  MALAYSIAN_STATES,
 } from '@/lib/utils'
 import type {
   Store,
@@ -67,8 +71,43 @@ interface AdjustModalState {
   inventory: StoreInventory | null
 }
 
-export default function StoreDetailPage({ params }: { params: Promise<{ storeId: string }> }) {
-  const { storeId } = use(params)
+function EditField({ label, value, onChange, type = 'text', options }: {
+  label: string
+  value: string | number
+  onChange: (v: string) => void
+  type?: string
+  options?: { value: string; label: string }[]
+}) {
+  if (options) {
+    return (
+      <div>
+        <label className="text-xs text-gray-500 block mb-1">{label}</label>
+        <select
+          value={String(value)}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+        >
+          {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </div>
+    )
+  }
+  return (
+    <div>
+      <label className="text-xs text-gray-500 block mb-1">{label}</label>
+      <input
+        type={type}
+        value={String(value)}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+      />
+    </div>
+  )
+}
+
+export default function StoreDetailPage() {
+  const params = useParams<{ storeId: string }>()
+  const storeId = params.storeId
   const router = useRouter()
   const searchParams = useSearchParams()
   const activeTab: Tab = (searchParams.get('tab') as Tab) || 'overview'
@@ -88,12 +127,16 @@ export default function StoreDetailPage({ params }: { params: Promise<{ storeId:
   const [adjustType, setAdjustType] = useState<'adjustment_add' | 'adjustment_remove'>('adjustment_add')
   const [adjustNotes, setAdjustNotes] = useState('')
   const [paymentRef, setPaymentRef] = useState('')
+  // Edit store mode
+  const [editMode, setEditMode] = useState(false)
+  const [editFields, setEditFields] = useState<Partial<Store>>({})
+  const [savingEdit, setSavingEdit] = useState(false)
   const supabase = createClient()
 
   function setTab(tab: Tab) {
-    const params = new URLSearchParams(searchParams.toString())
-    params.set('tab', tab)
-    router.replace(`?${params.toString()}`, { scroll: false })
+    const p = new URLSearchParams(searchParams.toString())
+    p.set('tab', tab)
+    router.replace(`?${p.toString()}`, { scroll: false })
   }
 
   useEffect(() => {
@@ -168,6 +211,44 @@ export default function StoreDetailPage({ params }: { params: Promise<{ storeId:
     else toast.success('Notes saved')
   }
 
+  function startEdit() {
+    if (!store) return
+    setEditFields({
+      store_name: store.store_name,
+      store_type: store.store_type,
+      pic_name: store.pic_name,
+      pic_phone: store.pic_phone,
+      email: store.email ?? '',
+      address: store.address,
+      city: store.city,
+      state: store.state,
+      postcode: store.postcode,
+      commission_rate: store.commission_rate,
+      bank_name: store.bank_name ?? '',
+      bank_account_number: store.bank_account_number ?? '',
+      bank_account_name: store.bank_account_name ?? '',
+    })
+    setEditMode(true)
+    setTab('overview')
+  }
+
+  async function saveEdit() {
+    setSavingEdit(true)
+    const { error } = await supabase
+      .from('stores')
+      .update({ ...editFields, updated_at: new Date().toISOString() })
+      .eq('id', storeId)
+    setSavingEdit(false)
+    if (error) {
+      toast.error('Failed to save changes')
+    } else {
+      toast.success('Store updated!')
+      setEditMode(false)
+      const { data } = await supabase.from('stores').select('*').eq('id', storeId).single()
+      if (data) { setStore(data as Store); setNotes(data.notes || '') }
+    }
+  }
+
   async function adjustStock() {
     if (!adjustModal.inventory) return
     const inv = adjustModal.inventory
@@ -183,7 +264,6 @@ export default function StoreDetailPage({ params }: { params: Promise<{ storeId:
       toast.error('Failed to adjust stock')
       return
     }
-    // Update inventory
     const newQty =
       adjustType === 'adjustment_add'
         ? inv.quantity_on_hand + adjustQty
@@ -263,7 +343,14 @@ export default function StoreDetailPage({ params }: { params: Promise<{ storeId:
   }
 
   if (!store) {
-    return <div className="text-center py-20 text-gray-400">Store not found</div>
+    return (
+      <div className="text-center py-20">
+        <p className="text-gray-400 mb-4">Store not found</p>
+        <Link href="/admin/stores" className="text-sm text-blue-600 hover:underline">
+          ← Back to Stores
+        </Link>
+      </div>
+    )
   }
 
   const scoreColor =
@@ -273,8 +360,21 @@ export default function StoreDetailPage({ params }: { params: Promise<{ storeId:
       ? 'text-amber-600'
       : 'text-red-600'
 
+  const storeTypeOptions = Object.entries(STORE_TYPE_LABELS).map(([k, v]) => ({ value: k, label: v }))
+  const stateOptions = MALAYSIAN_STATES.map((s) => ({ value: s, label: s }))
+
   return (
     <div className="space-y-5">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-2 text-sm text-gray-500">
+        <Link href="/admin/stores" className="flex items-center gap-1 hover:text-gray-800 transition-colors">
+          <ArrowLeft size={16} />
+          Stores
+        </Link>
+        <span>/</span>
+        <span className="text-gray-900 font-medium">{store.store_name}</span>
+      </div>
+
       {/* Header */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -303,9 +403,36 @@ export default function StoreDetailPage({ params }: { params: Promise<{ storeId:
               {STORE_TYPE_LABELS[store.store_type] || store.store_type} · {store.city}, {store.state}
             </p>
           </div>
-          <div className={cn('text-right')}>
-            <p className="text-xs text-gray-400">Performance Score</p>
-            <p className={cn('text-3xl font-black', scoreColor)}>{store.performance_score}</p>
+          <div className="flex items-start gap-3">
+            <div className="text-right">
+              <p className="text-xs text-gray-400">Performance Score</p>
+              <p className={cn('text-3xl font-black', scoreColor)}>{store.performance_score}</p>
+            </div>
+            {editMode ? (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setEditMode(false)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveEdit}
+                  disabled={savingEdit}
+                  className="px-4 py-2 rounded-lg text-sm font-medium bg-[#FFD700] text-[#0A0A0A] hover:bg-yellow-400 disabled:opacity-50 transition-colors flex items-center gap-2"
+                >
+                  <Save size={15} />
+                  {savingEdit ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={startEdit}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-[#0A0A0A] text-white hover:bg-gray-800 transition-colors mt-1"
+              >
+                Edit Store
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -328,40 +455,77 @@ export default function StoreDetailPage({ params }: { params: Promise<{ storeId:
               <div className="space-y-4">
                 <div className="bg-gray-50 rounded-xl p-5">
                   <h3 className="text-sm font-semibold text-gray-700 mb-3">Store Information</h3>
-                  <dl className="space-y-2">
-                    {[
-                      ['PIC Name', store.pic_name],
-                      ['PIC Phone', store.pic_phone],
-                      ['Email', store.email || '—'],
-                      ['Address', store.address],
-                      ['City', store.city],
-                      ['State', store.state],
-                      ['Postcode', store.postcode],
-                      ['Commission Rate', `${store.commission_rate}%`],
-                    ].map(([label, value]) => (
-                      <div key={label} className="flex gap-2">
-                        <dt className="text-xs text-gray-500 w-32 flex-shrink-0">{label}</dt>
-                        <dd className="text-sm text-gray-800 font-medium">{value}</dd>
+                  {editMode ? (
+                    <div className="space-y-3">
+                      <EditField label="Store Name" value={editFields.store_name ?? ''} onChange={(v) => setEditFields(f => ({ ...f, store_name: v }))} />
+                      <EditField label="Store Type" value={editFields.store_type ?? ''} onChange={(v) => setEditFields(f => ({ ...f, store_type: v as Store['store_type'] }))} options={storeTypeOptions} />
+                      <div className="grid grid-cols-2 gap-3">
+                        <EditField label="PIC Name" value={editFields.pic_name ?? ''} onChange={(v) => setEditFields(f => ({ ...f, pic_name: v }))} />
+                        <EditField label="PIC Phone" value={editFields.pic_phone ?? ''} onChange={(v) => setEditFields(f => ({ ...f, pic_phone: v }))} />
                       </div>
-                    ))}
-                  </dl>
+                      <EditField label="Email" value={editFields.email ?? ''} onChange={(v) => setEditFields(f => ({ ...f, email: v }))} type="email" />
+                      <EditField label="Address" value={editFields.address ?? ''} onChange={(v) => setEditFields(f => ({ ...f, address: v }))} />
+                      <div className="grid grid-cols-2 gap-3">
+                        <EditField label="City" value={editFields.city ?? ''} onChange={(v) => setEditFields(f => ({ ...f, city: v }))} />
+                        <EditField label="Postcode" value={editFields.postcode ?? ''} onChange={(v) => setEditFields(f => ({ ...f, postcode: v }))} />
+                      </div>
+                      <EditField label="State" value={editFields.state ?? ''} onChange={(v) => setEditFields(f => ({ ...f, state: v }))} options={stateOptions} />
+                      <EditField label="Commission Rate (%)" value={editFields.commission_rate ?? 30} onChange={(v) => setEditFields(f => ({ ...f, commission_rate: Number(v) }))} type="number" />
+                    </div>
+                  ) : (
+                    <dl className="space-y-2">
+                      {[
+                        ['PIC Name', store.pic_name],
+                        ['PIC Phone', store.pic_phone],
+                        ['Email', store.email || '—'],
+                        ['Address', store.address],
+                        ['City', store.city],
+                        ['State', store.state],
+                        ['Postcode', store.postcode],
+                        ['Commission Rate', `${store.commission_rate}%`],
+                      ].map(([label, value]) => (
+                        <div key={label} className="flex gap-2">
+                          <dt className="text-xs text-gray-500 w-32 flex-shrink-0">{label}</dt>
+                          <dd className="text-sm text-gray-800 font-medium">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  )}
                 </div>
 
                 {/* Bank Info */}
                 <div className="bg-gray-50 rounded-xl p-5">
                   <h3 className="text-sm font-semibold text-gray-700 mb-3">Bank Information</h3>
-                  <dl className="space-y-2">
-                    {[
-                      ['Bank Name', store.bank_name || '—'],
-                      ['Account No.', store.bank_account_number || '—'],
-                      ['Account Name', store.bank_account_name || '—'],
-                    ].map(([label, value]) => (
-                      <div key={label} className="flex gap-2">
-                        <dt className="text-xs text-gray-500 w-32 flex-shrink-0">{label}</dt>
-                        <dd className="text-sm text-gray-800 font-medium">{value}</dd>
-                      </div>
-                    ))}
-                  </dl>
+                  {editMode ? (
+                    <div className="space-y-3">
+                      <EditField label="Bank Name" value={editFields.bank_name ?? ''} onChange={(v) => setEditFields(f => ({ ...f, bank_name: v }))} />
+                      <EditField label="Account Number" value={editFields.bank_account_number ?? ''} onChange={(v) => setEditFields(f => ({ ...f, bank_account_number: v }))} />
+                      <EditField label="Account Name" value={editFields.bank_account_name ?? ''} onChange={(v) => setEditFields(f => ({ ...f, bank_account_name: v }))} />
+                    </div>
+                  ) : (
+                    <dl className="space-y-2">
+                      {[
+                        ['Bank Name', store.bank_name || '—'],
+                        ['Account No.', store.bank_account_number || '—'],
+                        ['Account Name', store.bank_account_name || '—'],
+                      ].map(([label, value]) => (
+                        <div key={label} className="flex gap-2">
+                          <dt className="text-xs text-gray-500 w-32 flex-shrink-0">{label}</dt>
+                          <dd className="text-sm text-gray-800 font-medium">{value}</dd>
+                        </div>
+                      ))}
+                      {store.payment_qr_url && (
+                        <div className="flex gap-2">
+                          <dt className="text-xs text-gray-500 w-32 flex-shrink-0">Payment QR</dt>
+                          <dd className="text-sm text-blue-600 truncate max-w-[180px]">
+                            <a href={store.payment_qr_url} target="_blank" rel="noopener noreferrer" className="underline">
+                              Configured ↗
+                            </a>
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+                  )}
                 </div>
 
                 {/* Notes */}
@@ -441,6 +605,34 @@ export default function StoreDetailPage({ params }: { params: Promise<{ storeId:
                     />
                   </div>
                   <p className="text-xs text-center text-gray-400 mt-2">{store.qr_code_ref || store.store_code}</p>
+                </div>
+
+                {/* Quick actions */}
+                <div className="bg-gray-50 rounded-xl p-5">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
+                  <div className="space-y-2">
+                    <Link
+                      href={`/admin/delivery-orders?store_id=${storeId}`}
+                      className="flex items-center justify-between w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:bg-gray-100 transition-colors"
+                    >
+                      <span>Create Delivery Order</span>
+                      <span className="text-gray-400">→</span>
+                    </Link>
+                    <button
+                      onClick={() => setTab('commissions')}
+                      className="flex items-center justify-between w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:bg-gray-100 transition-colors"
+                    >
+                      <span>View Commissions</span>
+                      <span className="text-gray-400">→</span>
+                    </button>
+                    <button
+                      onClick={() => setTab('sales')}
+                      className="flex items-center justify-between w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm hover:bg-gray-100 transition-colors"
+                    >
+                      <span>View Sales Report</span>
+                      <span className="text-gray-400">→</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -561,7 +753,6 @@ export default function StoreDetailPage({ params }: { params: Promise<{ storeId:
                 </button>
               </div>
 
-              {/* Summary */}
               {sales.length > 0 && (
                 <div className="grid grid-cols-3 gap-4">
                   <div className="bg-gray-50 rounded-xl p-4">
@@ -631,6 +822,14 @@ export default function StoreDetailPage({ params }: { params: Promise<{ storeId:
           {/* ── Delivery Orders Tab ── */}
           {activeTab === 'delivery-orders' && (
             <div className="overflow-x-auto">
+              <div className="flex justify-end mb-4">
+                <Link
+                  href={`/admin/delivery-orders?store_id=${storeId}`}
+                  className="px-4 py-2 bg-[#0A0A0A] text-white text-sm rounded-lg hover:bg-gray-800 transition-colors"
+                >
+                  + New Delivery Order
+                </Link>
+              </div>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100">
@@ -664,12 +863,7 @@ export default function StoreDetailPage({ params }: { params: Promise<{ storeId:
                       <td className="py-2.5 px-3 text-right font-medium">{d.total_pairs}</td>
                       <td className="py-2.5 px-3 text-right">
                         {d.pdf_url ? (
-                          <a
-                            href={d.pdf_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-blue-600 hover:underline"
-                          >
+                          <a href={d.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
                             Download
                           </a>
                         ) : (
@@ -730,12 +924,7 @@ export default function StoreDetailPage({ params }: { params: Promise<{ storeId:
                         <td className="py-2.5 px-3">
                           <div className="flex items-center justify-end gap-2">
                             {c.pdf_url && (
-                              <a
-                                href={c.pdf_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-blue-600 hover:underline"
-                              >
+                              <a href={c.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
                                 PDF
                               </a>
                             )}

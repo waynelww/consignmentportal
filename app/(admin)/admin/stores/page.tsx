@@ -200,7 +200,7 @@ export default function StoresPage() {
             Export CSV
           </button>
           <Link
-            href="/stores/new"
+            href="/admin/stores/new"
             className="flex items-center gap-2 px-4 py-2 bg-[#0A0A0A] text-white rounded-lg text-sm hover:bg-gray-800 transition-colors"
           >
             <Plus size={16} />
@@ -311,14 +311,14 @@ export default function StoresPage() {
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">
                           <Link
-                            href={`/stores/${store.id}`}
+                            href={`/admin/stores/${store.id}`}
                             className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                             title="View"
                           >
                             <Eye size={15} />
                           </Link>
                           <Link
-                            href={`/stores/${store.id}?tab=overview`}
+                            href={`/admin/stores/${store.id}?tab=overview`}
                             className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                             title="Edit"
                           >

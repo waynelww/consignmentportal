@@ -80,6 +80,7 @@ export interface Store {
   performance_score: number
   consecutive_low_months: number
   qr_code_ref: string
+  payment_qr_url: string | null
   agreement_signed_at: string | null
   agreement_signed_by: string | null
   notes: string | null

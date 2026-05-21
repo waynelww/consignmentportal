@@ -19,6 +19,7 @@ import {
   ChevronRight,
   Menu,
   X,
+  Sparkles,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -45,6 +46,7 @@ const NAV_ITEMS = [
     section: 'Operations',
     items: [
       { label: 'Restock Queue', href: '/admin/restocks', icon: RefreshCcw },
+      { label: 'Predictions', href: '/admin/predictions', icon: Sparkles },
       { label: 'Delivery Orders', href: '/admin/delivery-orders', icon: Truck },
       { label: 'Commissions', href: '/admin/commissions', icon: DollarSign },
     ],
@@ -80,6 +82,7 @@ function getPageTitle(pathname: string): string {
     '/admin/products': 'Products',
     '/admin/stock': 'Stock',
     '/admin/restocks': 'Restock Queue',
+    '/admin/predictions': 'Restock Predictions',
     '/admin/delivery-orders': 'Delivery Orders',
     '/admin/commissions': 'Commissions',
     '/admin/reports': 'Reports',
@@ -97,6 +100,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
   const supabase = createClient()
 
   useEffect(() => {
@@ -111,6 +115,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           if (data) setProfile(data as Profile)
         })
     })
+    // Load unread notification count
+    fetch('/api/notifications?limit=50')
+      .then((r) => r.json())
+      .then(({ notifications }) => {
+        if (Array.isArray(notifications)) {
+          setUnreadCount(notifications.filter((n: { is_read: boolean }) => !n.is_read).length)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   async function handleSignOut() {
@@ -234,10 +247,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button className="relative p-2 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors">
+            <Link href="/admin/notifications" className="relative p-2 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors">
               <Bell size={20} />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-[#FFD700] rounded-full" />
-            </button>
+              {unreadCount > 0 && (
+                <span className="absolute top-1 right-1 min-w-[16px] h-4 bg-[#FFD700] text-[#0A0A0A] rounded-full text-[9px] font-bold flex items-center justify-center px-0.5">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </Link>
             {profile && (
               <Link href="/admin/profile" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
                 <div className="w-8 h-8 rounded-full bg-[#0A0A0A] text-[#FFD700] flex items-center justify-center text-xs font-bold">

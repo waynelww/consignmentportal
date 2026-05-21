@@ -12,15 +12,6 @@ import { cn } from '@/lib/utils'
 
 type Step = 'select' | 'quantity' | 'payment' | 'qr' | 'cash' | 'success'
 
-interface QRPayload {
-  store: string
-  ref: string
-  sku: string
-  qty: number
-  amount: number
-  txn: string
-  ts: number
-}
 
 export default function RecordSalePage() {
   const router = useRouter()
@@ -42,6 +33,8 @@ export default function RecordSalePage() {
   const [scannerOpen, setScannerOpen] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const readerRef = useRef<any>(null)
+  const controlsRef = useRef<{ stop: () => void } | null>(null)
+  const hasScannedRef = useRef(false) // prevents duplicate toasts
 
   // Load store + inventory
   useEffect(() => {
@@ -74,47 +67,109 @@ export default function RecordSalePage() {
     load()
   }, [])
 
-  // Barcode scanner
+  // Barcode scanner — uses decodeFromConstraints (the correct @zxing/browser API)
+  // which handles getUserMedia internally. Rear camera via facingMode: environment.
   const startScanner = useCallback(async () => {
+    hasScannedRef.current = false
     setScannerOpen(true)
-    // Dynamically import to avoid SSR issues
-    const { BrowserMultiFormatReader } = await import('@zxing/browser')
-    const reader = new BrowserMultiFormatReader()
-    readerRef.current = reader
 
     try {
-      await reader.decodeFromVideoDevice(undefined, videoRef.current!, (result, err) => {
-        if (result) {
-          const barcode = result.getText()
-          handleBarcodeResult(barcode)
+      const { BrowserMultiFormatReader } = await import('@zxing/browser')
+      const { BarcodeFormat, DecodeHintType } = await import('@zxing/library')
+
+      const hints = new Map()
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.CODE_128,
+        BarcodeFormat.CODE_39,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.QR_CODE,
+      ])
+      // TRY_HARDER is for still images; in live video mode it causes false positives.
+      // Keep it false to only fire on clear, unambiguous scans.
+      hints.set(DecodeHintType.TRY_HARDER, false)
+
+      const reader = new BrowserMultiFormatReader(hints)
+      readerRef.current = reader
+
+      // decodeFromConstraints handles getUserMedia + video srcObject internally.
+      // Use { exact: 'environment' } on mobile, fall back with 'ideal' if denied.
+      let videoConstraints: MediaTrackConstraints = { facingMode: { ideal: 'environment' } }
+      try {
+        // Probe for rear camera support before committing
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const hasRearCamera = devices.some(
+          (d) => d.kind === 'videoinput' && /back|rear|environment/i.test(d.label)
+        )
+        if (hasRearCamera) {
+          videoConstraints = { facingMode: { exact: 'environment' } }
         }
-      })
+      } catch {
+        // enumerateDevices not available — fall back to ideal
+      }
+
+      const controls = await reader.decodeFromConstraints(
+        { video: videoConstraints },
+        videoRef.current!,
+        (result, err) => {
+          // result is non-null only when a barcode was successfully decoded
+          if (result && !hasScannedRef.current) {
+            hasScannedRef.current = true
+            handleBarcodeResult(result.getText())
+          }
+          // Ignore NotFoundException (no barcode in frame) — these are expected and noisy
+        }
+      )
+      controlsRef.current = controls
     } catch {
-      toast.error('Could not access camera. Please check permissions.')
+      toast.error('Camera access denied — please allow camera access in your browser settings.')
       setScannerOpen(false)
     }
   }, [inventory]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopScanner = useCallback(() => {
+    // Use the controls object returned by decodeFromConstraints to stop cleanly
+    controlsRef.current?.stop()
+    controlsRef.current = null
+    // Also reset the reader instance
     if (readerRef.current) {
       try { readerRef.current.reset() } catch {}
       readerRef.current = null
     }
+    // NOTE: do NOT reset hasScannedRef here.
+    // It stays true so any stray callbacks that fire after stop() are still ignored.
+    // It is only reset to false in startScanner() when a new scan session opens.
     setScannerOpen(false)
   }, [])
 
   function handleBarcodeResult(barcode: string) {
+    // Stop scanner first — prevents any further callbacks firing
     stopScanner()
-    const match = inventory.find((i) => i.product?.barcode === barcode)
+
+    const scanned = barcode.trim()
+
+    // Match by barcode field, SKU (exact), or SKU (case-insensitive)
+    // This handles both standard product barcodes AND custom SKU labels
+    const match = inventory.find((i) => {
+      const p = i.product
+      if (!p) return false
+      if (p.barcode && p.barcode === scanned) return true
+      if (p.sku && p.sku === scanned) return true
+      if (p.sku && p.sku.toLowerCase() === scanned.toLowerCase()) return true
+      return false
+    })
+
     if (match) {
       if (match.quantity_on_hand === 0) {
-        toast.error('That product is out of stock.')
+        toast.error(`${match.product?.name ?? 'Product'} is out of stock.`)
         return
       }
       selectProduct(match)
       toast.success(`${match.product?.name} selected`)
     } else {
-      toast.error('Barcode not recognised. Please select manually.')
+      // Single toast — hasScannedRef guard ensures this fires exactly once per scan session
+      toast.error('Barcode not recognised. Please select manually.', { duration: 3000 })
     }
   }
 
@@ -124,28 +179,13 @@ export default function RecordSalePage() {
     setStep('quantity')
   }
 
-  function buildQRValue(txnRef: string): string {
-    const store = storeData.store
-    if (!store || !selectedItem) return ''
-    const payload: QRPayload = {
-      store: store.store_code,
-      ref: store.qr_code_ref,
-      sku: selectedItem.product?.sku ?? '',
-      qty: quantity,
-      amount: totalAmount,
-      txn: txnRef,
-      ts: Date.now(),
-    }
-    // TODO: Replace QR content with actual DuitNow merchant dynamic QR API call
-    // when bank merchant credentials are available.
-    return `https://pay.xocks.co/?d=${btoa(JSON.stringify(payload))}`
-  }
-
   function handleSelectPayment(method: 'qr' | 'cash') {
     if (method === 'qr') {
       const ref = generateRef(8)
       setQrRef(ref)
-      setQrValue(buildQRValue(ref))
+      // Use store's own payment QR URL (DuitNow / TNG link set in store profile)
+      const payUrl = storeData.store?.payment_qr_url
+      setQrValue(payUrl ?? '')
       setStep('qr')
     } else {
       setStep('cash')
@@ -390,22 +430,42 @@ export default function RecordSalePage() {
       {/* ── Step 4a: QR Payment ── */}
       {step === 'qr' && selectedItem && (
         <div className="space-y-4">
-          <div className="bg-white rounded-xl shadow-sm p-6 flex flex-col items-center gap-4">
-            <p className="text-sm text-gray-500 font-medium">Ask customer to scan this QR code</p>
-            <div className="p-3 bg-white border border-gray-200 rounded-xl">
-              <QRCode value={qrValue} size={200} />
-            </div>
-            <div className="text-center">
-              <p className="text-3xl font-bold text-[#0A0A0A]">{formatCurrency(totalAmount)}</p>
-              <p className="text-xs text-gray-400 mt-1">
-                {quantity} × {selectedItem.product?.name}
+          {!qrValue ? (
+            /* No payment QR set up yet */
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 text-center space-y-3">
+              <AlertTriangle size={28} className="text-amber-500 mx-auto" />
+              <p className="text-sm font-semibold text-amber-800">Payment QR not set up</p>
+              <p className="text-xs text-amber-700">
+                Go to your Profile and paste your DuitNow / TNG / bank payment link to enable QR payments.
               </p>
+              <a
+                href="/store/profile"
+                className="inline-block mt-1 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-semibold"
+              >
+                Set up now
+              </a>
             </div>
-            <div className="bg-gray-50 rounded-lg px-4 py-2 w-full text-center">
-              <p className="text-xs text-gray-400">Ref</p>
-              <p className="font-mono font-bold text-[#0A0A0A] tracking-widest text-sm">{qrRef}</p>
+          ) : (
+            <div className="bg-white rounded-xl shadow-sm p-6 flex flex-col items-center gap-4">
+              {/* Amount banner — customer enters this amount when paying */}
+              <div className="w-full bg-[#0A0A0A] rounded-xl py-3 text-center">
+                <p className="text-xs text-gray-400 mb-0.5">Amount to pay</p>
+                <p className="text-3xl font-bold text-[#FFD700]">{formatCurrency(totalAmount)}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{quantity} × {selectedItem.product?.name}</p>
+              </div>
+              <p className="text-sm text-gray-500 font-medium">Ask customer to scan this code</p>
+              <div className="p-3 bg-white border border-gray-200 rounded-xl shadow-sm">
+                <QRCode value={qrValue} size={220} />
+              </div>
+              <p className="text-xs text-gray-400 text-center">
+                Works with DuitNow, TNG, Boost, MAE, and all Malaysian banking apps
+              </p>
+              <div className="bg-gray-50 rounded-lg px-4 py-2 w-full text-center">
+                <p className="text-[10px] text-gray-400">Transaction ref</p>
+                <p className="font-mono font-bold text-[#0A0A0A] tracking-widest text-sm">{qrRef}</p>
+              </div>
             </div>
-          </div>
+          )}
 
           <button
             onClick={() => recordSale('qr')}
@@ -424,7 +484,7 @@ export default function RecordSalePage() {
             disabled={submitting}
             className="w-full h-12 rounded-xl border-2 border-gray-200 text-gray-500 font-medium"
           >
-            Cancel
+            Back
           </button>
         </div>
       )}
@@ -477,6 +537,7 @@ export default function RecordSalePage() {
               ref={videoRef}
               className="w-full h-full object-cover"
               playsInline
+              autoPlay
               muted
             />
             {/* Viewfinder overlay */}

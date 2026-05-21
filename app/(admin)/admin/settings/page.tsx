@@ -97,17 +97,23 @@ export default function SettingsPage() {
 
   async function saveSettings() {
     setSavingSettings(true)
-    const updates = Object.entries(editedSettings).map(([key, value]) => ({
-      key,
-      value,
-      updated_at: new Date().toISOString(),
-    }))
+    const allEdited = { ...editedSettings }
+    // Ensure company info keys are always included even if new
+    for (const key of ['company_name', 'company_address', 'company_contact']) {
+      if (!(key in allEdited)) allEdited[key] = ''
+    }
+    const updates = Object.entries(allEdited)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => ({ key, value, updated_at: new Date().toISOString() }))
 
     const { error } = await supabase.from('settings').upsert(updates, { onConflict: 'key' })
 
     setSavingSettings(false)
     if (error) toast.error('Failed to save settings')
-    else toast.success('Settings saved')
+    else {
+      toast.success('Settings saved')
+      fetchSettings()
+    }
   }
 
   async function addAdminUser() {
@@ -238,6 +244,33 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   ))}
+
+                  {/* Company info section — always shown for invoice purposes */}
+                  <div>
+                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Company Info (used in invoices)</h3>
+                    <div className="space-y-3">
+                      {[
+                        { key: 'company_name', label: 'Company Name', placeholder: 'Wayne Group Holding Sdn Bhd' },
+                        { key: 'company_address', label: 'Company Address', placeholder: 'Kuala Lumpur, Malaysia' },
+                        { key: 'company_contact', label: 'Contact Email / Phone', placeholder: 'hello@xocks.co' },
+                      ].map(({ key, label, placeholder }) => (
+                        <div key={key} className="flex items-center gap-4">
+                          <div className="flex-1 min-w-0">
+                            <label className="text-sm font-medium text-gray-700 block">{label}</label>
+                          </div>
+                          <input
+                            type="text"
+                            value={editedSettings[key] ?? ''}
+                            placeholder={placeholder}
+                            onChange={(e) =>
+                              setEditedSettings((prev) => ({ ...prev, [key]: e.target.value }))
+                            }
+                            className="w-64 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
                   {settings.length === 0 && (
                     <p className="text-sm text-gray-400 text-center py-8">No settings configured yet</p>
