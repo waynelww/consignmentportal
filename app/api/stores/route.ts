@@ -36,6 +36,7 @@ const CreateStoreSchema = z.object({
   bank_account_number: z.string().optional(),
   bank_account_name: z.string().optional(),
   commission_rate: z.number().min(0).max(100).default(30),
+  payment_terms_days: z.number().int().min(1).max(365).optional().default(7),
   notes: z.string().optional(),
   initial_inventory: z.array(z.object({
     product_id: z.string().uuid(),
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
     store_name, pic_name, pic_phone, email, password,
     address, city, state, postcode, store_type,
     bank_name, bank_account_number, bank_account_name,
-    commission_rate, notes, initial_inventory,
+    commission_rate, payment_terms_days, notes, initial_inventory,
   } = parsed.data
 
   // Generate store_code: count existing stores + 1
@@ -106,6 +107,7 @@ export async function POST(request: NextRequest) {
       bank_account_number: bank_account_number ?? null,
       bank_account_name: bank_account_name ?? null,
       commission_rate,
+      payment_terms_days: payment_terms_days ?? 7,
       status: 'active',
       qr_code_ref: qrCodeRef,
       notes: notes ?? null,

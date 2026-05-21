@@ -76,6 +76,7 @@ export interface Store {
   bank_account_number: string | null
   bank_account_name: string | null
   commission_rate: number
+  payment_terms_days: number
   status: StoreStatus
   performance_score: number
   consecutive_low_months: number

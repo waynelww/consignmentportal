@@ -222,6 +222,7 @@ export default function StoreDetailPage() {
       state: store.state,
       postcode: store.postcode,
       commission_rate: store.commission_rate,
+      payment_terms_days: store.payment_terms_days ?? 7,
     })
     setEditMode(true)
     setTab('overview')
@@ -459,6 +460,17 @@ export default function StoreDetailPage() {
                       </div>
                       <EditField label="State" value={editFields.state ?? ''} onChange={(v) => setEditFields(f => ({ ...f, state: v }))} options={stateOptions} />
                       <EditField label="Commission Rate (%)" value={editFields.commission_rate ?? 30} onChange={(v) => setEditFields(f => ({ ...f, commission_rate: Number(v) }))} type="number" />
+                      <EditField
+                        label="Payment Terms (days)"
+                        value={editFields.payment_terms_days ?? 7}
+                        onChange={(v) => setEditFields(f => ({ ...f, payment_terms_days: Number(v) }))}
+                        options={[
+                          { value: '7', label: '7 working days' },
+                          { value: '14', label: '14 working days' },
+                          { value: '30', label: '30 working days' },
+                          { value: '0', label: 'No payment terms' },
+                        ]}
+                      />
                     </div>
                   ) : (
                     <dl className="space-y-2">
@@ -471,6 +483,7 @@ export default function StoreDetailPage() {
                         ['State', store.state],
                         ['Postcode', store.postcode],
                         ['Commission Rate', `${store.commission_rate}%`],
+                        ['Payment Terms', store.payment_terms_days ? `${store.payment_terms_days} working days` : '7 working days (default)'],
                       ].map(([label, value]) => (
                         <div key={label} className="flex gap-2">
                           <dt className="text-xs text-gray-500 w-32 flex-shrink-0">{label}</dt>

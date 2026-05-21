@@ -35,10 +35,11 @@ export async function GET(
         store_code,
         pic_name,
         email,
-        bank_name,
-        bank_account_number,
-        bank_account_name,
-        commission_rate
+        address,
+        city,
+        state,
+        commission_rate,
+        payment_terms_days
       )
     `)
     .eq('id', periodId)
@@ -137,10 +138,11 @@ export async function GET(
     store_code: string
     pic_name: string
     email: string | null
-    bank_name: string | null
-    bank_account_number: string | null
-    bank_account_name: string | null
+    address: string | null
+    city: string | null
+    state: string | null
     commission_rate: number
+    payment_terms_days: number | null
   } | null
 
   if (!store) {
@@ -162,17 +164,20 @@ export async function GET(
       })
     : undefined
 
+  // Build store address string
+  const addressParts = [store.address, store.city, store.state].filter(Boolean)
+  const storeAddress = addressParts.length > 0 ? addressParts.join(', ') : undefined
+
   const pdfBytes = await generateStatementPdf({
     storeName: store.store_name,
     storeCode: store.store_code,
     picName: store.pic_name,
-    bankName: store.bank_name ?? undefined,
-    bankAccount: store.bank_account_number ?? undefined,
-    bankAccountName: store.bank_account_name ?? undefined,
+    storeAddress,
     periodMonth: period.period_month,
     periodYear: period.period_year,
     generatedDate,
     commissionRate: store.commission_rate ?? 30,
+    paymentTermsDays: store.payment_terms_days ?? 7,
     companyName: settingsMap['company_name'],
     companyAddress: settingsMap['company_address'],
     companyContact: settingsMap['company_contact'],

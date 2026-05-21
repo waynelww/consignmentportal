@@ -30,15 +30,11 @@ const step1Schema = z.object({
 const step2Schema = z.object({
   commission_rate: z.number().min(1).max(100),
   restock_threshold: z.number().min(1),
+  payment_terms_days: z.number().int().min(1).max(365),
 })
 
 const step3Schema = z.object({
   login_email: z.string().email('Valid email required'),
-  bank_name: z.string().min(2, 'Bank name is required'),
-  bank_account_number: z.string().min(6, 'Account number is required'),
-  bank_account_name: z.string().min(2, 'Account name is required'),
-  agreement: z.boolean().refine((v) => v, 'Agreement must be accepted'),
-  agreement_signed_by: z.string().min(2, 'Signatory name is required'),
 })
 
 type Step1Data = z.infer<typeof step1Schema>
@@ -94,12 +90,11 @@ export default function NewStorePage() {
   // Step 2 form
   const form2 = useForm<Step2Data>({
     resolver: zodResolver(step2Schema),
-    defaultValues: { commission_rate: 30, restock_threshold: 6 },
+    defaultValues: { commission_rate: 30, restock_threshold: 6, payment_terms_days: 7 },
   })
   // Step 3 form
   const form3 = useForm<Step3Data>({
     resolver: zodResolver(step3Schema),
-    defaultValues: { agreement: false },
   })
 
   useEffect(() => {
@@ -149,13 +144,10 @@ export default function NewStorePage() {
           ...step1Data,
           commission_rate: step2Data.commission_rate,
           restock_threshold: step2Data.restock_threshold,
+          payment_terms_days: step2Data.payment_terms_days,
           initial_inventory: selections
             .filter((s) => s.selected)
             .map((s) => ({ product_id: s.product_id, quantity: s.quantity })),
-          bank_name: data.bank_name,
-          bank_account_number: data.bank_account_number,
-          bank_account_name: data.bank_account_name,
-          agreement_signed_by: data.agreement_signed_by,
           email: step1Data.email,
           password: tempPassword,
         }),
@@ -370,6 +362,21 @@ export default function NewStorePage() {
             </div>
 
             <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Payment Terms (working days)</label>
+              <select
+                {...form2.register('payment_terms_days', { valueAsNumber: true })}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+              >
+                <option value={7}>7 working days (default)</option>
+                <option value={14}>14 working days</option>
+                <option value={30}>30 working days</option>
+                <option value={0}>No payment terms (pay immediately)</option>
+              </select>
+              <p className="text-xs text-gray-400 mt-1">Days the store has to transfer commission after receiving invoice.</p>
+              <FieldError message={form2.formState.errors.payment_terms_days?.message} />
+            </div>
+
+            <div>
               <h3 className="text-sm font-semibold text-gray-800 mb-3">Initial Product Selection</h3>
               <p className="text-xs text-gray-500 mb-3">Core SKUs are pre-selected. Set starting quantities.</p>
               <div className="border border-gray-100 rounded-xl overflow-hidden">
@@ -481,56 +488,9 @@ export default function NewStorePage() {
               <p className="text-xs text-gray-500 mt-1">Share this password with the store owner after creation.</p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">Bank Name *</label>
-                <input
-                  {...form3.register('bank_name')}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
-                  placeholder="e.g. Maybank"
-                />
-                <FieldError message={form3.formState.errors.bank_name?.message} />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">Account Number *</label>
-                <input
-                  {...form3.register('bank_account_number')}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
-                />
-                <FieldError message={form3.formState.errors.bank_account_number?.message} />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">Account Name *</label>
-                <input
-                  {...form3.register('bank_account_name')}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
-                />
-                <FieldError message={form3.formState.errors.bank_account_name?.message} />
-              </div>
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
+              Review the login credentials below. Share the temporary password with the store owner after creation.
             </div>
-
-            <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Agreement Signed By *</label>
-              <input
-                {...form3.register('agreement_signed_by')}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
-                placeholder="Full name of signatory"
-              />
-              <FieldError message={form3.formState.errors.agreement_signed_by?.message} />
-            </div>
-
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                {...form3.register('agreement')}
-                className="mt-0.5 accent-[#FFD700]"
-              />
-              <span className="text-sm text-gray-700">
-                I confirm that the consignment agreement has been signed by both parties and I have
-                verified the store owner's identity.
-              </span>
-            </label>
-            <FieldError message={form3.formState.errors.agreement?.message} />
 
             <div className="flex gap-3 justify-end">
               <button

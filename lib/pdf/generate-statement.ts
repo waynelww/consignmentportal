@@ -10,7 +10,7 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 
-function formatCurrency(amount: number): string {
+function fmt(amount: number): string {
   return `RM ${amount.toFixed(2)}`
 }
 
@@ -19,17 +19,30 @@ function truncate(text: string, maxLen: number): string {
   return text.slice(0, maxLen - 1) + '…'
 }
 
+// Right-align text at a given x (right edge)
+function drawRight(
+  page: ReturnType<PDFDocument['addPage']>,
+  text: string,
+  rightX: number,
+  y: number,
+  size: number,
+  font: Awaited<ReturnType<PDFDocument['embedFont']>>,
+  color: ReturnType<typeof rgb>
+) {
+  const w = font.widthOfTextAtSize(text, size)
+  page.drawText(text, { x: rightX - w, y, size, font, color })
+}
+
 export async function generateStatementPdf(params: {
   storeName: string
   storeCode: string
   picName: string
-  bankName?: string
-  bankAccount?: string
-  bankAccountName?: string
+  storeAddress?: string
   periodMonth: number
   periodYear: number
   generatedDate: string
   commissionRate: number
+  paymentTermsDays?: number        // e.g. 7, 14, 30
   companyName?: string
   companyAddress?: string
   companyContact?: string
@@ -44,7 +57,7 @@ export async function generateStatementPdf(params: {
   totalUnits: number
   totalRevenue: number
   totalCommission: number
-  xocksRevenue: number
+  xocksRevenue: number             // = totalRevenue - totalCommission
   status: string
   paymentReference?: string
   paidAt?: string
@@ -58,106 +71,88 @@ export async function generateStatementPdf(params: {
   let y = PAGE_HEIGHT - MARGIN
 
   const periodLabel = `${MONTH_NAMES[params.periodMonth - 1]} ${params.periodYear}`
+  const companyName = params.companyName ?? 'Wayne Group Holding Sdn Bhd'
+  const paymentDays = params.paymentTermsDays ?? 7
 
-  // ── Header ──────────────────────────────────────────────────────────────────
-  // Black header bar
+  // ── Header bar ───────────────────────────────────────────────────────────────
   const headerBarH = 50
   page.drawRectangle({
     x: 0,
     y: PAGE_HEIGHT - headerBarH,
     width: PAGE_WIDTH,
     height: headerBarH,
-    color: rgb(0, 0, 0),
+    color: rgb(0.05, 0.05, 0.05),
   })
 
-  // XOCKS in gold
   page.drawText('XOCKS', {
     x: MARGIN,
     y: PAGE_HEIGHT - headerBarH + 16,
     size: 22,
     font: boldFont,
-    color: rgb(0.82, 0.67, 0.23),
+    color: rgb(1, 0.85, 0.1),
   })
 
   const statTitle = 'CONSIGNMENT COMMISSION STATEMENT'
-  const statTitleWidth = boldFont.widthOfTextAtSize(statTitle, 10)
-  page.drawText(statTitle, {
-    x: PAGE_WIDTH - MARGIN - statTitleWidth,
-    y: PAGE_HEIGHT - headerBarH + 20,
-    size: 10,
-    font: boldFont,
-    color: rgb(1, 1, 1),
-  })
+  drawRight(page, statTitle, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - headerBarH + 20, 9, boldFont, rgb(1, 1, 1))
 
-  y = PAGE_HEIGHT - headerBarH - 16
+  y = PAGE_HEIGHT - headerBarH - 14
 
-  // Company name
-  page.drawText(params.companyName ?? 'Wayne Group Holding Sdn Bhd', {
+  page.drawText(companyName, {
     x: MARGIN,
     y,
-    size: 10,
+    size: 9,
     font: boldFont,
+    color: rgb(0.2, 0.2, 0.2),
+  })
+
+  y -= 13
+
+  page.drawText(`Statement Period: ${periodLabel}`, {
+    x: MARGIN,
+    y,
+    size: 8,
+    font: regularFont,
+    color: rgb(0.35, 0.35, 0.35),
+  })
+
+  const genText = `Generated: ${params.generatedDate}`
+  drawRight(page, genText, PAGE_WIDTH - MARGIN, y, 8, regularFont, rgb(0.35, 0.35, 0.35))
+
+  y -= 8
+
+  page.drawLine({
+    start: { x: MARGIN, y },
+    end: { x: PAGE_WIDTH - MARGIN, y },
+    thickness: 0.8,
     color: rgb(0.2, 0.2, 0.2),
   })
 
   y -= 14
 
-  // Period + Generated
-  page.drawText(`Statement Period: ${periodLabel}`, {
-    x: MARGIN,
-    y,
-    size: 9,
-    font: regularFont,
-    color: rgb(0.3, 0.3, 0.3),
-  })
-
-  const genText = `Generated: ${params.generatedDate}`
-  const genTextWidth = regularFont.widthOfTextAtSize(genText, 9)
-  page.drawText(genText, {
-    x: PAGE_WIDTH - MARGIN - genTextWidth,
-    y,
-    size: 9,
-    font: regularFont,
-    color: rgb(0.3, 0.3, 0.3),
-  })
-
-  y -= 6
-
-  // Horizontal rule
-  page.drawLine({
-    start: { x: MARGIN, y },
-    end: { x: PAGE_WIDTH - MARGIN, y },
-    thickness: 1,
-    color: rgb(0.2, 0.2, 0.2),
-  })
-
-  y -= 16
-
   // ── Store Information ────────────────────────────────────────────────────────
   page.drawText('STORE INFORMATION', {
     x: MARGIN,
     y,
-    size: 9,
+    size: 8,
     font: boldFont,
     color: rgb(0, 0, 0),
   })
 
   y -= 4
 
-  // Info box background
-  const infoBoxTop = y
-  const storeInfoLines = [
-    ['Store Name:', `${params.storeName} (${params.storeCode})`],
-    ['PIC:', params.picName],
-    ['Bank:', params.bankName ?? '-'],
-    ['Account No.:', params.bankAccount ?? '-'],
-    ['Account Name:', params.bankAccountName ?? '-'],
+  const storeInfoLines: Array<[string, string]> = [
+    ['Store Name', `${params.storeName}  (${params.storeCode})`],
+    ['PIC', params.picName],
   ]
-  const infoBoxH = storeInfoLines.length * 13 + 8
+  if (params.storeAddress) {
+    storeInfoLines.push(['Address', truncate(params.storeAddress, 60)])
+  }
+
+  const infoBoxH = storeInfoLines.length * 13 + 10
 
   page.drawRectangle({
     x: MARGIN,
-    y: infoBoxTop - infoBoxH,
+    y: y - infoBoxH,
     width: CONTENT_WIDTH,
     height: infoBoxH,
     color: rgb(0.97, 0.97, 0.97),
@@ -173,10 +168,10 @@ export async function generateStatementPdf(params: {
       y,
       size: 8,
       font: boldFont,
-      color: rgb(0.3, 0.3, 0.3),
+      color: rgb(0.4, 0.4, 0.4),
     })
     page.drawText(value, {
-      x: MARGIN + 100,
+      x: MARGIN + 90,
       y,
       size: 8,
       font: regularFont,
@@ -185,26 +180,28 @@ export async function generateStatementPdf(params: {
     y -= 13
   }
 
-  y -= 16
+  y -= 14
 
   // ── Sales Summary Table ──────────────────────────────────────────────────────
   page.drawText('SALES SUMMARY', {
     x: MARGIN,
     y,
-    size: 9,
+    size: 8,
     font: boldFont,
     color: rgb(0, 0, 0),
   })
 
   y -= 4
 
-  const COL_PRODUCT = MARGIN
-  const COL_SKU = MARGIN + 170
-  const COL_UNITS = MARGIN + 250
-  const COL_PRICE = MARGIN + 300
-  const COL_REV = MARGIN + 365
-  const COL_COMM = MARGIN + 435
-  const ROW_H = 18
+  // Column right edges (for right-alignment of numbers)
+  const C_PRODUCT_L = MARGIN          // Product — left aligned, ends ~195
+  const C_SKU_L     = MARGIN + 175    // SKU — left aligned
+  const C_UNITS_R   = MARGIN + 275    // Units Sold — right aligned
+  const C_PRICE_R   = MARGIN + 345    // Unit Price — right aligned
+  const C_REV_R     = MARGIN + 420    // Revenue — right aligned
+  const C_COMM_R    = MARGIN + 495    // Commission — right aligned (= page right edge)
+
+  const ROW_H = 17
 
   // Header row
   page.drawRectangle({
@@ -212,27 +209,18 @@ export async function generateStatementPdf(params: {
     y: y - ROW_H + 4,
     width: CONTENT_WIDTH,
     height: ROW_H,
-    color: rgb(0.15, 0.15, 0.15),
+    color: rgb(0.1, 0.1, 0.1),
   })
 
-  const tableHeaders: Array<[string, number]> = [
-    ['Product', COL_PRODUCT],
-    ['SKU', COL_SKU],
-    ['Units Sold', COL_UNITS],
-    ['Unit Price', COL_PRICE],
-    ['Revenue', COL_REV],
-    ['Commission', COL_COMM],
-  ]
+  const headerY = y - 10
+  const hc = rgb(1, 1, 1)
 
-  for (const [label, x] of tableHeaders) {
-    page.drawText(label, {
-      x: x + 3,
-      y: y - 10,
-      size: 8,
-      font: boldFont,
-      color: rgb(1, 1, 1),
-    })
-  }
+  page.drawText('Product',    { x: C_PRODUCT_L + 4, y: headerY, size: 7.5, font: boldFont, color: hc })
+  page.drawText('SKU',        { x: C_SKU_L + 4,     y: headerY, size: 7.5, font: boldFont, color: hc })
+  drawRight(page, 'Units',    C_UNITS_R - 4,         headerY, 7.5, boldFont, hc)
+  drawRight(page, 'Unit Price', C_PRICE_R - 4,       headerY, 7.5, boldFont, hc)
+  drawRight(page, 'Revenue',  C_REV_R - 4,           headerY, 7.5, boldFont, hc)
+  drawRight(page, 'Commission', C_COMM_R - 4,        headerY, 7.5, boldFont, hc)
 
   y -= ROW_H
 
@@ -249,17 +237,20 @@ export async function generateStatementPdf(params: {
       })
     }
 
-    const rowColor = rgb(0.1, 0.1, 0.1)
-    page.drawText(truncate(item.productName, 22), { x: COL_PRODUCT + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
-    page.drawText(item.sku, { x: COL_SKU + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
-    page.drawText(String(item.unitsSold), { x: COL_UNITS + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
-    page.drawText(formatCurrency(item.unitPrice), { x: COL_PRICE + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
-    page.drawText(formatCurrency(item.revenue), { x: COL_REV + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
-    page.drawText(formatCurrency(item.commission), { x: COL_COMM + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
+    const rc = rgb(0.1, 0.1, 0.1)
+    const rowY = y - 10
+
+    page.drawText(truncate(item.productName, 22), { x: C_PRODUCT_L + 4, y: rowY, size: 7.5, font: regularFont, color: rc })
+    page.drawText(item.sku,                        { x: C_SKU_L + 4,     y: rowY, size: 7.5, font: regularFont, color: rc })
+    drawRight(page, String(item.unitsSold),         C_UNITS_R - 4,        rowY, 7.5, regularFont, rc)
+    drawRight(page, fmt(item.unitPrice),            C_PRICE_R - 4,        rowY, 7.5, regularFont, rc)
+    drawRight(page, fmt(item.revenue),              C_REV_R - 4,          rowY, 7.5, regularFont, rc)
+    drawRight(page, fmt(item.commission),           C_COMM_R - 4,         rowY, 7.5, regularFont, rc)
 
     y -= ROW_H
 
-    if (y < MARGIN + 160 && i < params.items.length - 1) {
+    // Page break if running low
+    if (y < MARGIN + 200 && i < params.items.length - 1) {
       page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
       y = PAGE_HEIGHT - MARGIN
     }
@@ -271,67 +262,129 @@ export async function generateStatementPdf(params: {
     y: y - ROW_H + 4,
     width: CONTENT_WIDTH,
     height: ROW_H,
-    color: rgb(0.88, 0.88, 0.88),
+    color: rgb(0.85, 0.85, 0.85),
   })
 
-  page.drawText('TOTAL', { x: COL_PRODUCT + 3, y: y - 10, size: 8, font: boldFont, color: rgb(0, 0, 0) })
-  page.drawText(String(params.totalUnits), { x: COL_UNITS + 3, y: y - 10, size: 8, font: boldFont, color: rgb(0, 0, 0) })
-  page.drawText(formatCurrency(params.totalRevenue), { x: COL_REV + 3, y: y - 10, size: 8, font: boldFont, color: rgb(0, 0, 0) })
-  page.drawText(formatCurrency(params.totalCommission), { x: COL_COMM + 3, y: y - 10, size: 8, font: boldFont, color: rgb(0, 0, 0) })
+  const tc = rgb(0, 0, 0)
+  const totY = y - 10
+  page.drawText('TOTAL', { x: C_PRODUCT_L + 4, y: totY, size: 7.5, font: boldFont, color: tc })
+  drawRight(page, String(params.totalUnits),     C_UNITS_R - 4,  totY, 7.5, boldFont, tc)
+  drawRight(page, fmt(params.totalRevenue),      C_REV_R - 4,    totY, 7.5, boldFont, tc)
+  drawRight(page, fmt(params.totalCommission),   C_COMM_R - 4,   totY, 7.5, boldFont, tc)
 
-  y -= ROW_H + 20
+  y -= ROW_H + 18
 
-  // ── Payout Summary ───────────────────────────────────────────────────────────
-  page.drawText('PAYOUT SUMMARY', {
+  // ── Payout Calculation ───────────────────────────────────────────────────────
+  page.drawText('PAYOUT CALCULATION', {
     x: MARGIN,
     y,
-    size: 9,
+    size: 8,
     font: boldFont,
     color: rgb(0, 0, 0),
   })
 
-  y -= 4
+  y -= 5
 
-  const payoutLines: Array<[string, string]> = [
-    ['Total Revenue:', formatCurrency(params.totalRevenue)],
-    ['Commission Rate:', `${params.commissionRate.toFixed(0)}%`],
-    ['Commission Due:', formatCurrency(params.totalCommission)],
-    ['Xocks Revenue:', formatCurrency(params.xocksRevenue)],
+  const amountDue = params.xocksRevenue  // totalRevenue - totalCommission
+
+  const payoutRows: Array<{ label: string; value: string; isTotal?: boolean; isMinus?: boolean }> = [
+    { label: 'Total Sales Revenue',                                       value: fmt(params.totalRevenue) },
+    { label: `Store Commission (${params.commissionRate.toFixed(0)}%)`,   value: `– ${fmt(params.totalCommission)}`, isMinus: true },
   ]
 
-  if (params.bankAccountName) {
-    payoutLines.push(['Payable To:', params.bankAccountName])
-  }
-  if (params.bankName) {
-    payoutLines.push(['Bank:', params.bankName])
-  }
-  if (params.bankAccount) {
-    payoutLines.push(['Account No.:', params.bankAccount])
-  }
-
-  const payoutBoxH = payoutLines.length * 14 + 8
+  const payoutBoxH = payoutRows.length * 16 + 10 + 4 + 22  // rows + divider + total line
 
   page.drawRectangle({
     x: MARGIN,
     y: y - payoutBoxH,
     width: CONTENT_WIDTH,
     height: payoutBoxH,
-    color: rgb(0.97, 0.97, 1.0),
-    borderColor: rgb(0.7, 0.7, 0.9),
-    borderWidth: 0.5,
+    color: rgb(0.97, 0.98, 1.0),
+    borderColor: rgb(0.72, 0.75, 0.95),
+    borderWidth: 0.8,
   })
 
   y -= 8
 
-  for (const [label, value] of payoutLines) {
-    page.drawText(label, { x: MARGIN + 6, y, size: 8, font: boldFont, color: rgb(0.2, 0.2, 0.4) })
-    page.drawText(value, { x: MARGIN + 120, y, size: 8, font: regularFont, color: rgb(0.1, 0.1, 0.1) })
-    y -= 14
+  const labelX = MARGIN + 8
+  const valueRX = PAGE_WIDTH - MARGIN - 8  // right edge for numbers
+
+  for (const row of payoutRows) {
+    const fc = row.isMinus ? rgb(0.7, 0.1, 0.1) : rgb(0.15, 0.15, 0.35)
+    page.drawText(row.label, { x: labelX, y, size: 8.5, font: regularFont, color: fc })
+    drawRight(page, row.value, valueRX, y, 8.5, row.isMinus ? regularFont : regularFont, fc)
+    y -= 16
   }
 
-  y -= 16
+  // Divider line
+  page.drawLine({
+    start: { x: MARGIN + 8, y: y + 10 },
+    end: { x: PAGE_WIDTH - MARGIN - 8, y: y + 10 },
+    thickness: 0.6,
+    color: rgb(0.6, 0.6, 0.8),
+  })
 
-  // ── Status + Payment Reference ───────────────────────────────────────────────
+  y -= 4
+
+  // Total row — highlighted
+  page.drawRectangle({
+    x: MARGIN + 4,
+    y: y - 18,
+    width: CONTENT_WIDTH - 8,
+    height: 20,
+    color: rgb(0.08, 0.08, 0.15),
+    borderWidth: 0,
+  })
+
+  page.drawText('Amount to Transfer to Xocks', { x: labelX, y: y - 12, size: 9, font: boldFont, color: rgb(1, 1, 1) })
+  drawRight(page, fmt(amountDue), valueRX, y - 12, 10, boldFont, rgb(1, 0.85, 0.1))
+
+  y -= 32
+
+  // ── Payment Terms Remark ─────────────────────────────────────────────────────
+  const remarkBoxH = 54
+
+  page.drawRectangle({
+    x: MARGIN,
+    y: y - remarkBoxH,
+    width: CONTENT_WIDTH,
+    height: remarkBoxH,
+    color: rgb(1.0, 0.97, 0.92),
+    borderColor: rgb(0.95, 0.6, 0.1),
+    borderWidth: 0.8,
+  })
+
+  const remarkHeaderY = y - 12
+  page.drawText('PAYMENT REMINDER', {
+    x: MARGIN + 8,
+    y: remarkHeaderY,
+    size: 8,
+    font: boldFont,
+    color: rgb(0.7, 0.3, 0),
+  })
+
+  page.drawText(
+    `Please transfer ${fmt(amountDue)} within ${paymentDays} working day${paymentDays > 1 ? 's' : ''} from the date of this statement.`,
+    { x: MARGIN + 8, y: remarkHeaderY - 14, size: 8, font: regularFont, color: rgb(0.2, 0.15, 0) }
+  )
+
+  page.drawText(
+    'Late payment will incur a 10% surcharge on the outstanding amount due.',
+    { x: MARGIN + 8, y: remarkHeaderY - 26, size: 8, font: regularFont, color: rgb(0.5, 0.1, 0) }
+  )
+
+  const payRef = `Payment Reference: ${params.storeCode} – ${MONTH_NAMES[params.periodMonth - 1]} ${params.periodYear}`
+  page.drawText(payRef, {
+    x: MARGIN + 8,
+    y: remarkHeaderY - 38,
+    size: 7.5,
+    font: boldFont,
+    color: rgb(0.2, 0.2, 0.2),
+  })
+
+  y -= remarkBoxH + 14
+
+  // ── Status ───────────────────────────────────────────────────────────────────
   const statusColor = params.status === 'paid'
     ? rgb(0, 0.5, 0.1)
     : params.status === 'approved'
@@ -341,78 +394,58 @@ export async function generateStatementPdf(params: {
   page.drawText(`Status: ${params.status.toUpperCase()}`, {
     x: MARGIN,
     y,
-    size: 10,
+    size: 9,
     font: boldFont,
     color: statusColor,
   })
 
-  y -= 14
+  y -= 13
 
   if (params.paymentReference) {
     page.drawText(`Payment Reference: ${params.paymentReference}`, {
-      x: MARGIN,
-      y,
-      size: 9,
-      font: regularFont,
-      color: rgb(0.2, 0.2, 0.2),
+      x: MARGIN, y, size: 8, font: regularFont, color: rgb(0.2, 0.2, 0.2),
     })
-    y -= 12
+    y -= 11
   }
 
   if (params.paidAt) {
     page.drawText(`Paid On: ${params.paidAt}`, {
-      x: MARGIN,
-      y,
-      size: 9,
-      font: regularFont,
-      color: rgb(0.2, 0.2, 0.2),
+      x: MARGIN, y, size: 8, font: regularFont, color: rgb(0.2, 0.2, 0.2),
     })
-    y -= 12
+    y -= 11
   }
 
-  y -= 20
+  y -= 12
 
   // ── Footer ───────────────────────────────────────────────────────────────────
   page.drawLine({
     start: { x: MARGIN, y },
     end: { x: PAGE_WIDTH - MARGIN, y },
     thickness: 0.5,
-    color: rgb(0.7, 0.7, 0.7),
+    color: rgb(0.75, 0.75, 0.75),
   })
 
-  y -= 14
+  y -= 13
 
   page.drawText('Thank you for your partnership with Xocks!', {
-    x: MARGIN,
-    y,
-    size: 9,
-    font: boldFont,
-    color: rgb(0.2, 0.2, 0.2),
+    x: MARGIN, y, size: 8.5, font: boldFont, color: rgb(0.2, 0.2, 0.2),
   })
 
-  y -= 12
+  y -= 11
 
   const contactLine = params.companyContact
     ? `For enquiries, contact us at ${params.companyContact} or WhatsApp your account manager.`
     : 'For enquiries, contact us at hello@xocks.co or WhatsApp your account manager.'
   page.drawText(contactLine, {
-    x: MARGIN,
-    y,
-    size: 8,
-    font: regularFont,
-    color: rgb(0.4, 0.4, 0.4),
+    x: MARGIN, y, size: 7.5, font: regularFont, color: rgb(0.4, 0.4, 0.4),
   })
 
-  y -= 12
+  y -= 10
 
-  const companyDisclaimer = `This is a computer-generated document. ${params.companyName ?? 'Wayne Group Holding Sdn Bhd'}.`
-  page.drawText(companyDisclaimer, {
-    x: MARGIN,
-    y,
-    size: 7,
-    font: regularFont,
-    color: rgb(0.6, 0.6, 0.6),
-  })
+  page.drawText(
+    `This is a system-generated document issued by ${companyName}.`,
+    { x: MARGIN, y, size: 7, font: regularFont, color: rgb(0.6, 0.6, 0.6) }
+  )
 
   return pdfDoc.save()
 }
