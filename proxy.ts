@@ -23,9 +23,15 @@ export async function proxy(request: NextRequest) {
     }
   )
 
+  const path = request.nextUrl.pathname
+
+  // Bot API endpoints use their own API key auth — skip Supabase session check.
+  if (path.startsWith('/api/bot')) {
+    return supabaseResponse
+  }
+
   const { data: { user } } = await supabase.auth.getUser()
 
-  const path = request.nextUrl.pathname
   const isAuthPage = path.startsWith('/login')
   const isAdminPage = path.startsWith('/admin')
   const isStorePage = path.startsWith('/store')
