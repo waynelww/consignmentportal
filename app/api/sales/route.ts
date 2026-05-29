@@ -122,8 +122,8 @@ export async function POST(request: NextRequest) {
 
   const new_quantity_on_hand = inventory.quantity_on_hand - quantity
 
-  // UPDATE inventory
-  const { error: updateInvErr } = await supabase
+  // UPDATE inventory — use admin client; store_owner RLS only allows SELECT on store_inventory
+  const { error: updateInvErr } = await adminClient
     .from('store_inventory')
     .update({ quantity_on_hand: new_quantity_on_hand, updated_at: new Date().toISOString() })
     .eq('id', inventory.id)
@@ -132,8 +132,8 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Failed to update inventory', details: updateInvErr.message }, { status: 500 })
   }
 
-  // INSERT stock movement
-  await supabase.from('stock_movements').insert({
+  // INSERT stock movement — use admin client; store_owner has no INSERT policy on stock_movements
+  await adminClient.from('stock_movements').insert({
     store_id,
     product_id,
     movement_type: 'outbound_sale',
