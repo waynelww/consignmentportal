@@ -2,11 +2,12 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, TrendingUp, RefreshCw } from 'lucide-react'
+import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, timeAgo, getStockStatus } from '@/lib/utils'
-import type { Sale, StoreInventory, Profile, Store, CommissionPeriod } from '@/types'
+import type { Sale, StoreInventory, Store, CommissionPeriod } from '@/types'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/components/store/StoreContext'
 
 interface DashboardData {
   store: Store | null
@@ -48,25 +49,14 @@ function SkeletonList() {
 }
 
 export default function DashboardPage() {
+  const { storeId, store: contextStore } = useStore()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
 
   const loadDashboard = useCallback(async () => {
+    if (!storeId) return
     setLoading(true)
     const supabase = createClient()
-
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('store_id')
-      .eq('id', user.id)
-      .single<Profile>()
-
-    if (!profile?.store_id) { setLoading(false); return }
-
-    const storeId = profile.store_id
 
     // Compute date strings in MYT before firing queries
     const myNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
@@ -74,8 +64,8 @@ export default function DashboardPage() {
     const todayStr     = `${myNow.getFullYear()}-${pad(myNow.getMonth() + 1)}-${pad(myNow.getDate())}`
     const firstOfMonth = `${myNow.getFullYear()}-${pad(myNow.getMonth() + 1)}-01`
 
-    const [storeRes, inventoryRes, todaySalesRes, monthSalesRes, recentSalesRes, commissionRes] = await Promise.all([
-      supabase.from('stores').select('*').eq('id', storeId).single<Store>(),
+    // storeId + store already available from layout — skip auth waterfall and stores query
+    const [inventoryRes, todaySalesRes, monthSalesRes, recentSalesRes] = await Promise.all([
       supabase
         .from('store_inventory')
         .select('*, product:products(*)')
@@ -101,18 +91,9 @@ export default function DashboardPage() {
         .eq('store_id', storeId)
         .order('created_at', { ascending: false })
         .limit(5),
-      supabase
-        .from('commission_periods')
-        .select('*')
-        .eq('store_id', storeId)
-        .order('period_year', { ascending: false })
-        .order('period_month', { ascending: false })
-        .limit(1)
-        .single<CommissionPeriod>(),
     ])
 
     type SaleTotals = { quantity: number; total_amount: number; commission_amount: number }
-    const store     = storeRes.data
     const inventory = (inventoryRes.data as StoreInventory[]) ?? []
     const todayArr  = (todaySalesRes.data ?? []) as SaleTotals[]
     const monthArr  = (monthSalesRes.data ?? []) as SaleTotals[]
@@ -121,7 +102,7 @@ export default function DashboardPage() {
     const totalStock = inventory.reduce((sum, i) => sum + i.quantity_on_hand, 0)
 
     setData({
-      store: store ?? null,
+      store: contextStore ?? null,
       todaySales:      todayArr.reduce((s, x) => s + x.quantity, 0),
       todayRevenue:    todayArr.reduce((s, x) => s + x.total_amount, 0),
       todayCommission: todayArr.reduce((s, x) => s + x.commission_amount, 0),
@@ -129,12 +110,12 @@ export default function DashboardPage() {
       monthSales:      monthArr.reduce((s, x) => s + x.quantity, 0),
       monthRevenue:    monthArr.reduce((s, x) => s + x.total_amount, 0),
       monthCommission: monthArr.reduce((s, x) => s + x.commission_amount, 0),
-      commissionRate: store?.commission_rate ?? 0,
+      commissionRate: contextStore?.commission_rate ?? 0,
       recentSales,
       totalStock,
     })
     setLoading(false)
-  }, [])
+  }, [storeId, contextStore])
 
   useEffect(() => {
     loadDashboard()

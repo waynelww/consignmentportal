@@ -4,8 +4,9 @@ import { useEffect, useState, useMemo } from 'react'
 import { Download, ChevronDown } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMYDate } from '@/lib/utils'
-import type { Sale, Product, Profile } from '@/types'
+import type { Sale, Product } from '@/types'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/components/store/StoreContext'
 
 type QuickFilter = 'today' | 'week' | 'month' | 'custom'
 type PaymentFilter = 'all' | 'qr' | 'cash'
@@ -33,9 +34,9 @@ function getDateRange(quick: QuickFilter, customFrom: string, customTo: string):
 }
 
 export default function SalesHistoryPage() {
+  const { storeId } = useStore()
   const [sales, setSales] = useState<Sale[]>([])
   const [products, setProducts] = useState<Product[]>([])
-  const [storeId, setStoreId] = useState<string | null>(null)
   const [initLoading, setInitLoading] = useState(true)
   const [salesLoading, setSalesLoading] = useState(false)
 
@@ -45,30 +46,22 @@ export default function SalesHistoryPage() {
   const [productFilter, setProductFilter] = useState<string>('all')
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all')
 
-  // One-time init: resolve store + load product list from inventory
+  // One-time init: load product list from inventory (storeId from context)
   useEffect(() => {
+    if (!storeId) return
     async function init() {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setInitLoading(false); return }
-
-      const { data: profile } = await supabase
-        .from('profiles').select('store_id').eq('id', user.id).single<Profile>()
-      if (!profile?.store_id) { setInitLoading(false); return }
-
-      setStoreId(profile.store_id)
-
       // Products from inventory (not from sales) — faster & complete
       const { data: inv } = await supabase
         .from('store_inventory')
         .select('product:products(id, name, sku)')
-        .eq('store_id', profile.store_id)
+        .eq('store_id', storeId!)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setProducts(((inv || []).map((i: any) => i.product).filter(Boolean)) as Product[])
       setInitLoading(false)
     }
     init()
-  }, [])
+  }, [storeId])
 
   // Re-fetch sales whenever store or date range changes — server-side filtering
   useEffect(() => {

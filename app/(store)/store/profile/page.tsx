@@ -6,7 +6,8 @@ import { Store, Building2, AlertCircle, FileText, QrCode } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMonthYear } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import type { Store as StoreType, Profile, CommissionPeriod, Sale } from '@/types'
+import type { Store as StoreType, CommissionPeriod, Sale } from '@/types'
+import { useStore } from '@/components/store/StoreContext'
 
 function getMYNow() {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
@@ -20,7 +21,8 @@ const STATUS_CFG: Record<string, { label: string; classes: string }> = {
 }
 
 export default function InfoPage() {
-  const [store, setStore]               = useState<StoreType | null>(null)
+  const { storeId, store: contextStore } = useStore()
+  const [store, setStore]               = useState<StoreType | null>(contextStore)
   const [periods, setPeriods]           = useState<CommissionPeriod[]>([])
   const [mtdSales, setMtdSales]         = useState(0)
   const [mtdRevenue, setMtdRevenue]     = useState(0)
@@ -28,37 +30,32 @@ export default function InfoPage() {
   const [loading, setLoading]           = useState(true)
 
   const load = useCallback(async () => {
+    if (!storeId) return
     setLoading(true)
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setLoading(false); return }
 
-    const { data: profile } = await supabase
-      .from('profiles').select('store_id').eq('id', user.id).single<Profile>()
-    if (!profile?.store_id) { setLoading(false); return }
-
+    // storeId + store from context — skip auth waterfall and stores query
     const now = getMYNow()
     const thisMonth = now.getMonth() + 1
     const thisYear  = now.getFullYear()
     const pad = (n: number) => String(n).padStart(2, '0')
     const firstOfMonth = `${thisYear}-${pad(thisMonth)}-01`
 
-    const [storeRes, periodsRes, salesRes] = await Promise.all([
-      supabase.from('stores').select('*').eq('id', profile.store_id).single<StoreType>(),
+    const [periodsRes, salesRes] = await Promise.all([
       supabase
         .from('commission_periods')
         .select('*')
-        .eq('store_id', profile.store_id)
+        .eq('store_id', storeId)
         .order('period_year', { ascending: false })
         .order('period_month', { ascending: false }),
       supabase
         .from('sales')
         .select('quantity, total_amount, commission_amount')
-        .eq('store_id', profile.store_id)
+        .eq('store_id', storeId)
         .gte('sale_date', firstOfMonth),
     ])
 
-    if (storeRes.data) setStore(storeRes.data)
+    setStore(contextStore)
     setPeriods((periodsRes.data as CommissionPeriod[]) ?? [])
 
     const sales = (salesRes.data as Pick<Sale, 'quantity' | 'total_amount' | 'commission_amount'>[]) ?? []
@@ -78,11 +75,11 @@ export default function InfoPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ month: prevMonth, year: prevYear }),
       }).then((res) => {
-        if (res.ok && profile.store_id) {
+        if (res.ok && storeId) {
           supabase
             .from('commission_periods')
             .select('*')
-            .eq('store_id', profile.store_id)
+            .eq('store_id', storeId)
             .order('period_year', { ascending: false })
             .order('period_month', { ascending: false })
             .then(({ data }) => { if (data) setPeriods(data as CommissionPeriod[]) })
@@ -91,7 +88,7 @@ export default function InfoPage() {
     }
 
     setLoading(false)
-  }, [])
+  }, [storeId, contextStore]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load() }, [load])
 

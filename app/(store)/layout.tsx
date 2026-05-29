@@ -5,13 +5,21 @@ import { Home, ShoppingCart, Package, Truck, Info, Bell } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/store/LogoutButton'
 import PushSubscriber from '@/components/store/PushSubscriber'
+import { StoreProvider } from '@/components/store/StoreContext'
 import type { Store, Profile } from '@/types'
 
-async function getStoreData(): Promise<{ store: Store | null; unreadCount: number; pendingDOs: number }> {
+interface StoreLayoutData {
+  store: Store | null
+  storeId: string | null
+  unreadCount: number
+  pendingDOs: number
+}
+
+async function getStoreData(): Promise<StoreLayoutData> {
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { store: null, unreadCount: 0, pendingDOs: 0 }
+  if (!user) return { store: null, storeId: null, unreadCount: 0, pendingDOs: 0 }
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -19,7 +27,7 @@ async function getStoreData(): Promise<{ store: Store | null; unreadCount: numbe
     .eq('id', user.id)
     .single<Profile>()
 
-  if (!profile?.store_id) return { store: null, unreadCount: 0, pendingDOs: 0 }
+  if (!profile?.store_id) return { store: null, storeId: null, unreadCount: 0, pendingDOs: 0 }
 
   const [{ data: store }, { count: notifCount }, { count: doCount }] = await Promise.all([
     supabase.from('stores').select('*').eq('id', profile.store_id).single<Store>(),
@@ -35,11 +43,11 @@ async function getStoreData(): Promise<{ store: Store | null; unreadCount: numbe
       .in('status', ['confirmed', 'dispatched', 'delivered']),
   ])
 
-  return { store: store ?? null, unreadCount: notifCount ?? 0, pendingDOs: doCount ?? 0 }
+  return { store: store ?? null, storeId: profile.store_id, unreadCount: notifCount ?? 0, pendingDOs: doCount ?? 0 }
 }
 
 export default async function StoreLayout({ children }: { children: React.ReactNode }) {
-  const { store, unreadCount, pendingDOs } = await getStoreData()
+  const { store, storeId, unreadCount, pendingDOs } = await getStoreData()
 
   return (
     <div className="min-h-screen bg-[#F8F8F8] flex flex-col">
@@ -69,8 +77,12 @@ export default async function StoreLayout({ children }: { children: React.ReactN
       {/* Web Push subscription — registers SW and requests permission silently */}
       <PushSubscriber />
 
-      {/* Page content */}
-      <main className="flex-1 pt-[60px] pb-[72px]">{children}</main>
+      {/* Page content — StoreProvider makes storeId + store available to all client pages */}
+      <main className="flex-1 pt-[60px] pb-[72px]">
+        <StoreProvider storeId={storeId} store={store}>
+          {children}
+        </StoreProvider>
+      </main>
 
       {/* Bottom navigation — 5 equal tabs */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-100 safe-area-pb">

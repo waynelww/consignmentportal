@@ -4,8 +4,9 @@ import { useEffect, useState, useCallback } from 'react'
 import { Truck, CheckCircle, Clock, Package, ChevronDown, ChevronUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, cn } from '@/lib/utils'
-import type { DeliveryOrder, DeliveryOrderItem, Product, Profile } from '@/types'
+import type { DeliveryOrder, DeliveryOrderItem, Product } from '@/types'
 import { toast } from 'sonner'
+import { useStore } from '@/components/store/StoreContext'
 
 interface DOItem extends DeliveryOrderItem {
   product: Product
@@ -25,39 +26,31 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 }
 
 export default function StoreDeliveryOrdersPage() {
+  const { storeId } = useStore()
   const [orders, setOrders] = useState<DOWithItems[]>([])
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [acknowledging, setAcknowledging] = useState<string | null>(null)
 
   const loadOrders = useCallback(async () => {
+    if (!storeId) return
     setLoading(true)
     const supabase = createClient()
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setLoading(false); return }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('store_id')
-      .eq('id', user.id)
-      .single<Profile>()
-
-    if (!profile?.store_id) { setLoading(false); return }
-
+    // storeId from context — no auth waterfall needed
     const { data } = await supabase
       .from('delivery_orders')
       .select(`
         *,
         items:delivery_order_items(*, product:products(*))
       `)
-      .eq('store_id', profile.store_id)
+      .eq('store_id', storeId)
       .order('created_at', { ascending: false })
       .limit(50)
 
     setOrders((data as DOWithItems[]) ?? [])
     setLoading(false)
-  }, [])
+  }, [storeId])
 
   useEffect(() => {
     loadOrders()

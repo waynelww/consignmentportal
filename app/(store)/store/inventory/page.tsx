@@ -5,12 +5,14 @@ import { RefreshCw } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMYDate, getStockStatus } from '@/lib/utils'
-import type { StoreInventory, Profile, Sale } from '@/types'
+import type { StoreInventory, Sale } from '@/types'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/components/store/StoreContext'
 
 type FilterTab = 'all' | 'in_stock' | 'low_stock' | 'out_of_stock'
 
 export default function InventoryPage() {
+  const { storeId } = useStore()
   const [inventory, setInventory] = useState<StoreInventory[]>([])
   const [monthlySales, setMonthlySales] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
@@ -18,34 +20,28 @@ export default function InventoryPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   async function load() {
+    if (!storeId) return
     setLoading(true)
     const supabase = createClient()
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setLoading(false); return }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('store_id')
-      .eq('id', user.id)
-      .single<Profile>()
-
-    if (!profile?.store_id) { setLoading(false); return }
-
+    // storeId from context — no auth waterfall needed
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
-    const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const firstOfMonth = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`
+    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 
     const [invRes, salesRes] = await Promise.all([
       supabase
         .from('store_inventory')
         .select('*, product:products(*)')
-        .eq('store_id', profile.store_id)
+        .eq('store_id', storeId)
         .order('quantity_on_hand', { ascending: true }),
       supabase
         .from('sales')
         .select('product_id, quantity')
-        .eq('store_id', profile.store_id)
-        .gte('sale_date', firstOfMonth),
+        .eq('store_id', storeId)
+        .gte('sale_date', firstOfMonth)
+        .lte('sale_date', todayStr),
     ])
 
     const inv = (invRes.data as StoreInventory[]) ?? []
@@ -61,7 +57,7 @@ export default function InventoryPage() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [storeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = inventory.filter((item) => {
     if (filter === 'all') return true

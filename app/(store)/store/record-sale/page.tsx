@@ -8,19 +8,17 @@ import QRCode from 'react-qr-code'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, generateRef, getStockStatus } from '@/lib/utils'
-import type { StoreInventory, Profile, Store } from '@/types'
+import type { StoreInventory } from '@/types'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/components/store/StoreContext'
 
 type Step = 'select' | 'quantity' | 'payment' | 'qr' | 'cash' | 'success'
 
 
 export default function RecordSalePage() {
   const router = useRouter()
+  const { storeId, store } = useStore()
 
-  const [storeData, setStoreData] = useState<{ store: Store | null; storeId: string | null }>({
-    store: null,
-    storeId: null,
-  })
   const [inventory, setInventory] = useState<StoreInventory[]>([])
   const [loadingInventory, setLoadingInventory] = useState(true)
 
@@ -38,36 +36,21 @@ export default function RecordSalePage() {
   const controlsRef = useRef<{ stop: () => void } | null>(null)
   const hasScannedRef = useRef(false) // prevents duplicate toasts
 
-  // Load store + inventory
+  // Load inventory — storeId comes from StoreContext (no auth waterfall)
   useEffect(() => {
+    if (!storeId) return
     async function load() {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('store_id')
-        .eq('id', user.id)
-        .single<Profile>()
-
-      if (!profile?.store_id) { setLoadingInventory(false); return }
-
-      const [storeRes, invRes] = await Promise.all([
-        supabase.from('stores').select('*').eq('id', profile.store_id).single<Store>(),
-        supabase
-          .from('store_inventory')
-          .select('*, product:products(*)')
-          .eq('store_id', profile.store_id)
-          .order('quantity_on_hand', { ascending: false }),
-      ])
-
-      setStoreData({ store: storeRes.data ?? null, storeId: profile.store_id })
-      setInventory((invRes.data as StoreInventory[]) ?? [])
+      const { data: invData } = await supabase
+        .from('store_inventory')
+        .select('*, product:products(*)')
+        .eq('store_id', storeId!)
+        .order('quantity_on_hand', { ascending: false })
+      setInventory((invData as StoreInventory[]) ?? [])
       setLoadingInventory(false)
     }
     load()
-  }, [])
+  }, [storeId])
 
   // Only show in-stock items in the selector, filtered by search term
   const visibleInventory = useMemo(() => {
@@ -197,7 +180,7 @@ export default function RecordSalePage() {
       const ref = generateRef(8)
       setQrRef(ref)
       // Use store's own payment QR URL (DuitNow / TNG link set in store profile)
-      const payUrl = storeData.store?.payment_qr_url
+      const payUrl = store?.payment_qr_url
       setQrValue(payUrl ?? '')
       setStep('qr')
     } else {
@@ -208,7 +191,7 @@ export default function RecordSalePage() {
   const totalAmount = selectedItem ? selectedItem.product!.selling_price * quantity : 0
 
   async function recordSale(paymentMethod: 'qr' | 'cash') {
-    if (!selectedItem || !storeData.storeId) return
+    if (!selectedItem || !storeId) return
     setSubmitting(true)
 
     try {
@@ -216,7 +199,7 @@ export default function RecordSalePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          store_id: storeData.storeId,
+          store_id: storeId,
           product_id: selectedItem.product_id,
           quantity,
           payment_method: paymentMethod,

@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react'
 import { CheckCircle, AlertTriangle, Loader2, Package } from 'lucide-react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
-import type { StoreInventory, Profile } from '@/types'
+import type { StoreInventory } from '@/types'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/components/store/StoreContext'
 
 interface RequestItem {
   inventoryItem: StoreInventory
@@ -16,33 +17,23 @@ interface RequestItem {
 type PageStep = 'review' | 'success'
 
 export default function RestockRequestPage() {
+  const { storeId } = useStore()
   const [items, setItems] = useState<RequestItem[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [notes, setNotes] = useState('')
-  const [storeId, setStoreId] = useState<string | null>(null)
   const [step, setStep] = useState<PageStep>('review')
 
   useEffect(() => {
+    if (!storeId) return
     async function load() {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setLoading(false); return }
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('store_id')
-        .eq('id', user.id)
-        .single<Profile>()
-
-      if (!profile?.store_id) { setLoading(false); return }
-
-      setStoreId(profile.store_id)
-
+      // storeId from context — no auth waterfall needed
       const { data: invData } = await supabase
         .from('store_inventory')
         .select('*, product:products(*)')
-        .eq('store_id', profile.store_id)
+        .eq('store_id', storeId!)
         .order('quantity_on_hand', { ascending: true })
 
       const inv = (invData as StoreInventory[]) ?? []
@@ -62,7 +53,7 @@ export default function RestockRequestPage() {
       setLoading(false)
     }
     load()
-  }, [])
+  }, [storeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const includedItems = items.filter((i) => i.included)
   const totalRequested = includedItems.reduce((s, i) => s + i.requestQty, 0)

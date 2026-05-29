@@ -4,57 +4,50 @@ import { useEffect, useState, useCallback } from 'react'
 import { FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMonthYear } from '@/lib/utils'
-import type { CommissionPeriod, Profile, Sale, Store } from '@/types'
+import type { CommissionPeriod, Sale, Store } from '@/types'
 import { cn } from '@/lib/utils'
+import { useStore } from '@/components/store/StoreContext'
 
 function getMYNow() {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
 }
 
 export default function CommissionsPage() {
+  const { storeId, store: contextStore } = useStore()
   const [periods, setPeriods] = useState<CommissionPeriod[]>([])
   const [currentMonthSales, setCurrentMonthSales] = useState(0)
   const [currentMonthRevenue, setCurrentMonthRevenue] = useState(0)
   const [currentMonthCommission, setCurrentMonthCommission] = useState(0)
-  const [commissionRate, setCommissionRate] = useState(0)
+  const [commissionRate, setCommissionRate] = useState(contextStore?.commission_rate ?? 0)
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
+    if (!storeId) return
     setLoading(true)
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setLoading(false); return }
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('store_id')
-      .eq('id', user.id)
-      .single<Profile>()
-
-    if (!profile?.store_id) { setLoading(false); return }
-
+    // storeId + commission_rate from context — skip auth waterfall and stores query
     const now = getMYNow()
     const thisMonth = now.getMonth() + 1
     const thisYear = now.getFullYear()
     const pad = (n: number) => String(n).padStart(2, '0')
     const firstOfMonth = `${thisYear}-${pad(thisMonth)}-01`
 
-    const [storeRes, periodsRes, salesRes] = await Promise.all([
-      supabase.from('stores').select('commission_rate').eq('id', profile.store_id).single<Pick<Store, 'commission_rate'>>(),
+    const [periodsRes, salesRes] = await Promise.all([
       supabase
         .from('commission_periods')
         .select('*')
-        .eq('store_id', profile.store_id)
+        .eq('store_id', storeId)
         .order('period_year', { ascending: false })
         .order('period_month', { ascending: false }),
       supabase
         .from('sales')
         .select('quantity, total_amount, commission_amount')
-        .eq('store_id', profile.store_id)
+        .eq('store_id', storeId)
         .gte('sale_date', firstOfMonth),
     ])
 
-    setCommissionRate(storeRes.data?.commission_rate ?? 0)
+    setCommissionRate(contextStore?.commission_rate ?? 0)
     setPeriods((periodsRes.data as CommissionPeriod[]) ?? [])
 
     const sales = (salesRes.data as Pick<Sale, 'quantity' | 'total_amount' | 'commission_amount'>[]) ?? []
@@ -79,7 +72,7 @@ export default function CommissionsPage() {
           supabase
             .from('commission_periods')
             .select('*')
-            .eq('store_id', profile.store_id)
+            .eq('store_id', storeId!)
             .order('period_year', { ascending: false })
             .order('period_month', { ascending: false })
             .then(({ data }) => {
@@ -90,7 +83,7 @@ export default function CommissionsPage() {
     }
 
     setLoading(false)
-  }, [])
+  }, [storeId, contextStore]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load() }, [load])
 
