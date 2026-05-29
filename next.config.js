@@ -5,10 +5,10 @@ const nextConfig = {
   turbopack: {},
   images: {
     remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '*.supabase.co',
-      },
+      { protocol: 'https', hostname: '*.supabase.co' },
+      { protocol: 'https', hostname: 'cdn.shopify.com' },
+      { protocol: 'https', hostname: '*.shopify.com' },
+      { protocol: 'https', hostname: '*.myshopify.com' },
     ],
   },
   // Pre-existing type errors in codebase — skip during build

@@ -66,20 +66,24 @@ function parseCSV(text: string): Record<string, string>[] {
   const headers = records[0].map(h => h.trim())
   const dataRows = records.slice(1).filter(r => r.some(v => v.trim()))
 
-  // Carry forward Handle/Title/Type/Body per product group (Shopify only writes them on first variant row)
-  let lastHandle = '', lastTitle = '', lastType = '', lastBody = ''
+  // Carry forward Handle/Title/Type/Body/Image per product group (Shopify only writes them on first variant row)
+  let lastHandle = '', lastTitle = '', lastType = '', lastBody = '', lastImage = ''
   return dataRows.map(vals => {
     const row = Object.fromEntries(headers.map((h, i) => [h, (vals[i] ?? '').trim()]))
     if (row['Handle']) lastHandle = row['Handle']; else row['Handle'] = lastHandle
     if (row['Title']) lastTitle = row['Title']; else row['Title'] = lastTitle
     if (row['Type']) lastType = row['Type']; else row['Type'] = lastType
     if (row['Body (HTML)']) lastBody = row['Body (HTML)']; else row['Body (HTML)'] = lastBody
+    // Only carry the FIRST image per Handle (ignore additional image rows for same product)
+    if (row['Image Src'] && row['Image Src'] !== lastImage) { lastImage = row['Image Src'] }
+    row['Image Src'] = lastImage
     return row
   })
 }
 
 function shopifyRowToProduct(row: Record<string, string>): ImportRow | null {
-  const sku = (row['Variant SKU'] || row['sku'] || '').trim()
+  // Normalise SKU to uppercase to match Shopify standard
+  const sku = (row['Variant SKU'] || row['sku'] || '').trim().toUpperCase()
   if (!sku) return null
 
   const title = (row['Title'] || row['title'] || row['name'] || '').trim()
@@ -109,7 +113,9 @@ function shopifyRowToProduct(row: Record<string, string>): ImportRow | null {
   const description = (row['Body (HTML)'] || row['Description'] || row['description'] || '')
     .replace(/<[^>]+>/g, '').trim().slice(0, 500) || undefined
 
-  return { sku, name, category, color, selling_price, cost_price, barcode, description, is_core_sku: false }
+  const image_url = (row['Image Src'] || '').trim() || undefined
+
+  return { sku, name, category, color, selling_price, cost_price, barcode, description, image_url, is_core_sku: false }
 }
 
 type Status = 'idle' | 'parsed' | 'importing' | 'done'

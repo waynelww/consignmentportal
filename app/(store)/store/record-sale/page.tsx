@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { ScanLine, X, Minus, Plus, CheckCircle, Loader2, AlertTriangle } from 'lucide-react'
+import { ScanLine, X, Minus, Plus, CheckCircle, Loader2, AlertTriangle, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import QRCode from 'react-qr-code'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, generateRef, getStockStatus } from '@/lib/utils'
 import type { StoreInventory, Profile, Store } from '@/types'
@@ -30,6 +31,7 @@ export default function RecordSalePage() {
   const [qrValue, setQrValue] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  const [search, setSearch] = useState('')
   const [scannerOpen, setScannerOpen] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const readerRef = useRef<any>(null)
@@ -66,6 +68,17 @@ export default function RecordSalePage() {
     }
     load()
   }, [])
+
+  // Only show in-stock items in the selector, filtered by search term
+  const visibleInventory = useMemo(() => {
+    const inStock = inventory.filter((i) => i.quantity_on_hand > 0)
+    if (!search.trim()) return inStock
+    const q = search.trim().toLowerCase()
+    return inStock.filter((i) =>
+      i.product?.name?.toLowerCase().includes(q) ||
+      i.product?.sku?.toLowerCase().includes(q)
+    )
+  }, [inventory, search])
 
   // Barcode scanner — uses decodeFromConstraints (the correct @zxing/browser API)
   // which handles getUserMedia internally. Rear camera via facingMode: environment.
@@ -273,57 +286,90 @@ export default function RecordSalePage() {
       {/* ── Step 1: Select Product ── */}
       {step === 'select' && (
         <>
-          <button
-            onClick={startScanner}
-            className="w-full h-14 rounded-xl border-2 border-dashed border-[#0A0A0A] flex items-center justify-center gap-2 font-semibold text-[#0A0A0A] hover:bg-gray-50 transition-colors"
-          >
-            <ScanLine size={20} />
-            Scan Barcode
-          </button>
+          {/* Scan + search row */}
+          <div className="flex gap-2">
+            <button
+              onClick={startScanner}
+              className="h-12 px-4 rounded-xl border-2 border-dashed border-[#0A0A0A] flex items-center gap-2 font-semibold text-[#0A0A0A] hover:bg-gray-50 transition-colors shrink-0"
+            >
+              <ScanLine size={18} />
+              Scan
+            </button>
+            <div className="relative flex-1">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name or SKU…"
+                className="w-full h-12 pl-9 pr-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#FFD700] bg-white"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </div>
 
           {loadingInventory ? (
             <div className="grid grid-cols-2 gap-3">
               {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-32 bg-gray-200 rounded-xl animate-pulse" />
+                <div key={i} className="h-40 bg-gray-200 rounded-xl animate-pulse" />
               ))}
             </div>
+          ) : visibleInventory.length === 0 ? (
+            <p className="text-center text-gray-400 py-10">
+              {search ? 'No products match your search.' : 'No products in stock.'}
+            </p>
           ) : (
-            <>
-              {inventory.length === 0 ? (
-                <p className="text-center text-gray-400 py-10">No products in inventory.</p>
-              ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  {inventory.map((item) => {
-                    const outOfStock = item.quantity_on_hand === 0
-                    return (
-                      <button
-                        key={item.id}
-                        disabled={outOfStock}
-                        onClick={() => selectProduct(item)}
-                        className={cn(
-                          'relative bg-white rounded-xl shadow-sm p-3 text-left transition-all active:scale-95',
-                          outOfStock ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-md cursor-pointer',
-                        )}
-                      >
-                        {outOfStock && (
-                          <div className="absolute inset-0 bg-gray-100/70 rounded-xl flex items-center justify-center">
-                            <span className="text-xs font-bold text-gray-400">Out of Stock</span>
-                          </div>
-                        )}
-                        <p className="text-sm font-bold text-[#0A0A0A] leading-tight mb-1 line-clamp-2">
-                          {item.product?.name}
-                        </p>
-                        <p className="text-xs text-gray-400">{item.product?.sku}</p>
-                        <p className="text-sm font-semibold text-[#0A0A0A] mt-2">
+            <div className="grid grid-cols-2 gap-3">
+              {visibleInventory.map((item) => {
+                const imgUrl = item.product?.image_url
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => selectProduct(item)}
+                    className="relative bg-white rounded-xl shadow-sm text-left transition-all active:scale-95 hover:shadow-md cursor-pointer overflow-hidden"
+                  >
+                    {/* Product image or placeholder */}
+                    <div className="w-full h-28 bg-gray-100 flex items-center justify-center overflow-hidden">
+                      {imgUrl ? (
+                        <Image
+                          src={imgUrl}
+                          alt={item.product?.name ?? ''}
+                          width={160}
+                          height={112}
+                          className="w-full h-full object-cover"
+                          unoptimized
+                        />
+                      ) : (
+                        <span className="text-3xl font-black text-gray-200 select-none">
+                          {item.product?.sku?.slice(0, 3) ?? '?'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="p-2.5">
+                      <p className="text-xs font-bold text-[#0A0A0A] leading-tight line-clamp-2">
+                        {item.product?.name}
+                      </p>
+                      <p className="text-[10px] text-gray-400 mt-0.5 font-mono">{item.product?.sku}</p>
+                      <div className="flex items-center justify-between mt-1.5">
+                        <p className="text-xs font-semibold text-[#0A0A0A]">
                           {formatCurrency(item.product?.selling_price ?? 0)}
                         </p>
-                        <p className="text-xs text-gray-500 mt-1">Stock: {item.quantity_on_hand}</p>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </>
+                        <span className="text-[10px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">
+                          {item.quantity_on_hand} left
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
           )}
         </>
       )}

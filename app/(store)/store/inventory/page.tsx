@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
+import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMYDate, getStockStatus } from '@/lib/utils'
 import type { StoreInventory, Profile, Sale } from '@/types'
@@ -157,9 +158,26 @@ export default function InventoryPage() {
             return (
               <div key={item.id} className="bg-white rounded-xl shadow-sm p-4">
                 <div className="flex items-start justify-between gap-3">
+                  {/* Product image thumbnail */}
+                  <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
+                    {item.product?.image_url ? (
+                      <Image
+                        src={item.product.image_url}
+                        alt={item.product.name ?? ''}
+                        width={48}
+                        height={48}
+                        className="w-full h-full object-cover"
+                        unoptimized
+                      />
+                    ) : (
+                      <span className="text-xs font-black text-gray-300 select-none">
+                        {item.product?.sku?.slice(0, 3) ?? '?'}
+                      </span>
+                    )}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-[#0A0A0A] truncate">{item.product?.name}</p>
-                    <p className="text-xs text-gray-400">{item.product?.sku}</p>
+                    <p className="text-xs text-gray-400 font-mono">{item.product?.sku}</p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-3xl font-bold text-[#0A0A0A]">{item.quantity_on_hand}</p>

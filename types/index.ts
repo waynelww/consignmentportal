@@ -101,6 +101,7 @@ export interface Product {
   is_active: boolean
   barcode: string | null
   description: string | null
+  image_url: string | null
   created_at: string
   updated_at: string
 }

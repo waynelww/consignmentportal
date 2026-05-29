@@ -10,6 +10,7 @@ export interface ImportRow {
   cost_price: number
   barcode?: string
   description?: string
+  image_url?: string
   is_core_sku: boolean
 }
 
