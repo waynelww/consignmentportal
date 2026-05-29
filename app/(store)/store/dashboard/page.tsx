@@ -240,8 +240,8 @@ export default function DashboardPage() {
 
   return (
     <div className="px-4 py-5 space-y-6 max-w-lg mx-auto">
-      {/* Top bar — Guide + refresh */}
-      <div className="flex items-center justify-between -mb-2">
+      {/* Top action bar — Guide + refresh (own row, no overlap) */}
+      <div className="flex items-center justify-between gap-3 pb-1">
         <Link
           href="/store/help"
           className="flex items-center gap-1.5 text-xs font-semibold text-[#0A0A0A] bg-[#FFD700] px-3 py-2 rounded-lg shadow-sm"
@@ -249,8 +249,12 @@ export default function DashboardPage() {
           <BookOpen size={14} />
           Tutorial Guide
         </Link>
-        <button onClick={loadDashboard} className="p-2 text-gray-400 hover:text-gray-600">
+        <button
+          onClick={loadDashboard}
+          className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 px-2 py-1.5 rounded-lg"
+        >
           <RefreshCw size={14} />
+          Refresh
         </button>
       </div>
 

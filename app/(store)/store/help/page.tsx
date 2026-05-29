@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Printer, ShoppingCart, Truck, Package, Receipt, CreditCard, User, ChevronDown, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Printer, ShoppingCart, Truck, Package, Receipt, Info, Home, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface GuideStep {
@@ -29,30 +29,30 @@ const SECTIONS: GuideSection[] = [
     color: 'bg-yellow-100 text-yellow-800',
     steps: [
       {
-        title: 'Tap the big yellow Sale button at the bottom',
-        body: 'You\'ll see all your in-stock products as a 3-column grid with photos.',
+        title: 'Tap the yellow Sales button (middle of the bottom bar)',
+        body: 'It is the big yellow shopping-cart icon in the centre. You will see every in-stock product as a 3-column photo grid.',
       },
       {
         title: 'Tap each product the customer is buying',
-        body: 'Each tap adds 1 pair to your cart. Tap the same product twice for 2 pairs. A yellow badge will show on the product card.',
-        tip: 'You can also scan the barcode by tapping the "Scan" button on the left.',
+        body: 'Each tap adds 1 pair to your cart. Tap the same product twice for 2 pairs. A yellow number badge appears on the product card showing how many are in the cart.',
+        tip: 'You can also tap the Scan button (top left of the grid) to scan a barcode.',
       },
       {
         title: 'Open the cart',
-        body: 'Tap the cart button at the top right or the black bar at the bottom to review your order.',
+        body: 'Tap the cart icon at the top right of the page, or tap the black bar that floats above the bottom nav showing the total.',
       },
       {
-        title: 'Adjust quantities if needed',
-        body: 'Use the + and − buttons. Tap the red trash icon to remove an item.',
+        title: 'Adjust quantities or remove items',
+        body: 'Inside the cart drawer use the − and + buttons to change quantity. Tap the red trash icon to remove an item entirely.',
       },
       {
         title: 'Tap "Confirm Order"',
-        body: 'Your stock will be deducted automatically and your commission will be added to this month\'s total.',
-        tip: 'Payment handling is up to your store — Xocks just records the stock movement.',
+        body: 'This is the big black button at the bottom of the cart drawer. After tapping, the stock is deducted and your commission for this month goes up.',
+        tip: 'Payment is up to your store — Xocks just records the stock movement. Use your own payment QR / cash.',
       },
       {
-        title: 'Made a mistake?',
-        body: 'Go to History tab → tap the pencil icon next to any sale to edit the quantity. The change is logged for audit.',
+        title: 'Made a mistake? Edit it.',
+        body: 'Go back to Home tab. Under "Recent Transactions" find the order and tap the yellow "Edit" button. You can change any item\'s quantity or remove an item — the stock returns automatically.',
       },
     ],
   },
@@ -64,21 +64,21 @@ const SECTIONS: GuideSection[] = [
     color: 'bg-blue-100 text-blue-800',
     steps: [
       {
-        title: 'Open the Account tab → Delivery Orders',
-        body: 'Or tap the notification when a new DO arrives.',
+        title: 'Tap the Deliveries tab (far right of the bottom bar)',
+        body: 'It is the truck icon. A red number badge appears when there are deliveries waiting.',
       },
       {
-        title: 'Find the incoming DO (status: Incoming / On the Way / Arrived)',
-        body: 'Tap the row to expand it and see all SKUs and quantities.',
+        title: 'Find the incoming DO under "Incoming Deliveries"',
+        body: 'Status will say Incoming, On the Way, or Arrived. Tap the row to expand it and see every SKU and quantity in the delivery.',
       },
       {
         title: 'Physically count what you received',
-        body: 'Compare the list on screen with the actual boxes you received.',
-        tip: 'If anything is wrong (missing items, damaged stock), DO NOT tap Receive Stock yet. Contact Xocks ops first.',
+        body: 'Compare the list on screen with the actual boxes. Make sure each SKU and quantity matches.',
+        tip: 'If anything is missing or damaged, DO NOT tap Receive Stock yet. WhatsApp Xocks ops first.',
       },
       {
         title: 'Tap "Receive Stock"',
-        body: 'Stock will be added to your inventory immediately. You\'ll see it appear under the Stock tab.',
+        body: 'This is the black button inside the expanded DO. Stock will be added to your inventory immediately — check the Inventory tab to see it.',
       },
     ],
   },
@@ -90,28 +90,28 @@ const SECTIONS: GuideSection[] = [
     color: 'bg-green-100 text-green-800',
     steps: [
       {
-        title: 'Open Stock tab',
-        body: 'You\'ll see low-stock items highlighted in amber.',
+        title: 'Tap the Inventory tab (the box icon, right of the Sales button)',
+        body: 'Low-stock items appear with an amber "Low Stock" tag.',
       },
       {
-        title: 'Tap "Request Restock" button',
-        body: 'Items already below threshold are pre-selected for you.',
+        title: 'Tap the "Request Restock" button',
+        body: 'It is at the top of the inventory page. The next screen pre-selects items already below threshold.',
       },
       {
         title: 'Tick any extra SKUs you want',
-        body: 'Tap the checkbox next to each product. The yellow border means it\'s selected.',
+        body: 'Tap the checkbox next to each product. The yellow border means the SKU is included.',
       },
       {
-        title: 'Adjust quantities using + and −',
-        body: 'Minimum total restock is 12 pairs. The default target is 24 pairs per SKU.',
+        title: 'Adjust quantities using − and +',
+        body: 'Default target is 24 pairs per SKU. Minimum total restock is 12 pairs.',
       },
       {
         title: 'Add a note (optional)',
-        body: 'Anything urgent? Write it here so ops knows.',
+        body: 'If something is urgent, write it in the note box so Xocks ops knows.',
       },
       {
         title: 'Tap "Submit Restock Request"',
-        body: 'Xocks ops will review and confirm. You\'ll get a notification when stock is on the way.',
+        body: 'Xocks ops will review and confirm. You will get a notification (the bell at the top right of the screen) when stock is dispatched.',
       },
     ],
   },
@@ -119,71 +119,76 @@ const SECTIONS: GuideSection[] = [
     id: 'view-invoice',
     icon: Receipt,
     title: 'How to View Invoices & Commission',
-    intro: 'Track how much you\'ve earned each month and download invoices for your records.',
+    intro: 'Track how much you have earned each month and download invoices for your records.',
     color: 'bg-purple-100 text-purple-800',
     steps: [
       {
-        title: 'Open Account tab → Commissions',
-        body: 'You\'ll see a live card showing this month\'s earnings: pairs sold, revenue, and commission.',
+        title: 'Tap the Info tab (the "i" icon, second from the left)',
+        body: 'This is your profile / settings hub. Scroll to find Commissions & Invoices, or use the link below.',
+        tip: 'Direct link from the Home tab: tap "View All" next to Recent Transactions, then back to Info → Commissions.',
+      },
+      {
+        title: 'See this month live',
+        body: 'A big black card at the top shows pairs sold, revenue, and your commission so far this month.',
       },
       {
         title: 'Past invoices are listed below',
-        body: 'Each row shows the month, status (Pending, Approved, Paid), pairs sold, revenue, and your commission.',
+        body: 'Each row: month, status (Pending / Approved / Paid / Disputed), pairs sold, revenue, your commission.',
       },
       {
-        title: 'Tap the "Invoice" button',
-        body: 'A PDF invoice opens in a new tab. You can download, print, or share it.',
+        title: 'Tap the "Invoice" button on a row',
+        body: 'A PDF opens in a new tab. You can download, print, or share it.',
       },
       {
-        title: 'When is each invoice generated?',
-        body: 'Automatically on the 1st of every month for the previous month\'s sales. No action needed.',
+        title: 'When are invoices generated?',
+        body: 'Automatically on the 1st of every month for the previous month. No action needed from you.',
       },
       {
         title: 'Status meanings',
-        body: 'Pending = waiting for Xocks to confirm. Approved = ready for payment. Paid = Xocks has paid you. Disputed = there\'s an issue, contact ops.',
+        body: 'Pending = waiting for Xocks to confirm. Approved = ready for payment. Paid = Xocks has paid you. Disputed = there is an issue, contact ops.',
       },
     ],
   },
   {
     id: 'payment-setup',
-    icon: CreditCard,
+    icon: Info,
     title: 'Where to Set Up Your Payment QR',
-    intro: 'Add your DuitNow / TNG / bank QR link so payments are easy.',
+    intro: 'Add your DuitNow / TNG / bank QR link so customers can pay you easily.',
     color: 'bg-teal-100 text-teal-800',
     steps: [
       {
-        title: 'Open Account tab → Profile',
-        body: 'Scroll to the "Payment QR" section.',
+        title: 'Tap the Info tab (the "i" icon at the bottom)',
+        body: 'You will see your store info form.',
       },
       {
-        title: 'Paste your payment QR link',
-        body: 'This is the URL behind your DuitNow / TNG / Boost / MAE QR. You can copy it from your banking app.',
-        tip: 'Not sure how? Open your banking app → "My QR code" → "Share" → "Copy link".',
+        title: 'Scroll to the "Payment QR" field',
+        body: 'Paste the URL behind your DuitNow / TNG / Boost / MAE QR.',
+        tip: 'How to get the link: open your banking app → My QR code → Share → Copy link.',
       },
       {
-        title: 'Tap Save',
-        body: 'Done! Your customers can now scan your QR for cashless payment.',
+        title: 'Tap Save at the bottom',
+        body: 'Done. The QR link is now stored with your store profile.',
       },
       {
         title: 'Important: this is YOUR payment gateway',
-        body: 'Xocks does not touch the customer\'s payment. Money goes straight to your bank. Xocks just deducts commission monthly via invoice.',
+        body: 'Xocks does not touch your customer\'s payment. Money goes straight to your bank. Xocks only deducts commission monthly via invoice.',
       },
     ],
   },
   {
     id: 'change-password',
-    icon: User,
+    icon: Info,
     title: 'How to Change Your Password',
-    intro: 'You should change your temporary password right after first login for security.',
+    intro: 'You should change the temporary password Xocks gave you right after first login.',
     color: 'bg-rose-100 text-rose-800',
     steps: [
       {
-        title: 'Log in with your temporary password',
-        body: 'Use the link, email, and password Xocks sent you.',
+        title: 'Log in with the temporary password from Xocks',
+        body: 'Use the link, email, and password the Xocks team sent you via WhatsApp.',
       },
       {
-        title: 'Tap the Account tab at the bottom right',
-        body: 'You\'ll see your store info and settings.',
+        title: 'Tap the Info tab at the bottom (the "i" icon)',
+        body: 'This opens your profile.',
       },
       {
         title: 'Tap "Change Password"',
@@ -192,7 +197,36 @@ const SECTIONS: GuideSection[] = [
       {
         title: 'Tap Save',
         body: 'Done. Next time you log in, use the new password.',
-        tip: 'Forgot your password later? Tap "Forgot password?" on the login screen.',
+        tip: 'Forgot your password? Tap "Forgot password?" on the login screen — Xocks will send a reset link.',
+      },
+    ],
+  },
+  {
+    id: 'navigation',
+    icon: Home,
+    title: 'Understanding the Bottom Tabs',
+    intro: 'There are 5 tabs at the bottom of every page. Here is what each one does.',
+    color: 'bg-indigo-100 text-indigo-800',
+    steps: [
+      {
+        title: 'Home (house icon, far left)',
+        body: 'Today\'s sales summary, this month vs last month earnings, recent transactions (with Edit button), and shortcuts to Record a Sale and Request Restock.',
+      },
+      {
+        title: 'Info ("i" icon, second from left)',
+        body: 'Your store profile, payment QR, commissions & invoices, change password.',
+      },
+      {
+        title: 'Sales (big yellow cart icon, middle)',
+        body: 'Record a customer sale. This is the most-used button.',
+      },
+      {
+        title: 'Inventory (box icon, fourth from left)',
+        body: 'See what stock you have. Request restock from here when items get low.',
+      },
+      {
+        title: 'Deliveries (truck icon, far right)',
+        body: 'Confirm incoming deliveries from Xocks. A red badge shows when you have something to action.',
       },
     ],
   },
@@ -202,7 +236,6 @@ export default function HelpPage() {
   const [openSection, setOpenSection] = useState<string | null>('record-sale')
 
   function handlePrint() {
-    // Open all sections before printing
     document.querySelectorAll<HTMLDetailsElement>('.guide-section').forEach((el) => el.classList.add('print-open'))
     window.print()
   }
@@ -238,24 +271,21 @@ export default function HelpPage() {
       {/* Title */}
       <div className="bg-[#0A0A0A] rounded-2xl p-6 mb-5 text-center">
         <h1 className="text-2xl font-bold text-[#FFD700]">Store Owner Guide</h1>
-        <p className="text-gray-300 text-sm mt-1">Step-by-step instructions for every flow</p>
+        <p className="text-gray-300 text-sm mt-1">Step-by-step for every button and tab</p>
       </div>
 
       {/* Welcome */}
       <div className="bg-white rounded-xl shadow-sm p-5 mb-5">
-        <h2 className="text-base font-bold text-[#0A0A0A] mb-2">Welcome to Xocks 🧦</h2>
+        <h2 className="text-base font-bold text-[#0A0A0A] mb-2">Welcome to Xocks</h2>
         <p className="text-sm text-gray-600 leading-relaxed">
-          {`This app helps you sell socks on consignment. You don't buy stock upfront — Xocks delivers, you sell, and you keep your commission. Use this guide whenever you forget how something works.`}
+          {`This app helps you sell socks on consignment. You don't pay upfront — Xocks delivers stock, you sell it at your store, you keep your commission. Open this guide whenever you forget how something works.`}
         </p>
-        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-          <div className="bg-gray-50 rounded-lg px-3 py-2">
-            <p className="text-gray-500">Bottom nav</p>
-            <p className="font-semibold text-gray-700">5 main tabs</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg px-3 py-2">
-            <p className="text-gray-500">Big yellow button</p>
-            <p className="font-semibold text-gray-700">Record a sale</p>
-          </div>
+        <div className="mt-3 grid grid-cols-5 gap-1 text-center text-[10px]">
+          <div className="rounded-lg bg-gray-50 px-1 py-2"><Home size={14} className="mx-auto mb-1 text-gray-600" /><p className="font-semibold text-gray-700">Home</p></div>
+          <div className="rounded-lg bg-gray-50 px-1 py-2"><Info size={14} className="mx-auto mb-1 text-gray-600" /><p className="font-semibold text-gray-700">Info</p></div>
+          <div className="rounded-lg bg-[#FFD700]/30 px-1 py-2"><ShoppingCart size={14} className="mx-auto mb-1 text-[#0A0A0A]" /><p className="font-bold text-[#0A0A0A]">Sales</p></div>
+          <div className="rounded-lg bg-gray-50 px-1 py-2"><Package size={14} className="mx-auto mb-1 text-gray-600" /><p className="font-semibold text-gray-700">Inventory</p></div>
+          <div className="rounded-lg bg-gray-50 px-1 py-2"><Truck size={14} className="mx-auto mb-1 text-gray-600" /><p className="font-semibold text-gray-700">Deliveries</p></div>
         </div>
       </div>
 

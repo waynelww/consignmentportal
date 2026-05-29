@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import LogoutButton from '@/components/store/LogoutButton'
 import PushSubscriber from '@/components/store/PushSubscriber'
 import { StoreProvider } from '@/components/store/StoreContext'
+import NavItem from '@/components/store/NavItem'
 import type { Store, Profile } from '@/types'
 
 interface StoreLayoutData {
@@ -87,41 +88,13 @@ export default async function StoreLayout({ children }: { children: React.ReactN
       {/* Bottom navigation — 5 equal tabs */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-100 safe-area-pb">
         <div className="flex items-stretch h-[64px]">
-          <NavItem href="/store/dashboard"      icon={<Home size={22} />}         label="Home" />
-          <NavItem href="/store/profile"        icon={<Info size={22} />}         label="Info" />
-          <NavItem href="/store/record-sale"    icon={<ShoppingCart size={22} />} label="Sales" highlight />
-          <NavItem href="/store/inventory"      icon={<Package size={22} />}      label="Inventory" />
-          <NavItem href="/store/delivery-orders" icon={<Truck size={22} />}       label="Deliveries" badge={pendingDOs} />
+          <NavItem href="/store/dashboard"       icon={<Home size={22} />}         iconActive={<Home size={26} strokeWidth={2.5} />}          label="Home" />
+          <NavItem href="/store/profile"         icon={<Info size={22} />}         iconActive={<Info size={26} strokeWidth={2.5} />}          label="Info" />
+          <NavItem href="/store/record-sale"     icon={<ShoppingCart size={22} />} iconActive={<ShoppingCart size={26} strokeWidth={2.5} />}  label="Sales" highlight />
+          <NavItem href="/store/inventory"       icon={<Package size={22} />}      iconActive={<Package size={26} strokeWidth={2.5} />}       label="Inventory" />
+          <NavItem href="/store/delivery-orders" icon={<Truck size={22} />}        iconActive={<Truck size={26} strokeWidth={2.5} />}         label="Deliveries" badge={pendingDOs} />
         </div>
       </nav>
     </div>
-  )
-}
-
-function NavItem({
-  href, icon, label, badge, highlight,
-}: {
-  href: string
-  icon: React.ReactNode
-  label: string
-  badge?: number
-  highlight?: boolean
-}) {
-  return (
-    <Link
-      href={href}
-      className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-colors relative
-        ${highlight ? 'text-[#0A0A0A]' : 'text-gray-400 hover:text-[#0A0A0A]'}`}
-    >
-      <div className={`relative ${highlight ? 'bg-[#FFD700] rounded-xl p-2' : ''}`}>
-        {icon}
-        {badge && badge > 0 ? (
-          <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-1 bg-[#EF4444] rounded-full text-white text-[9px] font-bold flex items-center justify-center leading-none">
-            {badge > 9 ? '9+' : badge}
-          </span>
-        ) : null}
-      </div>
-      <span className={`text-[10px] font-medium ${highlight ? 'font-bold' : ''}`}>{label}</span>
-    </Link>
   )
 }

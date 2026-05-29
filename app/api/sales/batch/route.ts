@@ -116,29 +116,44 @@ export async function POST(request: NextRequest) {
     const total_amount = Number((item.quantity * unit_price).toFixed(2))
     const { commission_amount, xocks_revenue } = calcCommission(total_amount, store.commission_rate)
 
-    // INSERT sale
-    const { data: sale, error: saleErr } = await supabase
+    // INSERT sale — try with sale_group_id, fall back without it if the
+    // migration hasn't been applied yet (PostgreSQL error 42703 = undefined column)
+    const baseSaleRow = {
+      store_id,
+      product_id: item.product_id,
+      quantity: item.quantity,
+      unit_price,
+      total_amount,
+      commission_amount,
+      xocks_revenue,
+      payment_method: 'cash',
+      qr_reference: null,
+      recorded_by: user.id,
+      sale_date: today,
+    }
+
+    let saleInsert = await supabase
       .from('sales')
-      .insert({
-        store_id,
-        product_id: item.product_id,
-        quantity: item.quantity,
-        unit_price,
-        total_amount,
-        commission_amount,
-        xocks_revenue,
-        payment_method: 'cash',
-        qr_reference: null,
-        recorded_by: user.id,
-        sale_date: today,
-        sale_group_id,
-      })
+      .insert({ ...baseSaleRow, sale_group_id })
       .select('id')
       .single()
 
-    if (saleErr || !sale) {
-      return Response.json({ error: 'Failed to record sale', details: saleErr?.message }, { status: 500 })
+    if (saleInsert.error && saleInsert.error.code === '42703') {
+      // Column missing — fall back. Sales still work, just not grouped yet.
+      saleInsert = await supabase
+        .from('sales')
+        .insert(baseSaleRow)
+        .select('id')
+        .single()
     }
+
+    if (saleInsert.error || !saleInsert.data) {
+      return Response.json({
+        error: 'Failed to record sale',
+        details: saleInsert.error?.message,
+      }, { status: 500 })
+    }
+    const sale = saleInsert.data
 
     const new_quantity_on_hand = inv.quantity_on_hand - item.quantity
 
