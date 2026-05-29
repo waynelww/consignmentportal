@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
   const adminClient = createAdminClient()
   const { data: store, error: storeErr } = await adminClient
     .from('stores')
-    .select('commission_rate, recipient_store_id')
+    .select('commission_rate')
     .eq('id', store_id)
     .single()
 
@@ -181,29 +181,16 @@ export async function POST(request: NextRequest) {
         })
 
         // Notify the store itself
-        if (store.recipient_store_id) {
-          await supabase.from('notifications').insert({
-            recipient_role: null,
-            recipient_store_id: store.recipient_store_id,
-            type: 'low_stock_alert',
-            title: 'Low Stock Alert',
-            message: `Your store has low stock for product ${product_id} (${new_quantity_on_hand} remaining)`,
-            reference_id: newAlert.id,
-            reference_type: 'restock_alert',
-            is_read: false,
-          })
-        } else {
-          await supabase.from('notifications').insert({
-            recipient_role: null,
-            recipient_store_id: store_id,
-            type: 'low_stock_alert',
-            title: 'Low Stock Alert',
-            message: `Your store has low stock for product ${product_id} (${new_quantity_on_hand} remaining)`,
-            reference_id: newAlert.id,
-            reference_type: 'restock_alert',
-            is_read: false,
-          })
-        }
+        await supabase.from('notifications').insert({
+          recipient_role: null,
+          recipient_store_id: store_id,
+          type: 'low_stock_alert',
+          title: 'Low Stock Alert',
+          message: `Your store has low stock for product ${product_id} (${new_quantity_on_hand} remaining)`,
+          reference_id: newAlert.id,
+          reference_type: 'restock_alert',
+          is_read: false,
+        })
       }
     }
   }
