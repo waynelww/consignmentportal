@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function PATCH(
   _request: NextRequest,
@@ -40,8 +41,11 @@ export async function PATCH(
     return Response.json({ error: `Cannot receive request with status: ${restockRequest.status}` }, { status: 400 })
   }
 
+  // Use admin client for writes — store_owner has no UPDATE policy on these tables
+  const admin = createAdminClient()
+
   // UPDATE restock_request status
-  const { error: updateReqErr } = await supabase
+  const { error: updateReqErr } = await admin
     .from('restock_requests')
     .update({ status: 'received', updated_at: new Date().toISOString() })
     .eq('id', requestId)
@@ -51,14 +55,14 @@ export async function PATCH(
   }
 
   // Fetch and UPDATE linked delivery_order
-  const { data: deliveryOrder } = await supabase
+  const { data: deliveryOrder } = await admin
     .from('delivery_orders')
     .select('id')
     .eq('restock_request_id', requestId)
     .single()
 
   if (deliveryOrder) {
-    await supabase
+    await admin
       .from('delivery_orders')
       .update({ status: 'acknowledged', updated_at: new Date().toISOString() })
       .eq('id', deliveryOrder.id)
@@ -91,7 +95,7 @@ export async function PATCH(
       .single()
 
     if (inv) {
-      await supabase
+      await admin
         .from('store_inventory')
         .update({
           quantity_on_hand: inv.quantity_on_hand + item.quantity_approved,
@@ -102,7 +106,7 @@ export async function PATCH(
     }
 
     // INSERT stock_movement
-    await supabase.from('stock_movements').insert({
+    await admin.from('stock_movements').insert({
       store_id: restockRequest.store_id,
       product_id: item.product_id,
       movement_type: 'inbound_restock',
@@ -115,7 +119,7 @@ export async function PATCH(
 
   // UPDATE restock_alerts for fulfilled products
   if (productIds.length > 0) {
-    await supabase
+    await admin
       .from('restock_alerts')
       .update({ status: 'fulfilled' })
       .eq('store_id', restockRequest.store_id)
