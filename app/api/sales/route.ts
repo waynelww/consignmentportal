@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 function calcCommission(totalAmount: number, commissionRate: number) {
   const commission = Number((totalAmount * commissionRate / 100).toFixed(2))
@@ -69,8 +70,9 @@ export async function POST(request: NextRequest) {
     }, { status: 400 })
   }
 
-  // Fetch store commission rate
-  const { data: store, error: storeErr } = await supabase
+  // Fetch store commission rate — use admin client to bypass RLS on stores table
+  const adminClient = createAdminClient()
+  const { data: store, error: storeErr } = await adminClient
     .from('stores')
     .select('commission_rate, recipient_store_id')
     .eq('id', store_id)
