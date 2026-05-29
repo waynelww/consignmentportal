@@ -148,6 +148,7 @@ export interface Sale {
   recorded_by: string | null
   sale_date: string
   created_at: string
+  sale_group_id?: string | null
   // joined
   product?: Product
   store?: Store

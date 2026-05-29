@@ -149,3 +149,92 @@ export async function PATCH(
     new_stock: new_quantity_on_hand,
   })
 }
+
+// DELETE — remove a sale entirely and return its stock to inventory
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ saleId: string }> }
+) {
+  const { saleId } = await params
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, store_id')
+    .eq('id', user.id)
+    .single()
+
+  if (!profile) return Response.json({ error: 'Profile not found' }, { status: 403 })
+
+  const { data: sale, error: saleErr } = await supabase
+    .from('sales')
+    .select('id, store_id, product_id, quantity')
+    .eq('id', saleId)
+    .single()
+
+  if (saleErr || !sale) {
+    return Response.json({ error: 'Sale not found' }, { status: 404 })
+  }
+
+  if (profile.role === 'store_owner' && profile.store_id !== sale.store_id) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  if (profile.role !== 'store_owner' && profile.role !== 'ops_manager' && profile.role !== 'super_admin') {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const adminClient = createAdminClient()
+
+  // Fetch inventory row
+  const { data: inv, error: invErr } = await supabase
+    .from('store_inventory')
+    .select('id, quantity_on_hand')
+    .eq('store_id', sale.store_id)
+    .eq('product_id', sale.product_id)
+    .single()
+
+  if (invErr || !inv) {
+    return Response.json({ error: 'Inventory not found' }, { status: 404 })
+  }
+
+  // Return stock
+  const new_quantity_on_hand = inv.quantity_on_hand + sale.quantity
+  const { error: invUpdErr } = await adminClient
+    .from('store_inventory')
+    .update({ quantity_on_hand: new_quantity_on_hand, updated_at: new Date().toISOString() })
+    .eq('id', inv.id)
+
+  if (invUpdErr) {
+    return Response.json({ error: 'Failed to return stock', details: invUpdErr.message }, { status: 500 })
+  }
+
+  // Log adjustment movement
+  await adminClient.from('stock_movements').insert({
+    store_id: sale.store_id,
+    product_id: sale.product_id,
+    movement_type: 'adjustment_add',
+    quantity: sale.quantity,
+    reference_id: saleId,
+    notes: `Delete sale ${saleId}: returned ${sale.quantity} pairs to stock`,
+    created_by: user.id,
+  })
+
+  // Delete the sale row — use admin client to bypass any RLS
+  const { error: delErr } = await adminClient
+    .from('sales')
+    .delete()
+    .eq('id', saleId)
+
+  if (delErr) {
+    return Response.json({ error: 'Failed to delete sale', details: delErr.message }, { status: 500 })
+  }
+
+  return Response.json({
+    success: true,
+    sale_id: saleId,
+    returned_to_stock: sale.quantity,
+    new_stock: new_quantity_on_hand,
+  })
+}

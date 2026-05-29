@@ -103,6 +103,8 @@ export async function POST(request: NextRequest) {
   }
 
   const today = new Date().toISOString().split('T')[0]
+  // One transaction → one sale_group_id shared across all items
+  const sale_group_id = crypto.randomUUID()
   const results = []
 
   for (const item of items) {
@@ -129,6 +131,7 @@ export async function POST(request: NextRequest) {
         qr_reference: null,
         recorded_by: user.id,
         sale_date: today,
+        sale_group_id,
       })
       .select('id')
       .single()

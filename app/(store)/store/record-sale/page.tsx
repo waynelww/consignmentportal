@@ -383,15 +383,15 @@ export default function RecordSalePage() {
 
       {/* Cart drawer */}
       {cartOpen && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end">
+        <div className="fixed inset-0 z-[60] flex flex-col justify-end">
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => setCartOpen(false)}
           />
 
-          {/* Drawer */}
-          <div className="relative bg-white rounded-t-2xl max-h-[85vh] flex flex-col shadow-2xl">
+          {/* Drawer — pinned above bottom nav (72px tall) */}
+          <div className="relative bg-white rounded-t-2xl max-h-[80vh] flex flex-col shadow-2xl mb-[72px]">
             {/* Drag handle */}
             <div className="flex justify-center pt-3 pb-1 shrink-0">
               <div className="w-10 h-1 rounded-full bg-gray-300" />

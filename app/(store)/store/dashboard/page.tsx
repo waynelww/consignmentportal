@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { RefreshCw, Pencil, X, Loader2 } from 'lucide-react'
+import { RefreshCw, Pencil, X, Loader2, BookOpen, Trash2, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, timeAgo, formatMYDate } from '@/lib/utils'
@@ -53,9 +53,12 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // Edit modal state
-  const [editingSale, setEditingSale] = useState<Sale | null>(null)
-  const [editQty, setEditQty] = useState(1)
+  // Edit modal state — supports either a single sale OR a transaction group of sales
+  const [editingGroup, setEditingGroup] = useState<Sale[] | null>(null)
+  // Each row's working quantity in the modal (keyed by sale id)
+  const [editQuantities, setEditQuantities] = useState<Record<string, number>>({})
+  // Sales the user marked for removal (qty -> 0)
+  const [removedSaleIds, setRemovedSaleIds] = useState<Set<string>>(new Set())
   const [editSubmitting, setEditSubmitting] = useState(false)
 
   const loadDashboard = useCallback(async () => {
@@ -96,12 +99,13 @@ export default function DashboardPage() {
         .eq('store_id', storeId)
         .gte('sale_date', firstOfPrevMonth)
         .lte('sale_date', lastOfPrevMonth),
+      // Fetch a larger window so that multi-item transactions aren't truncated by limit
       supabase
         .from('sales')
         .select('*, product:products(*)')
         .eq('store_id', storeId)
         .order('created_at', { ascending: false })
-        .limit(8),
+        .limit(40),
     ])
 
     type SaleTotals = { quantity: number; total_amount: number; commission_amount: number }
@@ -129,29 +133,101 @@ export default function DashboardPage() {
     loadDashboard()
   }, [loadDashboard])
 
-  function openEdit(sale: Sale) {
-    setEditingSale(sale)
-    setEditQty(sale.quantity)
+  // Group consecutive sales by sale_group_id; standalone sales are their own group
+  const groupedTransactions = (() => {
+    const sales = data?.recentSales ?? []
+    const groups: { key: string; sales: Sale[] }[] = []
+    const groupIndex = new Map<string, number>()
+
+    for (const sale of sales) {
+      const key = sale.sale_group_id || sale.id // fallback: single-sale "group"
+      if (groupIndex.has(key)) {
+        groups[groupIndex.get(key)!].sales.push(sale)
+      } else {
+        groupIndex.set(key, groups.length)
+        groups.push({ key, sales: [sale] })
+      }
+    }
+    return groups.slice(0, 8) // show up to 8 transactions
+  })()
+
+  function openEdit(group: Sale[]) {
+    setEditingGroup(group)
+    setEditQuantities(Object.fromEntries(group.map((s) => [s.id, s.quantity])))
+    setRemovedSaleIds(new Set())
+  }
+
+  function closeEdit() {
+    setEditingGroup(null)
+    setEditQuantities({})
+    setRemovedSaleIds(new Set())
+  }
+
+  function setRowQty(saleId: string, qty: number) {
+    if (qty <= 0) {
+      setRemovedSaleIds((prev) => new Set(prev).add(saleId))
+      return
+    }
+    setRemovedSaleIds((prev) => {
+      const next = new Set(prev)
+      next.delete(saleId)
+      return next
+    })
+    setEditQuantities((prev) => ({ ...prev, [saleId]: qty }))
+  }
+
+  function toggleRemove(saleId: string) {
+    setRemovedSaleIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(saleId)) next.delete(saleId)
+      else next.add(saleId)
+      return next
+    })
   }
 
   async function submitEdit() {
-    if (!editingSale) return
+    if (!editingGroup) return
     setEditSubmitting(true)
     try {
-      const res = await fetch(`/api/sales/${editingSale.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quantity: editQty }),
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body?.error ?? 'Failed to update sale')
+      // Process each row that changed
+      const operations: Promise<Response>[] = []
+      for (const sale of editingGroup) {
+        const newQty = removedSaleIds.has(sale.id) ? 0 : (editQuantities[sale.id] ?? sale.quantity)
+        if (newQty === sale.quantity) continue // unchanged
+
+        if (newQty === 0) {
+          // Delete the sale (returns stock)
+          operations.push(
+            fetch(`/api/sales/${sale.id}`, { method: 'DELETE' })
+          )
+        } else {
+          operations.push(
+            fetch(`/api/sales/${sale.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ quantity: newQty }),
+            })
+          )
+        }
       }
-      toast.success('Sale updated')
-      setEditingSale(null)
+
+      if (operations.length === 0) {
+        closeEdit()
+        return
+      }
+
+      const results = await Promise.all(operations)
+      const failures = results.filter((r) => !r.ok)
+      if (failures.length > 0) {
+        const body = await failures[0].json().catch(() => ({}))
+        throw new Error(body?.error ?? `${failures.length} update(s) failed`)
+      }
+
+      toast.success(`Transaction updated (${operations.length} item${operations.length !== 1 ? 's' : ''})`)
+      closeEdit()
       loadDashboard()
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to update sale'
+      const message = err instanceof Error ? err.message : 'Failed to update transaction'
       toast.error(message)
     } finally {
       setEditSubmitting(false)
@@ -164,13 +240,24 @@ export default function DashboardPage() {
 
   return (
     <div className="px-4 py-5 space-y-6 max-w-lg mx-auto">
+      {/* Top bar — Guide + refresh */}
+      <div className="flex items-center justify-between -mb-2">
+        <Link
+          href="/store/help"
+          className="flex items-center gap-1.5 text-xs font-semibold text-[#0A0A0A] bg-[#FFD700] px-3 py-2 rounded-lg shadow-sm"
+        >
+          <BookOpen size={14} />
+          Tutorial Guide
+        </Link>
+        <button onClick={loadDashboard} className="p-2 text-gray-400 hover:text-gray-600">
+          <RefreshCw size={14} />
+        </button>
+      </div>
+
       {/* Today */}
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Today</h2>
-          <button onClick={loadDashboard} className="p-1 text-gray-400 hover:text-gray-600">
-            <RefreshCw size={14} />
-          </button>
         </div>
         {loading ? (
           <div className="flex gap-3 overflow-x-auto pb-1 -mx-4 px-4 snap-x">
@@ -251,7 +338,7 @@ export default function DashboardPage() {
         </Link>
       </section>
 
-      {/* Recent transactions (with edit) */}
+      {/* Recent transactions — grouped by sale_group_id */}
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Recent Transactions</h2>
@@ -263,102 +350,202 @@ export default function DashboardPage() {
           <SkeletonList />
         ) : (
           <div className="space-y-2">
-            {(data?.recentSales ?? []).length === 0 ? (
+            {groupedTransactions.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-6">No sales recorded yet.</p>
             ) : (
-              (data?.recentSales ?? []).map((sale) => (
-                <div key={sale.id} className="bg-white rounded-xl shadow-sm px-4 py-3 flex items-center justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[#0A0A0A] truncate">
-                      {sale.product?.name ?? 'Unknown Product'}
-                    </p>
-                    <p className="text-xs text-gray-400">{timeAgo(sale.created_at)} · Qty {sale.quantity}</p>
+              groupedTransactions.map(({ key, sales }) => {
+                const totalPairs = sales.reduce((s, x) => s + x.quantity, 0)
+                const totalAmount = sales.reduce((s, x) => s + x.total_amount, 0)
+                const firstSale = sales[0]
+                const productCount = sales.length
+                return (
+                  <div key={key} className="bg-white rounded-xl shadow-sm px-4 py-3 flex items-center justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      {productCount === 1 ? (
+                        <p className="text-sm font-medium text-[#0A0A0A] truncate">
+                          {firstSale.product?.name ?? 'Unknown Product'}
+                        </p>
+                      ) : (
+                        <p className="text-sm font-medium text-[#0A0A0A] truncate">
+                          {productCount} products · {sales.map((s) => s.product?.sku).filter(Boolean).join(', ')}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400">
+                        {timeAgo(firstSale.created_at)} · {totalPairs} pair{totalPairs !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-semibold text-[#0A0A0A]">{formatCurrency(totalAmount)}</p>
+                    </div>
+                    <button
+                      onClick={() => openEdit(sales)}
+                      className="flex items-center gap-1 px-2.5 h-8 rounded-lg bg-[#FFD700] text-[#0A0A0A] text-xs font-bold shrink-0"
+                    >
+                      <Pencil size={12} />
+                      Edit
+                    </button>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-semibold text-[#0A0A0A]">{formatCurrency(sale.total_amount)}</p>
-                  </div>
-                  <button
-                    onClick={() => openEdit(sale)}
-                    className="flex items-center gap-1 px-2.5 h-8 rounded-lg bg-[#FFD700] text-[#0A0A0A] text-xs font-bold shrink-0"
-                  >
-                    <Pencil size={12} />
-                    Edit
-                  </button>
-                </div>
-              ))
+                )
+              })
             )}
           </div>
         )}
       </section>
 
-      {/* Edit modal */}
-      {editingSale && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => !editSubmitting && setEditingSale(null)} />
-          <div className="relative bg-white rounded-t-2xl w-full max-w-lg px-5 pt-5 pb-8 shadow-2xl">
-            <div className="flex justify-center mb-4">
+      {/* Edit transaction modal — handles multi-item groups */}
+      {editingGroup && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => !editSubmitting && closeEdit()} />
+          <div className="relative bg-white rounded-t-2xl w-full max-w-lg px-5 pt-5 pb-6 shadow-2xl mb-[72px] max-h-[80vh] flex flex-col">
+            <div className="flex justify-center mb-3 shrink-0">
               <div className="w-10 h-1 rounded-full bg-gray-300" />
             </div>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-[#0A0A0A]">Edit Sale</h3>
+            <div className="flex items-center justify-between mb-4 shrink-0">
+              <h3 className="text-base font-bold text-[#0A0A0A]">
+                Edit Transaction
+                <span className="text-xs font-normal text-gray-400 ml-2">
+                  {editingGroup.length} item{editingGroup.length !== 1 ? 's' : ''}
+                </span>
+              </h3>
               <button
-                onClick={() => !editSubmitting && setEditingSale(null)}
+                onClick={closeEdit}
+                disabled={editSubmitting}
                 className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"
               >
                 <X size={16} />
               </button>
             </div>
-            <div className="bg-gray-50 rounded-xl p-3 mb-4">
-              <p className="text-sm font-bold text-[#0A0A0A]">{editingSale.product?.name}</p>
-              <p className="text-xs text-gray-400 font-mono">{editingSale.product?.sku}</p>
-              <p className="text-xs text-gray-400 mt-1">
-                {formatMYDate(editingSale.sale_date)} · {formatCurrency(editingSale.unit_price)} / pair
-              </p>
+
+            <p className="text-xs text-gray-400 mb-3 shrink-0">
+              {formatMYDate(editingGroup[0].sale_date)} · adjust quantity or remove items
+            </p>
+
+            <div className="flex-1 overflow-y-auto space-y-3 -mx-1 px-1">
+              {editingGroup.map((sale) => {
+                const currentQty = editQuantities[sale.id] ?? sale.quantity
+                const removed = removedSaleIds.has(sale.id)
+                const newSubtotal = removed ? 0 : sale.unit_price * currentQty
+                const delta = removed ? -sale.quantity : currentQty - sale.quantity
+
+                return (
+                  <div
+                    key={sale.id}
+                    className={cn(
+                      'rounded-xl p-3 border-2 transition-colors',
+                      removed
+                        ? 'bg-red-50 border-red-200 opacity-60'
+                        : delta !== 0
+                          ? 'bg-amber-50 border-amber-200'
+                          : 'bg-gray-50 border-transparent',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex-1 min-w-0">
+                        <p className={cn('text-sm font-bold', removed ? 'line-through text-gray-400' : 'text-[#0A0A0A]')}>
+                          {sale.product?.name}
+                        </p>
+                        <p className="text-xs text-gray-400 font-mono">{sale.product?.sku}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {formatCurrency(sale.unit_price)} / pair · was Qty {sale.quantity}
+                        </p>
+                      </div>
+                      <p className={cn('text-sm font-bold shrink-0', removed && 'line-through text-gray-400')}>
+                        {formatCurrency(newSubtotal)}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2">
+                      {removed ? (
+                        <button
+                          onClick={() => toggleRemove(sale.id)}
+                          disabled={editSubmitting}
+                          className="text-xs font-semibold text-blue-600 underline"
+                        >
+                          Undo remove
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setRowQty(sale.id, currentQty - 1)}
+                            disabled={editSubmitting}
+                            className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-100 disabled:opacity-40"
+                          >
+                            <span className="text-base font-bold">−</span>
+                          </button>
+                          <span className="w-8 text-center text-base font-bold">{currentQty}</span>
+                          <button
+                            onClick={() => setRowQty(sale.id, currentQty + 1)}
+                            disabled={editSubmitting}
+                            className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-100 disabled:opacity-40"
+                          >
+                            <span className="text-base font-bold">+</span>
+                          </button>
+                          {delta !== 0 && (
+                            <span className="text-[10px] text-amber-700 font-semibold ml-1">
+                              {delta > 0 ? `+${delta}` : delta} from stock
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {!removed && (
+                        <button
+                          onClick={() => toggleRemove(sale.id)}
+                          disabled={editSubmitting}
+                          className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center hover:bg-red-100 disabled:opacity-40"
+                        >
+                          <Trash2 size={13} className="text-red-500" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-            <p className="text-sm font-medium text-gray-600 mb-3">New quantity</p>
-            <div className="flex items-center justify-center gap-6 mb-5">
-              <button
-                onClick={() => setEditQty((q) => Math.max(1, q - 1))}
-                disabled={editSubmitting}
-                className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors active:scale-95 disabled:opacity-40"
-              >
-                <span className="text-xl font-bold">−</span>
-              </button>
-              <span className="text-5xl font-bold text-[#0A0A0A] min-w-[3rem] text-center">{editQty}</span>
-              <button
-                onClick={() => setEditQty((q) => q + 1)}
-                disabled={editSubmitting}
-                className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors active:scale-95 disabled:opacity-40"
-              >
-                <span className="text-xl font-bold">+</span>
-              </button>
-            </div>
-            {editQty !== editingSale.quantity && (
-              <p className="text-xs text-center text-amber-600 mb-3">
-                {editQty > editingSale.quantity
-                  ? `+${editQty - editingSale.quantity} pairs will be deducted from stock`
-                  : `${editingSale.quantity - editQty} pairs will be returned to stock`}
-              </p>
-            )}
-            <button
-              onClick={submitEdit}
-              disabled={editSubmitting || editQty === editingSale.quantity}
-              className={cn(
-                'w-full h-14 rounded-xl bg-[#0A0A0A] text-[#FFD700] font-bold text-base flex items-center justify-center gap-2',
-                (editSubmitting || editQty === editingSale.quantity)
-                  ? 'opacity-50 cursor-not-allowed'
-                  : 'hover:opacity-90 active:scale-95 transition-all',
-              )}
-            >
-              {editSubmitting ? (
-                <>
-                  <Loader2 size={18} className="animate-spin" />
-                  Saving…
-                </>
-              ) : (
-                'Save Changes'
-              )}
-            </button>
+
+            {(() => {
+              const newTotal = editingGroup.reduce((s, sale) => {
+                if (removedSaleIds.has(sale.id)) return s
+                const q = editQuantities[sale.id] ?? sale.quantity
+                return s + sale.unit_price * q
+              }, 0)
+              const oldTotal = editingGroup.reduce((s, sale) => s + sale.total_amount, 0)
+              const hasChanges =
+                removedSaleIds.size > 0 ||
+                editingGroup.some((s) => (editQuantities[s.id] ?? s.quantity) !== s.quantity)
+
+              return (
+                <div className="shrink-0 pt-3 mt-2 border-t border-gray-100 space-y-3">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-500">New total</span>
+                    <span className="font-bold text-[#0A0A0A]">
+                      {formatCurrency(newTotal)}
+                      {newTotal !== oldTotal && (
+                        <span className="text-xs text-gray-400 ml-2 line-through">{formatCurrency(oldTotal)}</span>
+                      )}
+                    </span>
+                  </div>
+                  <button
+                    onClick={submitEdit}
+                    disabled={editSubmitting || !hasChanges}
+                    className={cn(
+                      'w-full h-14 rounded-xl bg-[#0A0A0A] text-[#FFD700] font-bold text-base flex items-center justify-center gap-2',
+                      (editSubmitting || !hasChanges)
+                        ? 'opacity-50 cursor-not-allowed'
+                        : 'hover:opacity-90 active:scale-95 transition-all',
+                    )}
+                  >
+                    {editSubmitting ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        Saving…
+                      </>
+                    ) : (
+                      'Save Changes'
+                    )}
+                  </button>
+                </div>
+              )
+            })()}
           </div>
         </div>
       )}

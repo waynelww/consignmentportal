@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, Edit, X, AlertTriangle, Upload } from 'lucide-react'
+import { Plus, Edit, X, AlertTriangle, Upload, RefreshCw, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -41,6 +41,29 @@ export default function ProductsPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [confirmDeactivate, setConfirmDeactivate] = useState<Product | null>(null)
+  const [syncing, setSyncing] = useState(false)
+
+  async function syncShopifyImages() {
+    if (syncing) return
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/products/sync-shopify-images', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error ?? 'Sync failed', { description: data.details, duration: 8000 })
+        return
+      }
+      toast.success(
+        `Updated ${data.updated} products · ${data.unchanged} unchanged · ${data.not_found_in_shopify} not found in Shopify`,
+        { duration: 6000 },
+      )
+      fetchProducts()
+    } catch (e) {
+      toast.error(`Network error: ${e instanceof Error ? e.message : 'Unknown'}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
   const supabase = createClient()
 
   const form = useForm<ProductFormData>({
@@ -152,7 +175,15 @@ export default function ProductsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex justify-end gap-2">
+      <div className="flex justify-end gap-2 flex-wrap">
+        <button
+          onClick={syncShopifyImages}
+          disabled={syncing}
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50"
+        >
+          {syncing ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+          {syncing ? 'Syncing…' : 'Sync variant images'}
+        </button>
         <Link
           href="/admin/products/import"
           className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50 transition-colors"

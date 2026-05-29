@@ -355,9 +355,9 @@ export default function SalesHistoryPage() {
 
       {/* Edit sale modal */}
       {editingSale && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center">
+        <div className="fixed inset-0 z-[60] flex items-end justify-center">
           <div className="absolute inset-0 bg-black/50" onClick={() => !editSubmitting && setEditingSale(null)} />
-          <div className="relative bg-white rounded-t-2xl w-full max-w-lg px-5 pt-5 pb-8 shadow-2xl">
+          <div className="relative bg-white rounded-t-2xl w-full max-w-lg px-5 pt-5 pb-8 shadow-2xl mb-[72px]">
             {/* Handle */}
             <div className="flex justify-center mb-4">
               <div className="w-10 h-1 rounded-full bg-gray-300" />

@@ -44,7 +44,7 @@ export function BottomNav() {
                   highlight ? 'h-6 w-6 text-[#FFD700]' : 'h-5 w-5',
                 )} />
               </div>
-              <span className={cn('text-xs truncate', highlight && 'mt-1')}>{label}</span>
+              <span className={cn('text-xs truncate', highlight && 'mt-1', isActive && 'font-bold')}>{label}</span>
             </Link>
           )
         })}
