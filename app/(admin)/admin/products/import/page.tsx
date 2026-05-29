@@ -113,7 +113,8 @@ function shopifyRowToProduct(row: Record<string, string>): ImportRow | null {
   const description = (row['Body (HTML)'] || row['Description'] || row['description'] || '')
     .replace(/<[^>]+>/g, '').trim().slice(0, 500) || undefined
 
-  const image_url = (row['Image Src'] || '').trim() || undefined
+  // Prefer variant-specific image (Variant Image column), fall back to product thumbnail (Image Src)
+  const image_url = (row['Variant Image'] || row['Image Src'] || '').trim() || undefined
 
   return { sku, name, category, color, selling_price, cost_price, barcode, description, image_url, is_core_sku: false }
 }

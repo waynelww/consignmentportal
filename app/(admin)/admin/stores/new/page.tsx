@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Check, Copy, ChevronRight, ArrowLeft } from 'lucide-react'
+import { Check, Copy, ChevronRight, ArrowLeft, Search, X, Sparkles, MessageCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { MALAYSIAN_STATES, STORE_TYPE_LABELS, generateRef, cn } from '@/lib/utils'
 import type { Product } from '@/types'
@@ -46,6 +46,19 @@ interface ProductSelection {
   selected: boolean
   quantity: number
   product: Product
+  is_recommended?: boolean
+  rank?: number | null
+  suggested_qty?: number
+  total_units_sold?: number
+  store_coverage?: number
+}
+
+interface RecommendationMeta {
+  signal_source: 'nearby_city' | 'nearby_state' | 'global'
+  signal_store_count: number
+  nearby_city: string | null
+  nearby_state: string | null
+  lookback_days: number
 }
 
 function StepIndicator({ current, step, label }: { current: number; step: number; label: string }) {
@@ -78,11 +91,19 @@ export default function NewStorePage() {
   const [step, setStep] = useState(1)
   const [step1Data, setStep1Data] = useState<Step1Data | null>(null)
   const [step2Data, setStep2Data] = useState<Step2Data | null>(null)
-  const [products, setProducts] = useState<Product[]>([])
   const [selections, setSelections] = useState<ProductSelection[]>([])
+  const [recMeta, setRecMeta] = useState<RecommendationMeta | null>(null)
   const [tempPassword, setTempPassword] = useState('')
-  const [copied, setCopied] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [loadingProducts, setLoadingProducts] = useState(false)
+
+  // Step 2 two-phase: 'pick' for ticking SKUs, 'quantities' for setting amounts
+  const [pickPhase, setPickPhase] = useState<'pick' | 'quantities'>('pick')
+  const [search, setSearch] = useState('')
+
+  // Step 3 clipboard state
+  const [copiedField, setCopiedField] = useState<string | null>(null)
+
   const supabase = createClient()
 
   // Step 1 form
@@ -101,30 +122,44 @@ export default function NewStorePage() {
     setTempPassword(generateRef(10))
   }, [])
 
+  // Load recommended products WHEN step 1 is completed (we have the state/city)
   useEffect(() => {
-    supabase
-      .from('products')
-      .select('*')
-      .eq('is_active', true)
-      .order('sku')
-      .then(({ data }) => {
-        const prods = (data || []) as Product[]
-        setProducts(prods)
-        setSelections(
-          prods.map((p) => ({
-            product_id: p.id,
-            selected: p.is_core_sku,
-            quantity: p.is_core_sku ? 12 : 6,
-            product: p,
-          }))
-        )
+    if (!step1Data || step !== 2) return
+    setLoadingProducts(true)
+
+    const url = `/api/stores/recommendations?state=${encodeURIComponent(step1Data.state)}&city=${encodeURIComponent(step1Data.city)}`
+    fetch(url)
+      .then((r) => r.json())
+      .then((data: { products: (Product & { is_recommended: boolean; rank: number | null; suggested_qty: number; total_units_sold: number; store_coverage: number })[]; meta: RecommendationMeta }) => {
+        if (!data.products) return
+        setRecMeta(data.meta)
+        // Preserve any prior selections if user navigates back
+        setSelections((prev) => {
+          const priorById = new Map(prev.map((s) => [s.product_id, s]))
+          return data.products.map((p) => {
+            const prior = priorById.get(p.id)
+            return {
+              product_id: p.id,
+              selected: prior ? prior.selected : p.is_recommended,
+              quantity: prior ? prior.quantity : p.suggested_qty,
+              product: p,
+              is_recommended: p.is_recommended,
+              rank: p.rank,
+              suggested_qty: p.suggested_qty,
+              total_units_sold: p.total_units_sold,
+              store_coverage: p.store_coverage,
+            }
+          })
+        })
       })
-  }, [])
+      .finally(() => setLoadingProducts(false))
+  }, [step1Data, step])
 
   async function onStep1(data: Step1Data) {
     setStep1Data(data)
     form3.setValue('login_email', data.email)
     setStep(2)
+    setPickPhase('pick')
   }
 
   async function onStep2(data: Step2Data) {
@@ -148,7 +183,7 @@ export default function NewStorePage() {
           initial_inventory: selections
             .filter((s) => s.selected)
             .map((s) => ({ product_id: s.product_id, quantity: s.quantity })),
-          email: step1Data.email,
+          email: data.login_email,
           password: tempPassword,
         }),
       })
@@ -169,26 +204,97 @@ export default function NewStorePage() {
     }
   }
 
-  function copyPassword() {
-    navigator.clipboard.writeText(tempPassword)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  function copyToClipboard(text: string, field: string) {
+    navigator.clipboard.writeText(text)
+    setCopiedField(field)
+    toast.success(`${field} copied`)
+    setTimeout(() => setCopiedField(null), 2000)
   }
 
-  function toggleSelection(idx: number) {
+  const loginUrl = typeof window !== 'undefined' ? `${window.location.origin}/login` : ''
+  const loginEmail = form3.watch('login_email') || step1Data?.email || ''
+
+  function welcomeMessage() {
+    const storeName = step1Data?.store_name || 'your store'
+    return `Hi ${step1Data?.pic_name ?? 'there'}! 👋
+
+Welcome to Xocks. Here are your login details for ${storeName}:
+
+🔗 Login link: ${loginUrl}
+📧 Email: ${loginEmail}
+🔑 Temporary password: ${tempPassword}
+
+For security, please change your password after first login:
+1. Log in with the password above
+2. Tap the Account tab at the bottom
+3. Tap "Change Password"
+4. Set a strong password you'll remember
+
+Need help? Check the tutorial guide in the Account tab.
+
+Welcome aboard! 🧦`
+  }
+
+  function copyWelcomeMessage() {
+    copyToClipboard(welcomeMessage(), 'Welcome message')
+  }
+
+  function shareWhatsApp() {
+    const phone = (step1Data?.pic_phone ?? '').replace(/\D/g, '')
+    const text = encodeURIComponent(welcomeMessage())
+    // strip leading 0 and prepend 60 if Malaysian local number
+    let intl = phone
+    if (phone.startsWith('0')) intl = '60' + phone.slice(1)
+    window.open(`https://wa.me/${intl}?text=${text}`, '_blank')
+  }
+
+  function toggleSelection(productId: string) {
     setSelections((prev) =>
-      prev.map((s, i) => (i === idx ? { ...s, selected: !s.selected } : s))
+      prev.map((s) => (s.product_id === productId ? { ...s, selected: !s.selected } : s))
     )
   }
 
-  function updateQty(idx: number, qty: number) {
+  function updateQty(productId: string, qty: number) {
     setSelections((prev) =>
-      prev.map((s, i) => (i === idx ? { ...s, quantity: Math.max(0, qty) } : s))
+      prev.map((s) => (s.product_id === productId ? { ...s, quantity: Math.max(0, qty) } : s))
     )
   }
+
+  function selectAllRecommended() {
+    setSelections((prev) => prev.map((s) => (s.is_recommended ? { ...s, selected: true } : s)))
+  }
+
+  function clearAll() {
+    setSelections((prev) => prev.map((s) => ({ ...s, selected: false })))
+  }
+
+  // Filtered list for the pick phase
+  const filteredSelections = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return selections
+    return selections.filter(
+      (s) =>
+        s.product.sku.toLowerCase().includes(q) ||
+        s.product.name.toLowerCase().includes(q) ||
+        (s.product.category ?? '').toLowerCase().includes(q)
+    )
+  }, [selections, search])
+
+  const recommendedItems = useMemo(() => filteredSelections.filter((s) => s.is_recommended), [filteredSelections])
+  const otherItems = useMemo(() => filteredSelections.filter((s) => !s.is_recommended), [filteredSelections])
+  const selectedItems = useMemo(() => selections.filter((s) => s.selected), [selections])
+  const totalSelectedSKUs = selectedItems.length
+  const totalSelectedPairs = selectedItems.reduce((a, s) => a + s.quantity, 0)
+
+  const signalLabel = (() => {
+    if (!recMeta) return ''
+    if (recMeta.signal_source === 'nearby_city') return `Based on ${recMeta.signal_store_count} store${recMeta.signal_store_count !== 1 ? 's' : ''} in ${recMeta.nearby_city}`
+    if (recMeta.signal_source === 'nearby_state') return `Based on ${recMeta.signal_store_count} store${recMeta.signal_store_count !== 1 ? 's' : ''} in ${recMeta.nearby_state}`
+    return 'Network-wide best sellers (not enough local data yet)'
+  })()
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-2xl mx-auto pb-32">
       {/* Back link */}
       <div className="mb-4">
         <Link href="/admin/stores" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors">
@@ -208,7 +314,7 @@ export default function NewStorePage() {
         </div>
       </div>
 
-      {/* Step 1 */}
+      {/* Step 1 (unchanged) */}
       {step === 1 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <h2 className="text-base font-semibold text-gray-900 mb-5">Store Information</h2>
@@ -335,7 +441,7 @@ export default function NewStorePage() {
         </div>
       )}
 
-      {/* Step 2 */}
+      {/* Step 2 — REDESIGNED */}
       {step === 2 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <h2 className="text-base font-semibold text-gray-900 mb-5">Commercial Terms</h2>
@@ -376,96 +482,272 @@ export default function NewStorePage() {
               <FieldError message={form2.formState.errors.payment_terms_days?.message} />
             </div>
 
+            {/* ── Product picker ── */}
             <div>
-              <h3 className="text-sm font-semibold text-gray-800 mb-3">Initial Product Selection</h3>
-              <p className="text-xs text-gray-500 mb-3">Core SKUs are pre-selected. Set starting quantities.</p>
-              <div className="border border-gray-100 rounded-xl overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100">
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Include</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">SKU</th>
-                      <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Name</th>
-                      <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500">Qty</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selections.map((sel, idx) => (
-                      <tr key={sel.product_id} className="border-b border-gray-50">
-                        <td className="px-3 py-2">
-                          <input
-                            type="checkbox"
-                            checked={sel.selected}
-                            onChange={() => toggleSelection(idx)}
-                            className="accent-[#FFD700]"
-                          />
-                        </td>
-                        <td className="px-3 py-2 font-mono text-xs text-gray-500">{sel.product.sku}</td>
-                        <td className="px-3 py-2 text-gray-800">
-                          {sel.product.name}
-                          {sel.product.is_core_sku && (
-                            <span className="ml-1.5 text-[10px] bg-[#FFD700]/20 text-[#0A0A0A] px-1.5 py-0.5 rounded font-semibold">
-                              CORE
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            min={0}
-                            value={sel.quantity}
-                            onChange={(e) => updateQty(idx, Number(e.target.value))}
-                            disabled={!sel.selected}
-                            className="w-20 ml-auto block px-2 py-1 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] disabled:opacity-40 text-right"
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-800">Initial Product Selection</h3>
+                {pickPhase === 'quantities' && (
+                  <button
+                    type="button"
+                    onClick={() => setPickPhase('pick')}
+                    className="text-xs text-gray-500 hover:text-gray-800 underline"
+                  >
+                    Edit picks
+                  </button>
+                )}
               </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Total:{' '}
-                <strong>
-                  {selections.filter((s) => s.selected).reduce((a, s) => a + s.quantity, 0)}
-                </strong>{' '}
-                pairs across{' '}
-                <strong>{selections.filter((s) => s.selected).length}</strong> SKUs
-              </p>
+
+              {/* Smart recommendation banner */}
+              {recMeta && (
+                <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-lg">
+                  <Sparkles size={14} className="text-amber-600 shrink-0" />
+                  <p className="text-xs text-amber-800">
+                    <strong>Smart picks:</strong> {signalLabel}
+                  </p>
+                </div>
+              )}
+
+              {loadingProducts ? (
+                <p className="text-xs text-gray-400 py-6 text-center">Loading recommendations…</p>
+              ) : pickPhase === 'pick' ? (
+                <>
+                  {/* Search + bulk actions */}
+                  <div className="flex flex-col sm:flex-row gap-2 mb-3">
+                    <div className="relative flex-1">
+                      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Search by SKU, name, or category…"
+                        className="w-full h-10 pl-9 pr-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                      />
+                      {search && (
+                        <button
+                          type="button"
+                          onClick={() => setSearch('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={selectAllRecommended}
+                        className="px-3 h-10 text-xs font-medium bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 transition-colors"
+                      >
+                        Tick all recommended
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearAll}
+                        className="px-3 h-10 text-xs font-medium border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        Clear all
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Recommended group */}
+                  {recommendedItems.length > 0 && (
+                    <div className="mb-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Sparkles size={12} className="text-amber-600" />
+                        <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wide">Recommended for this location</h4>
+                      </div>
+                      <div className="border-2 border-amber-200 rounded-xl overflow-hidden bg-amber-50/30">
+                        {recommendedItems.map((sel) => (
+                          <label
+                            key={sel.product_id}
+                            className="flex items-center gap-3 px-3 py-2.5 border-b border-amber-100 last:border-b-0 cursor-pointer hover:bg-amber-50"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={sel.selected}
+                              onChange={() => toggleSelection(sel.product_id)}
+                              className="accent-[#FFD700] w-4 h-4"
+                            />
+                            <div className="flex-1 min-w-0 flex items-center gap-2">
+                              <span className="font-mono text-xs text-gray-500 shrink-0">{sel.product.sku}</span>
+                              <span className="text-sm text-gray-800 truncate">{sel.product.name}</span>
+                              {sel.product.is_core_sku && (
+                                <span className="text-[10px] bg-[#FFD700]/30 text-[#0A0A0A] px-1.5 py-0.5 rounded font-semibold shrink-0">CORE</span>
+                              )}
+                              {sel.rank !== null && sel.rank !== undefined && sel.rank <= 8 && (
+                                <span className="text-[10px] bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded font-semibold shrink-0">#{sel.rank} seller</span>
+                              )}
+                            </div>
+                            {(sel.total_units_sold ?? 0) > 0 && (
+                              <span className="text-[10px] text-gray-500 shrink-0">{sel.total_units_sold} sold</span>
+                            )}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Other SKUs */}
+                  {otherItems.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">All Other SKUs</h4>
+                      <div className="border border-gray-200 rounded-xl overflow-hidden max-h-80 overflow-y-auto">
+                        {otherItems.map((sel) => (
+                          <label
+                            key={sel.product_id}
+                            className="flex items-center gap-3 px-3 py-2 border-b border-gray-100 last:border-b-0 cursor-pointer hover:bg-gray-50"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={sel.selected}
+                              onChange={() => toggleSelection(sel.product_id)}
+                              className="accent-[#FFD700] w-4 h-4"
+                            />
+                            <div className="flex-1 min-w-0 flex items-center gap-2">
+                              <span className="font-mono text-xs text-gray-400 shrink-0">{sel.product.sku}</span>
+                              <span className="text-sm text-gray-700 truncate">{sel.product.name}</span>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {filteredSelections.length === 0 && (
+                    <p className="text-xs text-center text-gray-400 py-6">No SKUs match your search.</p>
+                  )}
+                </>
+              ) : (
+                // Quantities phase — only show selected items with qty inputs
+                <div className="border border-gray-100 rounded-xl overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-100">
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">SKU</th>
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Name</th>
+                        <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500">Suggested</th>
+                        <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500">Qty</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedItems.map((sel) => (
+                        <tr key={sel.product_id} className="border-b border-gray-50">
+                          <td className="px-3 py-2 font-mono text-xs text-gray-500">{sel.product.sku}</td>
+                          <td className="px-3 py-2 text-gray-800">
+                            {sel.product.name}
+                            {sel.is_recommended && (
+                              <Sparkles size={10} className="inline ml-1 text-amber-500" />
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right text-xs text-gray-400">
+                            {sel.suggested_qty ?? '—'}
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              min={0}
+                              value={sel.quantity}
+                              onChange={(e) => updateQty(sel.product_id, Number(e.target.value))}
+                              className="w-20 ml-auto block px-2 py-1 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-right"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                      {selectedItems.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="text-center py-6 text-xs text-gray-400">
+                            No SKUs picked yet. Go back to pick some.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
-            <div className="flex gap-3 justify-end">
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="px-5 py-2.5 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors"
-              >
-                Back
-              </button>
-              <button
-                type="submit"
-                className="px-6 py-2.5 bg-[#0A0A0A] text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
-              >
-                Next: Account & Agreement
-              </button>
+            {/* Sticky bottom action bar */}
+            <div className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-200 shadow-lg">
+              <div className="max-w-2xl mx-auto px-6 py-3 flex items-center justify-between gap-3">
+                <div className="text-xs text-gray-600">
+                  <strong className="text-[#0A0A0A]">{totalSelectedSKUs}</strong> SKUs ·{' '}
+                  <strong className="text-[#0A0A0A]">{totalSelectedPairs}</strong> pairs
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setStep(1)}
+                    className="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+                  >
+                    Back
+                  </button>
+                  {pickPhase === 'pick' ? (
+                    <button
+                      type="button"
+                      onClick={() => setPickPhase('quantities')}
+                      disabled={totalSelectedSKUs === 0}
+                      className="px-5 py-2 bg-[#0A0A0A] text-[#FFD700] text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                      Done Picking →
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-[#0A0A0A] text-[#FFD700] text-sm font-semibold rounded-lg hover:opacity-90 transition-all"
+                    >
+                      Next: Account →
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
           </form>
         </div>
       )}
 
-      {/* Step 3 */}
+      {/* Step 3 — Improved clipboard */}
       {step === 3 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <h2 className="text-base font-semibold text-gray-900 mb-5">Account & Agreement</h2>
-          <form onSubmit={form3.handleSubmit(onStep3)} className="space-y-4">
+          <form onSubmit={form3.handleSubmit(onStep3)} className="space-y-5">
             <div>
               <label className="text-xs font-medium text-gray-600 block mb-1">Login Email *</label>
-              <input
-                {...form3.register('login_email')}
-                type="email"
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
-              />
+              <div className="flex gap-2">
+                <input
+                  {...form3.register('login_email')}
+                  type="email"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                />
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(loginEmail, 'Email')}
+                  className="px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors"
+                  title="Copy email"
+                >
+                  {copiedField === 'Email' ? <Check size={16} className="text-green-500" /> : <Copy size={16} />}
+                </button>
+              </div>
               <FieldError message={form3.formState.errors.login_email?.message} />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Login URL</label>
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  value={loginUrl}
+                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 font-mono text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(loginUrl, 'Login URL')}
+                  className="px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors"
+                  title="Copy URL"
+                >
+                  {copiedField === 'Login URL' ? <Check size={16} className="text-green-500" /> : <Copy size={16} />}
+                </button>
+              </div>
             </div>
 
             <div>
@@ -478,18 +760,46 @@ export default function NewStorePage() {
                 />
                 <button
                   type="button"
-                  onClick={copyPassword}
+                  onClick={() => copyToClipboard(tempPassword, 'Password')}
                   className="px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors"
-                  title="Copy to clipboard"
+                  title="Copy password"
                 >
-                  {copied ? <Check size={16} className="text-green-500" /> : <Copy size={16} />}
+                  {copiedField === 'Password' ? <Check size={16} className="text-green-500" /> : <Copy size={16} />}
                 </button>
               </div>
-              <p className="text-xs text-gray-500 mt-1">Share this password with the store owner after creation.</p>
+              <p className="text-xs text-gray-500 mt-1">Owner should change this after first login.</p>
             </div>
 
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
-              Review the login credentials below. Share the temporary password with the store owner after creation.
+            {/* All-in-one welcome message */}
+            <div className="border border-amber-200 bg-gradient-to-br from-amber-50 to-yellow-50 rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Sparkles size={14} className="text-amber-600" />
+                <h3 className="text-sm font-semibold text-gray-800">One-tap onboarding</h3>
+              </div>
+              <p className="text-xs text-gray-600">
+                Send a ready-to-go welcome message with login link, credentials, and password-change instructions.
+              </p>
+              <pre className="text-[11px] text-gray-600 bg-white/70 rounded-lg p-3 max-h-40 overflow-y-auto whitespace-pre-wrap font-sans border border-amber-100">
+                {welcomeMessage()}
+              </pre>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={copyWelcomeMessage}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-[#0A0A0A] text-white text-sm font-medium rounded-lg hover:opacity-90 transition-all"
+                >
+                  {copiedField === 'Welcome message' ? <Check size={14} /> : <Copy size={14} />}
+                  Copy welcome message
+                </button>
+                <button
+                  type="button"
+                  onClick={shareWhatsApp}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-green-500 text-white text-sm font-medium rounded-lg hover:bg-green-600 transition-all"
+                >
+                  <MessageCircle size={14} />
+                  Send via WhatsApp
+                </button>
+              </div>
             </div>
 
             <div className="flex gap-3 justify-end">

@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { FileText } from 'lucide-react'
+import { FileText, BookOpen } from 'lucide-react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMonthYear } from '@/lib/utils'
 import type { CommissionPeriod, Sale, Store } from '@/types'
@@ -99,7 +100,16 @@ export default function CommissionsPage() {
 
   return (
     <div className="px-4 py-5 max-w-lg mx-auto space-y-5">
-      <h1 className="text-xl font-bold text-[#0A0A0A]">Commissions & Invoices</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-[#0A0A0A]">Commissions & Invoices</h1>
+        <Link
+          href="/store/help"
+          className="flex items-center gap-1.5 text-xs font-semibold text-[#0A0A0A] bg-[#FFD700] px-3 py-2 rounded-lg"
+        >
+          <BookOpen size={14} />
+          Guide
+        </Link>
+      </div>
 
       {/* Current month live card */}
       {loading ? (

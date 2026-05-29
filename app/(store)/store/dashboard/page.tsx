@@ -2,25 +2,25 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { RefreshCw, Pencil, X, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
-import { formatCurrency, timeAgo, getStockStatus } from '@/lib/utils'
-import type { Sale, StoreInventory, Store, CommissionPeriod } from '@/types'
+import { formatCurrency, timeAgo, formatMYDate } from '@/lib/utils'
+import type { Sale } from '@/types'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/components/store/StoreContext'
 
 interface DashboardData {
-  store: Store | null
   todaySales: number
   todayRevenue: number
   todayCommission: number
-  inventory: StoreInventory[]
   monthSales: number
   monthRevenue: number
   monthCommission: number
-  commissionRate: number
+  lastMonthSales: number
+  lastMonthRevenue: number
+  lastMonthCommission: number
   recentSales: Sale[]
-  totalStock: number
 }
 
 function SkeletonCard() {
@@ -49,109 +49,122 @@ function SkeletonList() {
 }
 
 export default function DashboardPage() {
-  const { storeId, store: contextStore } = useStore()
+  const { storeId } = useStore()
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Edit modal state
+  const [editingSale, setEditingSale] = useState<Sale | null>(null)
+  const [editQty, setEditQty] = useState(1)
+  const [editSubmitting, setEditSubmitting] = useState(false)
 
   const loadDashboard = useCallback(async () => {
     if (!storeId) return
     setLoading(true)
     const supabase = createClient()
 
-    // Compute date strings in MYT before firing queries
     const myNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
     const pad = (n: number) => String(n).padStart(2, '0')
-    const todayStr     = `${myNow.getFullYear()}-${pad(myNow.getMonth() + 1)}-${pad(myNow.getDate())}`
-    const firstOfMonth = `${myNow.getFullYear()}-${pad(myNow.getMonth() + 1)}-01`
+    const y = myNow.getFullYear()
+    const m = myNow.getMonth() + 1
+    const todayStr = `${y}-${pad(m)}-${pad(myNow.getDate())}`
+    const firstOfMonth = `${y}-${pad(m)}-01`
 
-    // storeId + store already available from layout — skip auth waterfall and stores query
-    const [inventoryRes, todaySalesRes, monthSalesRes, recentSalesRes] = await Promise.all([
-      supabase
-        .from('store_inventory')
-        .select('*, product:products(*)')
-        .eq('store_id', storeId)
-        .order('quantity_on_hand', { ascending: true }),
-      // Today's totals only — lightweight, no product join
+    // Previous month bounds
+    const prevMonthYear = m === 1 ? y - 1 : y
+    const prevMonth = m === 1 ? 12 : m - 1
+    const firstOfPrevMonth = `${prevMonthYear}-${pad(prevMonth)}-01`
+    // Last day of prev month = day 0 of current month
+    const lastOfPrevMonthDate = new Date(y, m - 1, 0)
+    const lastOfPrevMonth = `${lastOfPrevMonthDate.getFullYear()}-${pad(lastOfPrevMonthDate.getMonth() + 1)}-${pad(lastOfPrevMonthDate.getDate())}`
+
+    const [todaySalesRes, monthSalesRes, lastMonthSalesRes, recentSalesRes] = await Promise.all([
       supabase
         .from('sales')
         .select('quantity, total_amount, commission_amount')
         .eq('store_id', storeId)
         .eq('sale_date', todayStr),
-      // This month's totals only — lightweight, no product join
       supabase
         .from('sales')
         .select('quantity, total_amount, commission_amount')
         .eq('store_id', storeId)
         .gte('sale_date', firstOfMonth)
         .lte('sale_date', todayStr),
-      // Recent sales — just 5 rows with product name
+      supabase
+        .from('sales')
+        .select('quantity, total_amount, commission_amount')
+        .eq('store_id', storeId)
+        .gte('sale_date', firstOfPrevMonth)
+        .lte('sale_date', lastOfPrevMonth),
       supabase
         .from('sales')
         .select('*, product:products(*)')
         .eq('store_id', storeId)
         .order('created_at', { ascending: false })
-        .limit(5),
+        .limit(8),
     ])
 
     type SaleTotals = { quantity: number; total_amount: number; commission_amount: number }
-    const inventory = (inventoryRes.data as StoreInventory[]) ?? []
-    const todayArr  = (todaySalesRes.data ?? []) as SaleTotals[]
-    const monthArr  = (monthSalesRes.data ?? []) as SaleTotals[]
+    const todayArr = (todaySalesRes.data ?? []) as SaleTotals[]
+    const monthArr = (monthSalesRes.data ?? []) as SaleTotals[]
+    const lastMonthArr = (lastMonthSalesRes.data ?? []) as SaleTotals[]
     const recentSales = (recentSalesRes.data as Sale[]) ?? []
 
-    const totalStock = inventory.reduce((sum, i) => sum + i.quantity_on_hand, 0)
-
     setData({
-      store: contextStore ?? null,
-      todaySales:      todayArr.reduce((s, x) => s + x.quantity, 0),
-      todayRevenue:    todayArr.reduce((s, x) => s + x.total_amount, 0),
+      todaySales: todayArr.reduce((s, x) => s + x.quantity, 0),
+      todayRevenue: todayArr.reduce((s, x) => s + x.total_amount, 0),
       todayCommission: todayArr.reduce((s, x) => s + x.commission_amount, 0),
-      inventory,
-      monthSales:      monthArr.reduce((s, x) => s + x.quantity, 0),
-      monthRevenue:    monthArr.reduce((s, x) => s + x.total_amount, 0),
+      monthSales: monthArr.reduce((s, x) => s + x.quantity, 0),
+      monthRevenue: monthArr.reduce((s, x) => s + x.total_amount, 0),
       monthCommission: monthArr.reduce((s, x) => s + x.commission_amount, 0),
-      commissionRate: contextStore?.commission_rate ?? 0,
+      lastMonthSales: lastMonthArr.reduce((s, x) => s + x.quantity, 0),
+      lastMonthRevenue: lastMonthArr.reduce((s, x) => s + x.total_amount, 0),
+      lastMonthCommission: lastMonthArr.reduce((s, x) => s + x.commission_amount, 0),
       recentSales,
-      totalStock,
     })
     setLoading(false)
-  }, [storeId, contextStore])
+  }, [storeId])
 
   useEffect(() => {
     loadDashboard()
   }, [loadDashboard])
 
-  const lowStockItems = data?.inventory.filter(
-    (i) => getStockStatus(i.quantity_on_hand, i.restock_threshold) === 'low_stock',
-  ) ?? []
+  function openEdit(sale: Sale) {
+    setEditingSale(sale)
+    setEditQty(sale.quantity)
+  }
 
-  const totalInventoryItems = data?.inventory.length ?? 0
-  const sellThrough =
-    totalInventoryItems > 0 && data
-      ? Math.min(100, Math.round((data.monthSales / (data.monthSales + data.totalStock || 1)) * 100))
-      : 0
+  async function submitEdit() {
+    if (!editingSale) return
+    setEditSubmitting(true)
+    try {
+      const res = await fetch(`/api/sales/${editingSale.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: editQty }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error ?? 'Failed to update sale')
+      }
+      toast.success('Sale updated')
+      setEditingSale(null)
+      loadDashboard()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update sale'
+      toast.error(message)
+    } finally {
+      setEditSubmitting(false)
+    }
+  }
 
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
   const monthName = now.toLocaleString('en-MY', { month: 'long', year: 'numeric' })
+  const lastMonthName = new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleString('en-MY', { month: 'long', year: 'numeric' })
 
   return (
     <div className="px-4 py-5 space-y-6 max-w-lg mx-auto">
-      {/* Low stock banner */}
-      {!loading && lowStockItems.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
-          <AlertTriangle size={16} className="text-amber-500 mt-0.5 shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-amber-800">
-              You have {lowStockItems.length} low stock item{lowStockItems.length !== 1 ? 's' : ''}.
-            </p>
-            <Link href="/store/restock-request" className="text-xs text-amber-700 underline mt-0.5 inline-block">
-              Request restock →
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {/* Section 1 — Today's Summary */}
+      {/* Today */}
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Today</h2>
@@ -172,56 +185,57 @@ export default function DashboardPage() {
         )}
       </section>
 
-      {/* Section 2 — Current Stock */}
+      {/* This month */}
       <section>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Current Stock</h2>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">{monthName}</h2>
         {loading ? (
-          <SkeletonList />
+          <SkeletonCard />
         ) : (
-          <div className="space-y-2">
-            {(data?.inventory ?? []).length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">No inventory yet.</p>
-            ) : (
-              (data?.inventory ?? []).map((item) => {
-                const status = getStockStatus(item.quantity_on_hand, item.restock_threshold)
-                return (
-                  <div key={item.id} className="bg-white rounded-xl shadow-sm px-4 py-3 flex items-center justify-between">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#0A0A0A] truncate">{item.product?.name}</p>
-                      <p className="text-xs text-gray-400">{item.product?.sku}</p>
-                    </div>
-                    <div className="flex items-center gap-2 ml-3 shrink-0">
-                      {status === 'low_stock' && (
-                        <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
-                          Low Stock
-                        </span>
-                      )}
-                      {status === 'out_of_stock' && (
-                        <span className="text-[10px] font-semibold bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
-                          Out of Stock
-                        </span>
-                      )}
-                      <div className="flex items-center gap-1">
-                        <div
-                          className={cn(
-                            'w-2 h-2 rounded-full',
-                            status === 'in_stock' && 'bg-green-500',
-                            status === 'low_stock' && 'bg-amber-500',
-                            status === 'out_of_stock' && 'bg-red-500',
-                          )}
-                        />
-                        <span className="text-base font-bold text-[#0A0A0A]">{item.quantity_on_hand}</span>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })
-            )}
+          <div className="bg-[#0A0A0A] rounded-xl p-5">
+            <p className="text-xs text-gray-400 mb-0.5">Earnings this month</p>
+            <p className="text-4xl font-bold text-[#FFD700] mt-1">{formatCurrency(data?.monthCommission ?? 0)}</p>
+            <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+              <div>
+                <p className="text-[10px] text-gray-400">Pairs</p>
+                <p className="text-lg font-bold text-white">{data?.monthSales ?? 0}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-400">Revenue</p>
+                <p className="text-sm font-bold text-white">{formatCurrency(data?.monthRevenue ?? 0)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-400">Commission</p>
+                <p className="text-sm font-bold text-[#22C55E]">{formatCurrency(data?.monthCommission ?? 0)}</p>
+              </div>
+            </div>
           </div>
         )}
       </section>
 
-      {/* Section 3 — Quick Actions */}
+      {/* Last month */}
+      <section>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">{lastMonthName}</h2>
+        {loading ? (
+          <SkeletonCard />
+        ) : (
+          <div className="bg-white rounded-xl shadow-sm p-4 grid grid-cols-3 gap-3 text-center">
+            <div>
+              <p className="text-xs text-gray-500">Pairs</p>
+              <p className="text-xl font-bold text-[#0A0A0A]">{data?.lastMonthSales ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Revenue</p>
+              <p className="text-sm font-bold text-[#0A0A0A]">{formatCurrency(data?.lastMonthRevenue ?? 0)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Commission</p>
+              <p className="text-sm font-bold text-[#22C55E]">{formatCurrency(data?.lastMonthCommission ?? 0)}</p>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Quick actions */}
       <section className="space-y-3">
         <Link
           href="/store/record-sale"
@@ -237,45 +251,10 @@ export default function DashboardPage() {
         </Link>
       </section>
 
-      {/* Section 4 — This Month */}
-      <section>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-          {monthName}
-        </h2>
-        {loading ? (
-          <SkeletonCard />
-        ) : (
-          <div className="bg-white rounded-xl shadow-sm p-4 space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-xs text-gray-500">Pairs Sold</p>
-                <p className="text-2xl font-bold text-[#0A0A0A]">{data?.monthSales ?? 0}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Commission</p>
-                <p className="text-2xl font-bold text-[#22C55E]">{formatCurrency(data?.monthCommission ?? 0)}</p>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-xs text-gray-500 mb-1">
-                <span>Sell-through</span>
-                <span>{sellThrough}%</span>
-              </div>
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-[#FFD700] rounded-full transition-all duration-500"
-                  style={{ width: `${sellThrough}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Section 5 — Recent Sales */}
+      {/* Recent transactions (with edit) */}
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Recent Sales</h2>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Recent Transactions</h2>
           <Link href="/store/sales-history" className="text-xs text-[#0A0A0A] font-medium underline">
             View All
           </Link>
@@ -288,32 +267,101 @@ export default function DashboardPage() {
               <p className="text-sm text-gray-400 text-center py-6">No sales recorded yet.</p>
             ) : (
               (data?.recentSales ?? []).map((sale) => (
-                <div key={sale.id} className="bg-white rounded-xl shadow-sm px-4 py-3 flex items-center justify-between">
+                <div key={sale.id} className="bg-white rounded-xl shadow-sm px-4 py-3 flex items-center justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-[#0A0A0A] truncate">
                       {sale.product?.name ?? 'Unknown Product'}
                     </p>
                     <p className="text-xs text-gray-400">{timeAgo(sale.created_at)} · Qty {sale.quantity}</p>
                   </div>
-                  <div className="ml-3 shrink-0 text-right">
+                  <div className="text-right shrink-0">
                     <p className="text-sm font-semibold text-[#0A0A0A]">{formatCurrency(sale.total_amount)}</p>
-                    <span
-                      className={cn(
-                        'text-[10px] font-semibold px-2 py-0.5 rounded-full',
-                        sale.payment_method === 'qr'
-                          ? 'bg-teal-100 text-teal-700'
-                          : 'bg-gray-100 text-gray-600',
-                      )}
-                    >
-                      {sale.payment_method === 'qr' ? 'QR' : 'Cash'}
-                    </span>
                   </div>
+                  <button
+                    onClick={() => openEdit(sale)}
+                    className="flex items-center gap-1 px-2.5 h-8 rounded-lg bg-[#FFD700] text-[#0A0A0A] text-xs font-bold shrink-0"
+                  >
+                    <Pencil size={12} />
+                    Edit
+                  </button>
                 </div>
               ))
             )}
           </div>
         )}
       </section>
+
+      {/* Edit modal */}
+      {editingSale && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => !editSubmitting && setEditingSale(null)} />
+          <div className="relative bg-white rounded-t-2xl w-full max-w-lg px-5 pt-5 pb-8 shadow-2xl">
+            <div className="flex justify-center mb-4">
+              <div className="w-10 h-1 rounded-full bg-gray-300" />
+            </div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-[#0A0A0A]">Edit Sale</h3>
+              <button
+                onClick={() => !editSubmitting && setEditingSale(null)}
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3 mb-4">
+              <p className="text-sm font-bold text-[#0A0A0A]">{editingSale.product?.name}</p>
+              <p className="text-xs text-gray-400 font-mono">{editingSale.product?.sku}</p>
+              <p className="text-xs text-gray-400 mt-1">
+                {formatMYDate(editingSale.sale_date)} · {formatCurrency(editingSale.unit_price)} / pair
+              </p>
+            </div>
+            <p className="text-sm font-medium text-gray-600 mb-3">New quantity</p>
+            <div className="flex items-center justify-center gap-6 mb-5">
+              <button
+                onClick={() => setEditQty((q) => Math.max(1, q - 1))}
+                disabled={editSubmitting}
+                className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors active:scale-95 disabled:opacity-40"
+              >
+                <span className="text-xl font-bold">−</span>
+              </button>
+              <span className="text-5xl font-bold text-[#0A0A0A] min-w-[3rem] text-center">{editQty}</span>
+              <button
+                onClick={() => setEditQty((q) => q + 1)}
+                disabled={editSubmitting}
+                className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors active:scale-95 disabled:opacity-40"
+              >
+                <span className="text-xl font-bold">+</span>
+              </button>
+            </div>
+            {editQty !== editingSale.quantity && (
+              <p className="text-xs text-center text-amber-600 mb-3">
+                {editQty > editingSale.quantity
+                  ? `+${editQty - editingSale.quantity} pairs will be deducted from stock`
+                  : `${editingSale.quantity - editQty} pairs will be returned to stock`}
+              </p>
+            )}
+            <button
+              onClick={submitEdit}
+              disabled={editSubmitting || editQty === editingSale.quantity}
+              className={cn(
+                'w-full h-14 rounded-xl bg-[#0A0A0A] text-[#FFD700] font-bold text-base flex items-center justify-center gap-2',
+                (editSubmitting || editQty === editingSale.quantity)
+                  ? 'opacity-50 cursor-not-allowed'
+                  : 'hover:opacity-90 active:scale-95 transition-all',
+              )}
+            >
+              {editSubmitting ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                'Save Changes'
+              )}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

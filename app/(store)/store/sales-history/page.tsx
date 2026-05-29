@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { Download, ChevronDown } from 'lucide-react'
+import { Download, ChevronDown, Pencil, X, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMYDate } from '@/lib/utils'
 import type { Sale, Product } from '@/types'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/components/store/StoreContext'
+import { toast } from 'sonner'
 
 type QuickFilter = 'today' | 'week' | 'month' | 'custom'
 type PaymentFilter = 'all' | 'qr' | 'cash'
@@ -46,12 +47,16 @@ export default function SalesHistoryPage() {
   const [productFilter, setProductFilter] = useState<string>('all')
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>('all')
 
-  // One-time init: load product list from inventory (storeId from context)
+  // Edit modal state
+  const [editingSale, setEditingSale] = useState<Sale | null>(null)
+  const [editQty, setEditQty] = useState(1)
+  const [editSubmitting, setEditSubmitting] = useState(false)
+
+  // One-time init: load product list
   useEffect(() => {
     if (!storeId) return
     async function init() {
       const supabase = createClient()
-      // Products from inventory (not from sales) — faster & complete
       const { data: inv } = await supabase
         .from('store_inventory')
         .select('product:products(id, name, sku)')
@@ -63,11 +68,11 @@ export default function SalesHistoryPage() {
     init()
   }, [storeId])
 
-  // Re-fetch sales whenever store or date range changes — server-side filtering
+  // Re-fetch sales when store or date range changes
   useEffect(() => {
     if (!storeId) return
     const { from, to } = getDateRange(quickFilter, customFrom, customTo)
-    if (!from || !to) return // wait for both custom dates
+    if (!from || !to) return
 
     setSalesLoading(true)
     const supabase = createClient()
@@ -89,7 +94,6 @@ export default function SalesHistoryPage() {
   const { from, to } = getDateRange(quickFilter, customFrom, customTo)
   const loading = initLoading || salesLoading
 
-  // Only product + payment filters are applied client-side (within already-fetched date range)
   const filtered = useMemo(() => {
     return sales.filter((sale) => {
       if (productFilter !== 'all' && sale.product_id !== productFilter) return false
@@ -132,6 +136,47 @@ export default function SalesHistoryPage() {
     a.download = `sales-${from}-to-${to}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  function openEdit(sale: Sale) {
+    setEditingSale(sale)
+    setEditQty(sale.quantity)
+  }
+
+  async function submitEdit() {
+    if (!editingSale) return
+    setEditSubmitting(true)
+    try {
+      const res = await fetch(`/api/sales/${editingSale.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity: editQty }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error ?? 'Failed to update sale')
+      }
+      const data = await res.json()
+      // Update sale in local state
+      setSales((prev) =>
+        prev.map((s) =>
+          s.id === editingSale.id
+            ? {
+                ...s,
+                quantity: editQty,
+                total_amount: data.total_amount,
+                commission_amount: data.commission_amount,
+              }
+            : s
+        )
+      )
+      toast.success('Sale updated')
+      setEditingSale(null)
+    } catch (err: any) {
+      toast.error(err?.message ?? 'Failed to update sale')
+    } finally {
+      setEditSubmitting(false)
+    }
   }
 
   const quickTabs: { key: QuickFilter; label: string }[] = [
@@ -279,23 +324,110 @@ export default function SalesHistoryPage() {
                       <p className="text-xs font-mono text-gray-400 mt-0.5">Ref: {sale.qr_reference}</p>
                     )}
                   </div>
-                  <div className="ml-3 shrink-0 text-right">
-                    <p className="text-sm font-bold text-[#0A0A0A]">{formatCurrency(sale.total_amount)}</p>
-                    <span
-                      className={cn(
-                        'inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full',
-                        sale.payment_method === 'qr'
-                          ? 'bg-teal-100 text-teal-700'
-                          : 'bg-gray-100 text-gray-600',
-                      )}
+                  <div className="ml-3 shrink-0 flex items-center gap-2">
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-[#0A0A0A]">{formatCurrency(sale.total_amount)}</p>
+                      <span
+                        className={cn(
+                          'inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full',
+                          sale.payment_method === 'qr'
+                            ? 'bg-teal-100 text-teal-700'
+                            : 'bg-gray-100 text-gray-600',
+                        )}
+                      >
+                        {sale.payment_method === 'qr' ? 'QR' : 'Cash'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => openEdit(sale)}
+                      className="flex items-center gap-1 px-2.5 h-8 rounded-lg bg-[#FFD700] text-[#0A0A0A] text-xs font-bold hover:opacity-90 transition-opacity"
                     >
-                      {sale.payment_method === 'qr' ? 'QR' : 'Cash'}
-                    </span>
+                      <Pencil size={12} />
+                      Edit
+                    </button>
                   </div>
                 </div>
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Edit sale modal */}
+      {editingSale && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => !editSubmitting && setEditingSale(null)} />
+          <div className="relative bg-white rounded-t-2xl w-full max-w-lg px-5 pt-5 pb-8 shadow-2xl">
+            {/* Handle */}
+            <div className="flex justify-center mb-4">
+              <div className="w-10 h-1 rounded-full bg-gray-300" />
+            </div>
+
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-[#0A0A0A]">Edit Sale</h3>
+              <button
+                onClick={() => !editSubmitting && setEditingSale(null)}
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="bg-gray-50 rounded-xl p-3 mb-4">
+              <p className="text-sm font-bold text-[#0A0A0A]">{editingSale.product?.name}</p>
+              <p className="text-xs text-gray-400 font-mono">{editingSale.product?.sku}</p>
+              <p className="text-xs text-gray-400 mt-1">
+                {formatMYDate(editingSale.sale_date)} · {formatCurrency(editingSale.unit_price)} / pair
+              </p>
+            </div>
+
+            <p className="text-sm font-medium text-gray-600 mb-3">New quantity</p>
+            <div className="flex items-center justify-center gap-6 mb-5">
+              <button
+                onClick={() => setEditQty((q) => Math.max(1, q - 1))}
+                disabled={editSubmitting}
+                className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors active:scale-95 disabled:opacity-40"
+              >
+                <span className="text-xl font-bold">−</span>
+              </button>
+              <span className="text-5xl font-bold text-[#0A0A0A] min-w-[3rem] text-center">{editQty}</span>
+              <button
+                onClick={() => setEditQty((q) => q + 1)}
+                disabled={editSubmitting}
+                className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors active:scale-95 disabled:opacity-40"
+              >
+                <span className="text-xl font-bold">+</span>
+              </button>
+            </div>
+
+            {editQty !== editingSale.quantity && (
+              <p className="text-xs text-center text-amber-600 mb-3">
+                {editQty > editingSale.quantity
+                  ? `+${editQty - editingSale.quantity} pairs will be deducted from stock`
+                  : `${editingSale.quantity - editQty} pairs will be returned to stock`}
+              </p>
+            )}
+
+            <button
+              onClick={submitEdit}
+              disabled={editSubmitting || editQty === editingSale.quantity}
+              className={cn(
+                'w-full h-14 rounded-xl bg-[#0A0A0A] text-[#FFD700] font-bold text-base flex items-center justify-center gap-2',
+                (editSubmitting || editQty === editingSale.quantity)
+                  ? 'opacity-50 cursor-not-allowed'
+                  : 'hover:opacity-90 active:scale-95 transition-all',
+              )}
+            >
+              {editSubmitting ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                'Save Changes'
+              )}
+            </button>
+          </div>
         </div>
       )}
     </div>
