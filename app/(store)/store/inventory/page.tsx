@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
-import { formatCurrency, formatMYDate, getStockStatus } from '@/lib/utils'
+import { formatCurrency, getStockStatus } from '@/lib/utils'
 import type { StoreInventory, Sale } from '@/types'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/components/store/StoreContext'
@@ -130,88 +130,80 @@ export default function InventoryPage() {
         ))}
       </div>
 
-      {/* List */}
+      {/* Grid — 3 per row for fast scanning */}
       {loading ? (
-        <div className="space-y-3">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="bg-white rounded-xl shadow-sm p-4 animate-pulse">
-              <div className="flex justify-between">
-                <div className="h-4 bg-gray-200 rounded w-2/5" />
-                <div className="h-8 bg-gray-200 rounded w-12" />
+        <div className="grid grid-cols-3 gap-2">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="bg-white rounded-xl shadow-sm overflow-hidden animate-pulse">
+              <div className="aspect-square bg-gray-200" />
+              <div className="p-2 space-y-1.5">
+                <div className="h-3 bg-gray-200 rounded w-3/4" />
+                <div className="h-2 bg-gray-200 rounded w-1/2" />
               </div>
-              <div className="h-3 bg-gray-200 rounded w-1/3 mt-2" />
             </div>
           ))}
         </div>
       ) : filtered.length === 0 ? (
         <p className="text-center text-gray-400 py-12">No items match this filter.</p>
       ) : (
-        <div className="space-y-3">
+        <div className="grid grid-cols-3 gap-2">
           {filtered.map((item) => {
             const status = getStockStatus(item.quantity_on_hand, item.restock_threshold)
             const unitsSold = monthlySales[item.product_id] ?? 0
 
             return (
-              <div key={item.id} className="bg-white rounded-xl shadow-sm p-4">
-                <div className="flex items-start justify-between gap-3">
-                  {/* Product image thumbnail */}
-                  <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 shrink-0 flex items-center justify-center">
-                    {item.product?.image_url ? (
-                      <Image
-                        src={item.product.image_url}
-                        alt={item.product.name ?? ''}
-                        width={48}
-                        height={48}
-                        className="w-full h-full object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <span className="text-xs font-black text-gray-300 select-none">
-                        {item.product?.sku?.slice(0, 3) ?? '?'}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-[#0A0A0A] truncate">{item.product?.name}</p>
-                    <p className="text-xs text-gray-400 font-mono">{item.product?.sku}</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-3xl font-bold text-[#0A0A0A]">{item.quantity_on_hand}</p>
-                    <p className="text-xs text-gray-400">pairs</p>
-                  </div>
-                </div>
-
-                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-                  {/* Status badge */}
-                  <span
-                    className={cn(
-                      'text-[10px] font-bold px-2 py-0.5 rounded-full',
-                      status === 'in_stock' && 'bg-green-100 text-green-700',
-                      status === 'low_stock' && 'bg-amber-100 text-amber-700',
-                      status === 'out_of_stock' && 'bg-red-100 text-red-600',
-                    )}
-                  >
-                    {status === 'in_stock' && 'In Stock'}
-                    {status === 'low_stock' && 'Low Stock'}
-                    {status === 'out_of_stock' && 'Out of Stock'}
-                  </span>
-
-                  <span className="text-xs text-gray-400">
-                    Restock at: <span className="font-medium text-gray-600">{item.restock_threshold}</span>
-                  </span>
-
-                  {unitsSold > 0 && (
-                    <span className="text-xs text-gray-400">
-                      Sold this month: <span className="font-medium text-gray-600">{unitsSold}</span>
+              <div key={item.id} className="relative bg-white rounded-xl shadow-sm overflow-hidden">
+                {/* Image */}
+                <div className="relative aspect-square bg-gray-100 flex items-center justify-center overflow-hidden">
+                  {item.product?.image_url ? (
+                    <Image
+                      src={item.product.image_url}
+                      alt={item.product.name ?? ''}
+                      width={120}
+                      height={120}
+                      className="w-full h-full object-cover"
+                      unoptimized
+                    />
+                  ) : (
+                    <span className="text-2xl font-black text-gray-200 select-none">
+                      {item.product?.sku?.slice(0, 3) ?? '?'}
                     </span>
                   )}
+                  {/* Status badge overlay */}
+                  {status !== 'in_stock' && (
+                    <span
+                      className={cn(
+                        'absolute top-1.5 left-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-sm',
+                        status === 'low_stock' && 'bg-amber-500 text-white',
+                        status === 'out_of_stock' && 'bg-red-500 text-white',
+                      )}
+                    >
+                      {status === 'low_stock' ? 'LOW' : 'OUT'}
+                    </span>
+                  )}
+                  {/* Quantity badge in corner */}
+                  <span
+                    className={cn(
+                      'absolute bottom-1.5 right-1.5 min-w-[28px] h-7 px-1.5 rounded-lg flex items-center justify-center text-sm font-bold shadow-md',
+                      status === 'out_of_stock' ? 'bg-red-500 text-white' : 'bg-[#0A0A0A] text-[#FFD700]',
+                    )}
+                  >
+                    {item.quantity_on_hand}
+                  </span>
                 </div>
 
-                {item.last_restocked_at && (
-                  <p className="mt-2 text-xs text-gray-400">
-                    Last restocked: {formatMYDate(item.last_restocked_at)}
+                {/* Info */}
+                <div className="p-2">
+                  <p className="text-xs font-bold text-[#0A0A0A] leading-tight line-clamp-2">
+                    {item.product?.name}
                   </p>
-                )}
+                  <p className="text-[10px] font-mono text-gray-400 truncate mt-0.5">{item.product?.sku}</p>
+                  {unitsSold > 0 && (
+                    <p className="text-[10px] text-gray-500 mt-0.5">
+                      <span className="font-semibold">{unitsSold}</span> sold
+                    </p>
+                  )}
+                </div>
               </div>
             )
           })}

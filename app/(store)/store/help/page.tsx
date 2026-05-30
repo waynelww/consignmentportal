@@ -150,32 +150,6 @@ const SECTIONS: GuideSection[] = [
     ],
   },
   {
-    id: 'payment-setup',
-    icon: Info,
-    title: 'Where to Set Up Your Payment QR',
-    intro: 'Add your DuitNow / TNG / bank QR link so customers can pay you easily.',
-    color: 'bg-teal-100 text-teal-800',
-    steps: [
-      {
-        title: 'Tap the Info tab (the "i" icon at the bottom)',
-        body: 'You will see your store info form.',
-      },
-      {
-        title: 'Scroll to the "Payment QR" field',
-        body: 'Paste the URL behind your DuitNow / TNG / Boost / MAE QR.',
-        tip: 'How to get the link: open your banking app → My QR code → Share → Copy link.',
-      },
-      {
-        title: 'Tap Save at the bottom',
-        body: 'Done. The QR link is now stored with your store profile.',
-      },
-      {
-        title: 'Important: this is YOUR payment gateway',
-        body: 'Xocks does not touch your customer\'s payment. Money goes straight to your bank. Xocks only deducts commission monthly via invoice.',
-      },
-    ],
-  },
-  {
     id: 'change-password',
     icon: Info,
     title: 'How to Change Your Password',
