@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+export const dynamic = 'force-dynamic'
+
+import { useState, useEffect, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
@@ -86,7 +88,15 @@ function FieldError({ message }: { message?: string }) {
   return <p className="text-xs text-red-500 mt-1">{message}</p>
 }
 
-export default function NewStorePage() {
+export default function NewStorePageWrapper() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-sm text-gray-400">Loading…</div>}>
+      <NewStorePage />
+    </Suspense>
+  )
+}
+
+function NewStorePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialDraftId = searchParams.get('draft')
