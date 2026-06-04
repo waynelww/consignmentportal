@@ -254,10 +254,32 @@ Welcome aboard! 🧦`
     window.open(`https://wa.me/${intl}?text=${text}`, '_blank')
   }
 
+  // Default quantity for any newly-ticked SKU. When this changes (via the
+  // big input on the picker), every currently-selected SKU is also reset to
+  // this value so ops doesn't need to edit row by row.
+  const [defaultQty, setDefaultQty] = useState<number>(12)
+
   function toggleSelection(productId: string) {
     setSelections((prev) =>
-      prev.map((s) => (s.product_id === productId ? { ...s, selected: !s.selected } : s))
+      prev.map((s) =>
+        s.product_id === productId
+          ? {
+              ...s,
+              selected: !s.selected,
+              // When ticking, seed the quantity from defaultQty so ops can
+              // batch-pick without editing every row.
+              quantity: !s.selected ? defaultQty : s.quantity,
+            }
+          : s
+      )
     )
+  }
+
+  // Setting default qty also rewrites every currently-selected SKU's qty.
+  function setDefaultAndApply(value: number) {
+    const clean = Math.max(0, Math.floor(Number(value) || 0))
+    setDefaultQty(clean)
+    setSelections((prev) => prev.map((s) => (s.selected ? { ...s, quantity: clean } : s)))
   }
 
   function updateQty(productId: string, qty: number) {
@@ -536,6 +558,64 @@ Welcome aboard! 🧦`
                 <p className="text-xs text-gray-400 py-6 text-center">Loading recommendations…</p>
               ) : pickPhase === 'pick' ? (
                 <>
+                  {/* Default-quantity bar — sets the starting qty for every SKU you tick,
+                      and overrides any already-ticked SKUs the moment you change it. */}
+                  <div className="rounded-xl border-2 border-[#FFD700] bg-amber-50 px-4 py-3 mb-3">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div className="flex-1 min-w-[200px]">
+                        <p className="text-xs font-bold text-amber-900 uppercase tracking-wide">
+                          Default quantity per SKU
+                        </p>
+                        <p className="text-[11px] text-amber-700 mt-0.5">
+                          Every SKU you tick uses this. Change it — all ticked SKUs update too.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDefaultAndApply(defaultQty - 6)}
+                          className="w-9 h-10 rounded-lg bg-white border border-amber-300 text-amber-900 text-sm font-bold hover:bg-amber-100"
+                        >
+                          −6
+                        </button>
+                        <input
+                          type="number"
+                          min={0}
+                          value={defaultQty}
+                          onChange={(e) => setDefaultAndApply(Number(e.target.value))}
+                          onFocus={(e) => e.target.select()}
+                          className="w-20 h-10 px-2 text-base font-bold text-center border-2 border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setDefaultAndApply(defaultQty + 6)}
+                          className="w-9 h-10 rounded-lg bg-white border border-amber-300 text-amber-900 text-sm font-bold hover:bg-amber-100"
+                        >
+                          +6
+                        </button>
+                      </div>
+                    </div>
+                    {/* Quick presets */}
+                    <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-amber-200">
+                      <span className="text-[11px] text-amber-800 font-semibold">Quick:</span>
+                      {[6, 12, 24, 48].map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setDefaultAndApply(n)}
+                          className={cn(
+                            'h-7 px-2.5 text-xs font-bold rounded-lg transition-colors',
+                            defaultQty === n
+                              ? 'bg-[#0A0A0A] text-[#FFD700]'
+                              : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100'
+                          )}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Search + bulk actions */}
                   <div className="flex flex-col sm:flex-row gap-2 mb-3">
                     <div className="relative flex-1">
@@ -607,6 +687,11 @@ Welcome aboard! 🧦`
                             {(sel.total_units_sold ?? 0) > 0 && (
                               <span className="text-[10px] text-gray-500 shrink-0">{sel.total_units_sold} sold</span>
                             )}
+                            {sel.selected && (
+                              <span className="text-[10px] font-bold bg-[#0A0A0A] text-[#FFD700] px-2 py-0.5 rounded-full shrink-0">
+                                × {sel.quantity}
+                              </span>
+                            )}
                           </label>
                         ))}
                       </div>
@@ -633,6 +718,11 @@ Welcome aboard! 🧦`
                               <span className="font-mono text-xs text-gray-400 shrink-0">{sel.product.sku}</span>
                               <span className="text-sm text-gray-700 truncate">{sel.product.name}</span>
                             </div>
+                            {sel.selected && (
+                              <span className="text-[10px] font-bold bg-[#0A0A0A] text-[#FFD700] px-2 py-0.5 rounded-full shrink-0">
+                                × {sel.quantity}
+                              </span>
+                            )}
                           </label>
                         ))}
                       </div>
@@ -660,7 +750,11 @@ Welcome aboard! 🧦`
                           type="number"
                           min={0}
                           value={bulkValue}
-                          onChange={(e) => setBulkValue(Number(e.target.value) || 0)}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setBulkValue(v === '' ? 0 : Math.max(0, Math.floor(Number(v) || 0)))
+                          }}
+                          onFocus={(e) => e.target.select()}
                           className="w-20 h-9 px-2 text-sm font-bold border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-right bg-white"
                         />
                         <button
@@ -760,7 +854,12 @@ Welcome aboard! 🧦`
                                   type="number"
                                   min={0}
                                   value={sel.quantity}
-                                  onChange={(e) => updateQty(sel.product_id, Number(e.target.value))}
+                                  onChange={(e) => {
+                                    const v = e.target.value
+                                    // Treat empty as 0 but let the user clear+retype freely
+                                    updateQty(sel.product_id, v === '' ? 0 : Math.max(0, Math.floor(Number(v) || 0)))
+                                  }}
+                                  onFocus={(e) => e.target.select()}
                                   className="w-20 h-8 px-2 text-sm font-bold border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-center"
                                 />
                                 <button
