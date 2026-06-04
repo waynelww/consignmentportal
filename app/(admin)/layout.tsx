@@ -40,6 +40,7 @@ const NAV_ITEMS = [
     section: 'Network',
     items: [
       { label: 'Stores', href: '/admin/stores', icon: Store },
+      { label: 'Store Types', href: '/admin/store-types', icon: Tag },
       { label: 'Products', href: '/admin/products', icon: Package },
       { label: 'Stock', href: '/admin/stock', icon: Layers },
     ],
@@ -82,6 +83,7 @@ function getPageTitle(pathname: string): string {
   const map: Record<string, string> = {
     '/admin/dashboard': 'Dashboard',
     '/admin/stores': 'Stores',
+    '/admin/store-types': 'Store Types',
     '/admin/products': 'Products',
     '/admin/stock': 'Stock',
     '/admin/restocks': 'Restock Queue',

@@ -27,11 +27,8 @@ const CreateStoreSchema = z.object({
   city: z.string().min(1),
   state: z.string().min(1),
   postcode: z.string().min(1),
-  store_type: z.enum([
-    'barbershop', 'shoe_store', 'fashion_boutique', 'sports_store',
-    'laundromat', 'gym', 'muslim_fashion', 'school_uniform',
-    'pharmacy', 'optical', 'cafe', 'other',
-  ]),
+  // Store types are managed dynamically in the store_types table.
+  store_type: z.string().min(1),
   bank_name: z.string().optional(),
   bank_account_number: z.string().optional(),
   bank_account_name: z.string().optional(),

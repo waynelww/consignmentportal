@@ -11,11 +11,7 @@ const UpdateStoreSchema = z.object({
   city: z.string().min(1).optional(),
   state: z.string().min(1).optional(),
   postcode: z.string().min(1).optional(),
-  store_type: z.enum([
-    'barbershop', 'shoe_store', 'fashion_boutique', 'sports_store',
-    'laundromat', 'gym', 'muslim_fashion', 'school_uniform',
-    'pharmacy', 'optical', 'cafe', 'other',
-  ]).optional(),
+  store_type: z.string().min(1).optional(),
   bank_name: z.string().optional(),
   bank_account_number: z.string().optional(),
   bank_account_name: z.string().optional(),

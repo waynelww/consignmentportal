@@ -157,6 +157,16 @@ export interface Sale {
   promo?: Promo
 }
 
+export interface StoreTypeRow {
+  id: string
+  value: string
+  label: string
+  sort_order: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface Promo {
   id: string
   store_id: string | null      // null = global, applies to all stores

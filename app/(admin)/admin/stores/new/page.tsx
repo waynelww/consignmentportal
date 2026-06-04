@@ -8,8 +8,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Check, Copy, ChevronRight, ArrowLeft, Search, X, Sparkles, MessageCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { MALAYSIAN_STATES, STORE_TYPE_LABELS, generateRef, cn } from '@/lib/utils'
-import type { Product } from '@/types'
+import { MALAYSIAN_STATES, generateRef, cn } from '@/lib/utils'
+import type { Product, StoreTypeRow } from '@/types'
 import { toast } from 'sonner'
 
 // ── Step schemas ──────────────────────────────────────────────────────────────
@@ -96,6 +96,7 @@ export default function NewStorePage() {
   const [tempPassword, setTempPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [loadingProducts, setLoadingProducts] = useState(false)
+  const [storeTypes, setStoreTypes] = useState<StoreTypeRow[]>([])
 
   // Step 2 two-phase: 'pick' for ticking SKUs, 'quantities' for setting amounts
   const [pickPhase, setPickPhase] = useState<'pick' | 'quantities'>('pick')
@@ -120,6 +121,11 @@ export default function NewStorePage() {
 
   useEffect(() => {
     setTempPassword(generateRef(10))
+    // Fetch active store types
+    fetch('/api/store-types?active=1')
+      .then((r) => r.json())
+      .then((data) => setStoreTypes((data.store_types ?? []) as StoreTypeRow[]))
+      .catch(() => {})
   }, [])
 
   // Load recommended products WHEN step 1 is completed (we have the state/city)
@@ -355,8 +361,8 @@ Welcome aboard! 🧦`
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
                 >
                   <option value="">Select type...</option>
-                  {Object.entries(STORE_TYPE_LABELS).map(([k, v]) => (
-                    <option key={k} value={k}>{v}</option>
+                  {storeTypes.map((t) => (
+                    <option key={t.id} value={t.value}>{t.label}</option>
                   ))}
                 </select>
                 <FieldError message={form1.formState.errors.store_type?.message} />
