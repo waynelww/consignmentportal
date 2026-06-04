@@ -159,13 +159,16 @@ export interface Sale {
 
 export interface Promo {
   id: string
-  store_id: string
+  store_id: string | null      // null = global, applies to all stores
   code: string | null
   name: string
-  discount_type: 'percentage' | 'fixed'
-  discount_value: number
+  discount_type: 'percentage' | 'fixed' | 'bxgy'
+  discount_value: number | null
   min_quantity: number
   min_amount: number
+  // BXGY-specific: buy X, get Y free (Y cheapest pairs)
+  buy_quantity: number | null
+  free_quantity: number | null
   is_active: boolean
   expires_at: string | null
   created_at: string

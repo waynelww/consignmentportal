@@ -119,14 +119,15 @@ export async function POST(request: NextRequest) {
   let promoDiscountTotal = 0
   let resolvedPromoId: string | null = null
   if (promo_id) {
+    // Promo can be store-scoped OR global (store_id IS NULL)
     const { data: promo } = await adminClient
       .from('store_promos')
       .select('*')
       .eq('id', promo_id)
-      .eq('store_id', store_id)
+      .or(`store_id.eq.${store_id},store_id.is.null`)
       .single()
     if (!promo) {
-      return Response.json({ error: 'Promo not found or not for this store' }, { status: 404 })
+      return Response.json({ error: 'Promo not found or not eligible for this store' }, { status: 404 })
     }
     if (!promo.is_active) {
       return Response.json({ error: 'Promo is inactive' }, { status: 400 })
@@ -143,8 +144,28 @@ export async function POST(request: NextRequest) {
 
     if (promo.discount_type === 'percentage') {
       promoDiscountTotal = Number((cartSubtotal * Number(promo.discount_value) / 100).toFixed(2))
-    } else {
+    } else if (promo.discount_type === 'fixed') {
       promoDiscountTotal = Math.min(Number(promo.discount_value), cartSubtotal)
+    } else if (promo.discount_type === 'bxgy') {
+      const buyQ = Number(promo.buy_quantity ?? 0)
+      const freeQ = Number(promo.free_quantity ?? 0)
+      const needed = buyQ + freeQ
+      if (cartQuantity < needed) {
+        return Response.json({
+          error: `Buy ${buyQ} Free ${freeQ} needs at least ${needed} pairs in cart (have ${cartQuantity})`,
+        }, { status: 400 })
+      }
+      // Expand cart into one entry per pair (price-per-pair), sort ascending,
+      // take the cheapest `freeQ` pairs as the discount value.
+      const pairPrices: number[] = []
+      for (const item of items) {
+        const price = prodMap[item.product_id]?.selling_price ?? 0
+        for (let i = 0; i < item.quantity; i++) pairPrices.push(price)
+      }
+      pairPrices.sort((a, b) => a - b)
+      promoDiscountTotal = Number(
+        pairPrices.slice(0, freeQ).reduce((s, p) => s + p, 0).toFixed(2)
+      )
     }
     resolvedPromoId = promo.id
   }

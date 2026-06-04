@@ -6,10 +6,12 @@ import { createAdminClient } from '@/lib/supabase/admin'
 const UpdateSchema = z.object({
   name: z.string().min(1).max(80).optional(),
   code: z.string().max(40).nullable().optional(),
-  discount_type: z.enum(['percentage', 'fixed']).optional(),
-  discount_value: z.number().positive().optional(),
+  discount_type: z.enum(['percentage', 'fixed', 'bxgy']).optional(),
+  discount_value: z.number().min(0).nullable().optional(),
   min_quantity: z.number().int().min(0).optional(),
   min_amount: z.number().min(0).optional(),
+  buy_quantity: z.number().int().positive().nullable().optional(),
+  free_quantity: z.number().int().positive().nullable().optional(),
   is_active: z.boolean().optional(),
   expires_at: z.string().nullable().optional(),
 })
@@ -19,9 +21,17 @@ async function checkAuth(supabase: Awaited<ReturnType<typeof createClient>>, pro
   if (!user) return { error: 'Unauthorized', status: 401 as const }
   const { data: profile } = await supabase.from('profiles').select('role, store_id').eq('id', user.id).single()
   if (!profile) return { error: 'Profile not found', status: 403 as const }
-  const { data: promo } = await supabase.from('store_promos').select('store_id').eq('id', promoId).single()
+  const adminClient = createAdminClient()
+  const { data: promo } = await adminClient.from('store_promos').select('store_id').eq('id', promoId).single()
   if (!promo) return { error: 'Promo not found', status: 404 as const }
-  if (profile.role === 'store_owner' && profile.store_id !== promo.store_id) {
+
+  const isAdmin = profile.role === 'super_admin' || profile.role === 'ops_manager'
+  // Global promos (store_id === null) only admins can modify
+  if (promo.store_id === null && !isAdmin) {
+    return { error: 'Only admins can modify global promos', status: 403 as const }
+  }
+  // Per-store promos: owner must own that store (admins always allowed)
+  if (promo.store_id !== null && !isAdmin && profile.store_id !== promo.store_id) {
     return { error: 'Forbidden', status: 403 as const }
   }
   return { promo }

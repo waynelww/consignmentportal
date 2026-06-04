@@ -1,12 +1,10 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import Link from 'next/link'
-import { ArrowLeft, Plus, X, Tag, Percent, DollarSign, Gift, Trash2, Loader2, Power } from 'lucide-react'
+import { Plus, X, Tag, Percent, DollarSign, Gift, Trash2, Loader2, Power, Globe } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatCurrency, cn } from '@/lib/utils'
 import type { Promo } from '@/types'
-import { useStore } from '@/components/store/StoreContext'
 
 interface PromoFormData {
   name: string
@@ -32,8 +30,7 @@ const EMPTY_FORM: PromoFormData = {
   is_active: true,
 }
 
-export default function PromosPage() {
-  const { storeId } = useStore()
+export default function AdminPromosPage() {
   const [promos, setPromos] = useState<Promo[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -42,10 +39,9 @@ export default function PromosPage() {
   const [submitting, setSubmitting] = useState(false)
 
   const loadPromos = useCallback(async () => {
-    if (!storeId) return
     setLoading(true)
     try {
-      const res = await fetch(`/api/promos?store_id=${storeId}`)
+      const res = await fetch('/api/promos?scope=global')
       const data = await res.json()
       setPromos(data.promos ?? [])
     } catch {
@@ -53,7 +49,7 @@ export default function PromosPage() {
     } finally {
       setLoading(false)
     }
-  }, [storeId])
+  }, [])
 
   useEffect(() => { loadPromos() }, [loadPromos])
 
@@ -80,7 +76,7 @@ export default function PromosPage() {
   }
 
   async function submitForm() {
-    if (!storeId || !form.name.trim()) {
+    if (!form.name.trim()) {
       toast.error('Promo name is required')
       return
     }
@@ -97,6 +93,7 @@ export default function PromosPage() {
       const url = editingPromo ? `/api/promos/${editingPromo.id}` : '/api/promos'
       const method = editingPromo ? 'PATCH' : 'POST'
 
+      // Build payload per discount type
       const payload: Record<string, unknown> = {
         name: form.name,
         code: form.code.trim() || null,
@@ -114,13 +111,12 @@ export default function PromosPage() {
         payload.buy_quantity = null
         payload.free_quantity = null
       }
-      if (!editingPromo) payload.store_id = storeId
-      const body = payload
+      if (!editingPromo) payload.store_id = null // global
 
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -144,184 +140,165 @@ export default function PromosPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !promo.is_active }),
       })
-      if (!res.ok) throw new Error('Failed')
-      toast.success(promo.is_active ? 'Promo deactivated' : 'Promo activated')
+      if (!res.ok) throw new Error()
+      toast.success(promo.is_active ? 'Deactivated' : 'Activated')
       loadPromos()
     } catch {
-      toast.error('Failed to update')
+      toast.error('Failed')
     }
   }
 
   async function deletePromo(promo: Promo) {
-    if (!confirm(`Delete "${promo.name}"? It will be deactivated.`)) return
+    if (!confirm(`Delete "${promo.name}"? It will be deactivated for all stores.`)) return
     try {
       const res = await fetch(`/api/promos/${promo.id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('Failed')
+      if (!res.ok) throw new Error()
       toast.success('Promo removed')
       loadPromos()
     } catch {
-      toast.error('Failed to delete')
+      toast.error('Failed')
     }
   }
 
   return (
-    <div className="px-4 py-5 max-w-lg mx-auto space-y-4 pb-8">
+    <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <Link href="/store/dashboard" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800">
-          <ArrowLeft size={16} />
-          Back
-        </Link>
+        <div>
+          <h1 className="text-xl font-bold text-gray-900">Global Promos</h1>
+          <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-1.5">
+            <Globe size={13} />
+            Available to every store at checkout
+          </p>
+        </div>
         <button
           onClick={openCreate}
-          className="flex items-center gap-1.5 text-xs font-bold text-[#0A0A0A] bg-[#FFD700] px-3 py-2 rounded-lg"
+          className="flex items-center gap-1.5 px-4 py-2 bg-[#0A0A0A] text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
         >
-          <Plus size={14} />
+          <Plus size={16} />
           New Promo
         </button>
       </div>
 
-      <div>
-        <h1 className="text-xl font-bold text-[#0A0A0A]">My Promos</h1>
-        <p className="text-xs text-gray-500 mt-1">
-          Create discounts you can apply during a sale. Customers see the discount in the cart.
-        </p>
-      </div>
-
-      {/* List */}
-      {loading ? (
-        <div className="space-y-2">
-          {[1, 2].map((i) => (
-            <div key={i} className="bg-white rounded-xl shadow-sm p-4 animate-pulse">
-              <div className="h-4 bg-gray-200 rounded w-2/3 mb-2" />
-              <div className="h-3 bg-gray-200 rounded w-1/2" />
-            </div>
-          ))}
-        </div>
-      ) : promos.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm p-8 text-center">
-          <Tag size={32} className="text-gray-300 mx-auto mb-2" />
-          <p className="text-sm text-gray-500">No promos yet.</p>
-          <p className="text-xs text-gray-400 mt-1">Tap "New Promo" to create your first one.</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {promos.map((promo) => (
-            <div
-              key={promo.id}
-              className={cn(
-                'bg-white rounded-xl shadow-sm p-4 border-2',
-                promo.is_active ? 'border-transparent' : 'border-gray-100 opacity-60',
-              )}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    {promo.discount_type === 'percentage' ? (
-                      <Percent size={14} className="text-amber-600 shrink-0" />
-                    ) : (
-                      <DollarSign size={14} className="text-amber-600 shrink-0" />
-                    )}
-                    <p className="text-sm font-bold text-[#0A0A0A] truncate">{promo.name}</p>
-                    {!promo.is_active && (
-                      <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full shrink-0">
-                        OFF
+      {/* Table */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        {loading ? (
+          <div className="p-8 text-center text-sm text-gray-400">Loading…</div>
+        ) : promos.length === 0 ? (
+          <div className="p-12 text-center">
+            <Tag size={32} className="text-gray-300 mx-auto mb-2" />
+            <p className="text-sm text-gray-500">No global promos yet.</p>
+            <p className="text-xs text-gray-400 mt-1">Tap "New Promo" to create one available to all stores.</p>
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100">
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Name</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Discount</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Code</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Conditions</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Status</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {promos.map((promo) => (
+                <tr key={promo.id} className={cn('border-b border-gray-50 last:border-b-0', !promo.is_active && 'opacity-50')}>
+                  <td className="px-4 py-3 font-medium text-gray-900">{promo.name}</td>
+                  <td className="px-4 py-3">
+                    {promo.discount_type === 'percentage' && (
+                      <span className="inline-flex items-center gap-1 text-amber-700 font-bold">
+                        <Percent size={12} /> {Number(promo.discount_value)}% off
                       </span>
                     )}
-                  </div>
-                  <p className="text-2xl font-bold text-[#0A0A0A]">
-                    {promo.discount_type === 'percentage'
-                      ? `${Number(promo.discount_value)}% off`
-                      : promo.discount_type === 'fixed'
-                        ? `${formatCurrency(Number(promo.discount_value))} off`
-                        : `Buy ${promo.buy_quantity} Free ${promo.free_quantity}`}
-                  </p>
-                  <div className="mt-1 text-xs text-gray-500 space-y-0.5">
-                    {promo.store_id === null && (
-                      <p className="text-[10px] font-bold bg-[#FFD700]/30 text-[#0A0A0A] px-2 py-0.5 rounded-full inline-block">
-                        XOCKS PROMO — all stores
-                      </p>
+                    {promo.discount_type === 'fixed' && (
+                      <span className="inline-flex items-center gap-1 text-amber-700 font-bold">
+                        <DollarSign size={12} /> {formatCurrency(Number(promo.discount_value))} off
+                      </span>
                     )}
-                    {promo.code && (
-                      <p>
-                        Code: <span className="font-mono font-bold text-gray-700">{promo.code}</span>
-                      </p>
+                    {promo.discount_type === 'bxgy' && (
+                      <span className="inline-flex items-center gap-1 text-amber-700 font-bold">
+                        <Gift size={12} /> Buy {promo.buy_quantity} Free {promo.free_quantity}
+                      </span>
                     )}
-                    {promo.min_quantity > 0 && (
-                      <p>Minimum {promo.min_quantity} pair{promo.min_quantity !== 1 ? 's' : ''}</p>
-                    )}
-                    {Number(promo.min_amount) > 0 && (
-                      <p>Minimum spend {formatCurrency(Number(promo.min_amount))}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1 shrink-0">
-                  {/* Globals are read-only for store owners */}
-                  {promo.store_id !== null && (
-                    <>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 font-mono text-xs">{promo.code ?? '—'}</td>
+                  <td className="px-4 py-3 text-xs text-gray-500">
+                    {promo.min_quantity > 0 && <span>Min {promo.min_quantity} pairs</span>}
+                    {promo.min_quantity > 0 && Number(promo.min_amount) > 0 && <span> · </span>}
+                    {Number(promo.min_amount) > 0 && <span>Min {formatCurrency(Number(promo.min_amount))}</span>}
+                    {!promo.min_quantity && !Number(promo.min_amount) && <span className="text-gray-400">No minimum</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={cn(
+                      'text-[10px] font-bold px-2 py-0.5 rounded-full',
+                      promo.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500',
+                    )}>
+                      {promo.is_active ? 'ACTIVE' : 'INACTIVE'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => togglePromo(promo)}
                         className={cn(
                           'w-8 h-8 rounded-lg flex items-center justify-center transition-colors',
-                          promo.is_active ? 'bg-green-50 text-green-600 hover:bg-green-100' : 'bg-gray-100 text-gray-400 hover:bg-gray-200',
+                          promo.is_active ? 'text-green-600 hover:bg-green-50' : 'text-gray-400 hover:bg-gray-100',
                         )}
                         title={promo.is_active ? 'Deactivate' : 'Activate'}
                       >
-                        <Power size={13} />
+                        <Power size={14} />
                       </button>
                       <button
                         onClick={() => openEdit(promo)}
-                        className="w-8 h-8 rounded-lg bg-gray-100 text-gray-600 flex items-center justify-center hover:bg-gray-200"
+                        className="w-8 h-8 rounded-lg text-gray-600 hover:bg-gray-100 flex items-center justify-center"
                         title="Edit"
                       >
-                        <Tag size={13} />
+                        <Tag size={14} />
                       </button>
                       <button
                         onClick={() => deletePromo(promo)}
-                        className="w-8 h-8 rounded-lg bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100"
+                        className="w-8 h-8 rounded-lg text-red-500 hover:bg-red-50 flex items-center justify-center"
                         title="Delete"
                       >
-                        <Trash2 size={13} />
+                        <Trash2 size={14} />
                       </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
 
-      {/* Create / edit modal */}
+      {/* Create/edit modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => !submitting && setModalOpen(false)} />
-          <div className="relative bg-white rounded-t-2xl w-full max-w-lg px-5 pt-5 pb-6 shadow-2xl mb-[72px] max-h-[80vh] flex flex-col">
-            <div className="flex justify-center mb-3 shrink-0">
-              <div className="w-10 h-1 rounded-full bg-gray-300" />
-            </div>
-            <div className="flex items-center justify-between mb-4 shrink-0">
-              <h3 className="text-base font-bold text-[#0A0A0A]">
-                {editingPromo ? 'Edit Promo' : 'New Promo'}
+          <div className="relative bg-white rounded-xl w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+              <h3 className="text-base font-semibold text-gray-900">
+                {editingPromo ? 'Edit Global Promo' : 'New Global Promo'}
               </h3>
               <button
                 onClick={() => !submitting && setModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"
+                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
               >
                 <X size={16} />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-4 -mx-1 px-1">
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               <div>
                 <label className="text-xs font-medium text-gray-600 block mb-1">Name *</label>
                 <input
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. Buy 5 Get 10% Off"
-                  className="w-full h-11 px-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                  placeholder="e.g. Raya Special — Buy 5 Free 2"
+                  className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
                 />
               </div>
 
@@ -331,10 +308,9 @@ export default function PromosPage() {
                   type="text"
                   value={form.code}
                   onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
-                  placeholder="e.g. RAYA10"
-                  className="w-full h-11 px-3 text-sm font-mono uppercase border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                  placeholder="e.g. RAYA2026"
+                  className="w-full h-10 px-3 text-sm font-mono uppercase border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
                 />
-                <p className="text-[10px] text-gray-400 mt-1">If blank, you pick this promo from a list in the cart.</p>
               </div>
 
               <div>
@@ -344,33 +320,33 @@ export default function PromosPage() {
                     type="button"
                     onClick={() => setForm({ ...form, discount_type: 'percentage' })}
                     className={cn(
-                      'h-12 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5',
+                      'h-11 rounded-lg text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5',
                       form.discount_type === 'percentage' ? 'bg-[#0A0A0A] text-[#FFD700]' : 'bg-gray-100 text-gray-500',
                     )}
                   >
-                    <Percent size={14} />
+                    <Percent size={13} />
                     Percent
                   </button>
                   <button
                     type="button"
                     onClick={() => setForm({ ...form, discount_type: 'fixed' })}
                     className={cn(
-                      'h-12 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5',
+                      'h-11 rounded-lg text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5',
                       form.discount_type === 'fixed' ? 'bg-[#0A0A0A] text-[#FFD700]' : 'bg-gray-100 text-gray-500',
                     )}
                   >
-                    <DollarSign size={14} />
+                    <DollarSign size={13} />
                     Fixed RM
                   </button>
                   <button
                     type="button"
                     onClick={() => setForm({ ...form, discount_type: 'bxgy' })}
                     className={cn(
-                      'h-12 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5',
+                      'h-11 rounded-lg text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5',
                       form.discount_type === 'bxgy' ? 'bg-[#0A0A0A] text-[#FFD700]' : 'bg-gray-100 text-gray-500',
                     )}
                   >
-                    <Gift size={14} />
+                    <Gift size={13} />
                     Buy X Free Y
                   </button>
                 </div>
@@ -385,7 +361,7 @@ export default function PromosPage() {
                       min="1"
                       value={form.buy_quantity}
                       onChange={(e) => setForm({ ...form, buy_quantity: Number(e.target.value) || 1 })}
-                      className="w-full h-11 px-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                      className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
                     />
                   </div>
                   <div>
@@ -395,11 +371,11 @@ export default function PromosPage() {
                       min="1"
                       value={form.free_quantity}
                       onChange={(e) => setForm({ ...form, free_quantity: Number(e.target.value) || 1 })}
-                      className="w-full h-11 px-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                      className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
                     />
                   </div>
-                  <p className="col-span-2 text-[11px] text-gray-500 leading-relaxed">
-                    Customer needs <b>{form.buy_quantity + form.free_quantity}</b> pairs in the cart. The cheapest <b>{form.free_quantity}</b> pair{form.free_quantity !== 1 ? 's' : ''} become free; SKUs still record as sold so stock deducts correctly.
+                  <p className="col-span-2 text-[11px] text-gray-500">
+                    Customer needs <b>{form.buy_quantity + form.free_quantity}</b> pairs in cart. The <b>{form.free_quantity}</b> cheapest become free; SKUs still record as sold so stock deducts.
                   </p>
                 </div>
               ) : (
@@ -414,63 +390,60 @@ export default function PromosPage() {
                     max={form.discount_type === 'percentage' ? '100' : undefined}
                     value={form.discount_value}
                     onChange={(e) => setForm({ ...form, discount_value: Number(e.target.value) || 0 })}
-                    className="w-full h-11 px-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                    className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
                   />
                 </div>
               )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Min Pairs</label>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Min pairs</label>
                   <input
                     type="number"
                     min="0"
                     value={form.min_quantity}
                     onChange={(e) => setForm({ ...form, min_quantity: Number(e.target.value) || 0 })}
-                    className="w-full h-11 px-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                    className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Min Total (RM)</label>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Min total (RM)</label>
                   <input
                     type="number"
                     step="0.01"
                     min="0"
                     value={form.min_amount}
                     onChange={(e) => setForm({ ...form, min_amount: Number(e.target.value) || 0 })}
-                    className="w-full h-11 px-3 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                    className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
                   />
                 </div>
               </div>
 
-              <label className="flex items-center gap-3 cursor-pointer">
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={form.is_active}
                   onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
                   className="w-4 h-4 accent-[#FFD700]"
                 />
-                <span className="text-sm font-medium text-gray-700">Active (available in cart)</span>
+                <span className="text-sm text-gray-700">Active (visible to all stores)</span>
               </label>
             </div>
 
-            <div className="shrink-0 pt-4 border-t border-gray-100 mt-2">
+            <div className="px-5 py-4 border-t border-gray-100 shrink-0 flex justify-end gap-2">
+              <button
+                onClick={() => !submitting && setModalOpen(false)}
+                className="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50"
+              >
+                Cancel
+              </button>
               <button
                 onClick={submitForm}
                 disabled={submitting || !form.name.trim()}
-                className={cn(
-                  'w-full h-14 rounded-xl bg-[#0A0A0A] text-[#FFD700] font-bold text-base flex items-center justify-center gap-2',
-                  (submitting || !form.name.trim())
-                    ? 'opacity-50 cursor-not-allowed'
-                    : 'hover:opacity-90 active:scale-95 transition-all',
-                )}
+                className="px-5 py-2 bg-[#0A0A0A] text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 flex items-center gap-2"
               >
-                {submitting ? (
-                  <>
-                    <Loader2 size={18} className="animate-spin" />
-                    Saving…
-                  </>
-                ) : editingPromo ? 'Save Changes' : 'Create Promo'}
+                {submitting && <Loader2 size={14} className="animate-spin" />}
+                {editingPromo ? 'Save Changes' : 'Create Promo'}
               </button>
             </div>
           </div>

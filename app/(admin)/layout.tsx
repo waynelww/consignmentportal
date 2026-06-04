@@ -20,6 +20,7 @@ import {
   Menu,
   X,
   Sparkles,
+  Tag,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -50,6 +51,7 @@ const NAV_ITEMS = [
       { label: 'Predictions', href: '/admin/predictions', icon: Sparkles },
       { label: 'Delivery Orders', href: '/admin/delivery-orders', icon: Truck },
       { label: 'Commissions', href: '/admin/commissions', icon: DollarSign },
+      { label: 'Promos', href: '/admin/promos', icon: Tag },
     ],
   },
   {
@@ -86,6 +88,7 @@ function getPageTitle(pathname: string): string {
     '/admin/predictions': 'Restock Predictions',
     '/admin/delivery-orders': 'Delivery Orders',
     '/admin/commissions': 'Commissions',
+    '/admin/promos': 'Promos',
     '/admin/reports': 'Reports',
     '/admin/settings': 'Settings',
     '/admin/profile': 'My Profile',

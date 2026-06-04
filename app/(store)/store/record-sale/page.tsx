@@ -90,6 +90,10 @@ export default function RecordSalePage() {
   function promoEligibility(promo: Promo): { ok: boolean; reason?: string } {
     if (cartCount < promo.min_quantity) return { ok: false, reason: `Need ${promo.min_quantity} pairs (have ${cartCount})` }
     if (cartSubtotal < Number(promo.min_amount)) return { ok: false, reason: `Need ${formatCurrency(Number(promo.min_amount))} minimum` }
+    if (promo.discount_type === 'bxgy') {
+      const needed = (promo.buy_quantity ?? 0) + (promo.free_quantity ?? 0)
+      if (cartCount < needed) return { ok: false, reason: `Need ${needed} pairs (have ${cartCount})` }
+    }
     return { ok: true }
   }
 
@@ -100,7 +104,21 @@ export default function RecordSalePage() {
     if (selectedPromo.discount_type === 'percentage') {
       return Number((cartSubtotal * Number(selectedPromo.discount_value) / 100).toFixed(2))
     }
-    return Math.min(Number(selectedPromo.discount_value), cartSubtotal)
+    if (selectedPromo.discount_type === 'fixed') {
+      return Math.min(Number(selectedPromo.discount_value), cartSubtotal)
+    }
+    if (selectedPromo.discount_type === 'bxgy') {
+      // Take the cheapest `free_quantity` pairs across the cart
+      const freeQ = selectedPromo.free_quantity ?? 0
+      const pairPrices: number[] = []
+      for (const c of cart) {
+        const price = c.inventoryItem.product?.selling_price ?? 0
+        for (let i = 0; i < c.quantity; i++) pairPrices.push(price)
+      }
+      pairPrices.sort((a, b) => a - b)
+      return Number(pairPrices.slice(0, freeQ).reduce((s, p) => s + p, 0).toFixed(2))
+    }
+    return 0
   })()
 
   const cartTotal = Math.max(0, cartSubtotal - promoDiscount)
@@ -720,13 +738,22 @@ export default function RecordSalePage() {
                             <p className="text-lg font-bold text-[#0A0A0A]">
                               {promo.discount_type === 'percentage'
                                 ? `${Number(promo.discount_value)}% off`
-                                : `${formatCurrency(Number(promo.discount_value))} off`}
+                                : promo.discount_type === 'fixed'
+                                  ? `${formatCurrency(Number(promo.discount_value))} off`
+                                  : `Buy ${promo.buy_quantity} Free ${promo.free_quantity}`}
                             </p>
-                            {promo.code && (
-                              <p className="text-[10px] text-gray-500 mt-0.5">
-                                Code: <span className="font-mono font-bold text-gray-700">{promo.code}</span>
-                              </p>
-                            )}
+                            <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                              {promo.code && (
+                                <span className="text-[10px] text-gray-500">
+                                  Code: <span className="font-mono font-bold text-gray-700">{promo.code}</span>
+                                </span>
+                              )}
+                              {promo.store_id === null && (
+                                <span className="text-[9px] font-bold bg-[#FFD700]/30 text-[#0A0A0A] px-1.5 py-0.5 rounded-full">
+                                  XOCKS PROMO
+                                </span>
+                              )}
+                            </div>
                             {!eligibility.ok && (
                               <p className="text-[10px] text-red-500 mt-1 font-semibold">
                                 {eligibility.reason}
