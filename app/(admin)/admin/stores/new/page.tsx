@@ -286,6 +286,25 @@ Welcome aboard! 🧦`
   const totalSelectedSKUs = selectedItems.length
   const totalSelectedPairs = selectedItems.reduce((a, s) => a + s.quantity, 0)
 
+  // Bulk operations on the quantities phase
+  const [bulkValue, setBulkValue] = useState<number>(12)
+  function applyBulkQty(value: number) {
+    if (value < 0) return
+    setSelections((prev) =>
+      prev.map((s) => (s.selected ? { ...s, quantity: value } : s))
+    )
+  }
+  function applySuggestedQty() {
+    setSelections((prev) =>
+      prev.map((s) => (s.selected ? { ...s, quantity: s.suggested_qty ?? 12 } : s))
+    )
+  }
+  function addToAll(delta: number) {
+    setSelections((prev) =>
+      prev.map((s) => (s.selected ? { ...s, quantity: Math.max(0, s.quantity + delta) } : s))
+    )
+  }
+
   const signalLabel = (() => {
     if (!recMeta) return ''
     if (recMeta.signal_source === 'nearby_city') return `Based on ${recMeta.signal_store_count} store${recMeta.signal_store_count !== 1 ? 's' : ''} in ${recMeta.nearby_city}`
@@ -619,50 +638,146 @@ Welcome aboard! 🧦`
                   )}
                 </>
               ) : (
-                // Quantities phase — only show selected items with qty inputs
-                <div className="border border-gray-100 rounded-xl overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-100">
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">SKU</th>
-                        <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Name</th>
-                        <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500">Suggested</th>
-                        <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500">Qty</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedItems.map((sel) => (
-                        <tr key={sel.product_id} className="border-b border-gray-50">
-                          <td className="px-3 py-2 font-mono text-xs text-gray-500">{sel.product.sku}</td>
-                          <td className="px-3 py-2 text-gray-800">
-                            {sel.product.name}
-                            {sel.is_recommended && (
-                              <Sparkles size={10} className="inline ml-1 text-amber-500" />
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-right text-xs text-gray-400">
-                            {sel.suggested_qty ?? '—'}
-                          </td>
-                          <td className="px-3 py-2">
-                            <input
-                              type="number"
-                              min={0}
-                              value={sel.quantity}
-                              onChange={(e) => updateQty(sel.product_id, Number(e.target.value))}
-                              className="w-20 ml-auto block px-2 py-1 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-right"
-                            />
-                          </td>
+                // Quantities phase — set how many pairs of each SKU the store gets
+                <div className="space-y-3">
+                  {/* Bulk Update bar */}
+                  {selectedItems.length > 0 && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                      <p className="text-xs font-bold text-amber-900 mb-2 uppercase tracking-wide">
+                        Bulk Update ({selectedItems.length} selected SKUs)
+                      </p>
+
+                      {/* Set-all input + quick presets */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-amber-800 font-semibold">Set all to:</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={bulkValue}
+                          onChange={(e) => setBulkValue(Number(e.target.value) || 0)}
+                          className="w-20 h-9 px-2 text-sm font-bold border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-right bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => applyBulkQty(bulkValue)}
+                          className="h-9 px-3 bg-[#0A0A0A] text-[#FFD700] text-xs font-bold rounded-lg hover:opacity-90"
+                        >
+                          Apply
+                        </button>
+
+                        <span className="text-xs text-amber-700 mx-1">|</span>
+
+                        <span className="text-xs text-amber-800 font-semibold">Quick:</span>
+                        {[6, 12, 24, 48].map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => applyBulkQty(n)}
+                            className="h-9 px-2.5 bg-white border border-amber-300 text-xs font-bold text-amber-900 rounded-lg hover:bg-amber-100"
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Secondary row: increment / decrement / use suggested */}
+                      <div className="flex flex-wrap items-center gap-2 mt-2 pt-2 border-t border-amber-200">
+                        <span className="text-xs text-amber-800 font-semibold">Adjust:</span>
+                        <button
+                          type="button"
+                          onClick={() => addToAll(6)}
+                          className="h-8 px-2 bg-white border border-amber-300 text-xs font-bold text-amber-900 rounded-lg hover:bg-amber-100"
+                        >
+                          +6
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addToAll(12)}
+                          className="h-8 px-2 bg-white border border-amber-300 text-xs font-bold text-amber-900 rounded-lg hover:bg-amber-100"
+                        >
+                          +12
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addToAll(-6)}
+                          className="h-8 px-2 bg-white border border-amber-300 text-xs font-bold text-amber-900 rounded-lg hover:bg-amber-100"
+                        >
+                          −6
+                        </button>
+                        <span className="text-xs text-amber-700 mx-1">|</span>
+                        <button
+                          type="button"
+                          onClick={applySuggestedQty}
+                          className="h-8 px-2.5 bg-amber-100 border border-amber-300 text-xs font-bold text-amber-900 rounded-lg hover:bg-amber-200 inline-flex items-center gap-1"
+                        >
+                          <Sparkles size={11} />
+                          Use Suggested
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Per-row qty editor */}
+                  <div className="border border-gray-100 rounded-xl overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-100">
+                          <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">SKU</th>
+                          <th className="text-left px-3 py-2 text-xs font-semibold text-gray-500">Name</th>
+                          <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500">Suggested</th>
+                          <th className="text-right px-3 py-2 text-xs font-semibold text-gray-500 w-[180px]">Quantity</th>
                         </tr>
-                      ))}
-                      {selectedItems.length === 0 && (
-                        <tr>
-                          <td colSpan={4} className="text-center py-6 text-xs text-gray-400">
-                            No SKUs picked yet. Go back to pick some.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {selectedItems.map((sel) => (
+                          <tr key={sel.product_id} className="border-b border-gray-50">
+                            <td className="px-3 py-2 font-mono text-xs text-gray-500">{sel.product.sku}</td>
+                            <td className="px-3 py-2 text-gray-800">
+                              {sel.product.name}
+                              {sel.is_recommended && (
+                                <Sparkles size={10} className="inline ml-1 text-amber-500" />
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right text-xs text-gray-400">
+                              {sel.suggested_qty ?? '—'}
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => updateQty(sel.product_id, sel.quantity - 6)}
+                                  className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200"
+                                >
+                                  −6
+                                </button>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={sel.quantity}
+                                  onChange={(e) => updateQty(sel.product_id, Number(e.target.value))}
+                                  className="w-20 h-8 px-2 text-sm font-bold border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-center"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => updateQty(sel.product_id, sel.quantity + 6)}
+                                  className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200"
+                                >
+                                  +6
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {selectedItems.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="text-center py-6 text-xs text-gray-400">
+                              No SKUs picked yet. Go back to pick some.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>
