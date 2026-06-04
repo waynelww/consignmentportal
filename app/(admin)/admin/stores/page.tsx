@@ -2,11 +2,21 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { Search, Plus, Download, ChevronLeft, ChevronRight, Edit, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Search, Plus, Download, ChevronLeft, ChevronRight, Edit, ToggleLeft, ToggleRight, FileText, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { formatMYDate, formatCurrency, MALAYSIAN_STATES, STORE_TYPE_LABELS, cn } from '@/lib/utils'
-import type { Store, StoreStatus, StoreType } from '@/types'
+import { formatMYDate, formatCurrency, MALAYSIAN_STATES, cn } from '@/lib/utils'
+import type { Store, StoreStatus, StoreTypeRow } from '@/types'
 import { toast } from 'sonner'
+
+type TabKey = 'active' | 'inactive' | 'drafts'
+
+interface DraftRow {
+  id: string
+  title: string
+  data: Record<string, unknown>
+  updated_at: string
+  created_at: string
+}
 
 const PAGE_SIZE = 25
 
@@ -43,9 +53,62 @@ export default function StoresPage() {
   const [stateFilter, setStateFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+
+  // Tabs — Active is default; "drafts" loads from the store_drafts table instead of stores
+  const [tab, setTab] = useState<TabKey>('active')
+  const [drafts, setDrafts] = useState<DraftRow[]>([])
+  const [counts, setCounts] = useState<{ active: number; inactive: number; drafts: number }>({ active: 0, inactive: 0, drafts: 0 })
+
+  // Dynamic store types for filter dropdown + display
+  const [storeTypes, setStoreTypes] = useState<StoreTypeRow[]>([])
+  useEffect(() => {
+    fetch('/api/store-types')
+      .then((r) => r.json())
+      .then((d) => setStoreTypes((d.store_types ?? []) as StoreTypeRow[]))
+      .catch(() => {})
+  }, [])
+  const typeLabelMap: Record<string, string> = Object.fromEntries(storeTypes.map((t) => [t.value, t.label]))
+  const labelForType = (v: string | null | undefined) => (v && typeLabelMap[v]) || v || '—'
+
   const supabase = createClient()
 
+  const refreshCounts = useCallback(async () => {
+    const [activeRes, inactiveRes, draftsRes] = await Promise.all([
+      supabase.from('stores').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+      supabase
+        .from('stores')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['inactive', 'suspended']),
+      fetch('/api/store-drafts').then((r) => r.json()).catch(() => ({ drafts: [] })),
+    ])
+    setCounts({
+      active: activeRes.count ?? 0,
+      inactive: inactiveRes.count ?? 0,
+      drafts: (draftsRes.drafts ?? []).length,
+    })
+  }, [supabase])
+
+  const fetchDrafts = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await fetch('/api/store-drafts').then((r) => r.json())
+      const list = (data.drafts ?? []) as DraftRow[]
+      // Client-side search across title fields
+      const filtered = search
+        ? list.filter((d) => d.title.toLowerCase().includes(search.toLowerCase()))
+        : list
+      setDrafts(filtered)
+      setTotal(filtered.length)
+    } finally {
+      setLoading(false)
+    }
+  }, [search])
+
   const fetchStores = useCallback(async () => {
+    if (tab === 'drafts') {
+      await fetchDrafts()
+      return
+    }
     setLoading(true)
     let query = supabase
       .from('stores')
@@ -60,6 +123,14 @@ export default function StoresPage() {
     }
     if (stateFilter) query = query.eq('state', stateFilter)
     if (typeFilter) query = query.eq('store_type', typeFilter)
+
+    // Tab filter: active vs inactive (which includes suspended)
+    if (tab === 'active') {
+      query = query.eq('status', 'active')
+    } else if (tab === 'inactive') {
+      query = query.in('status', ['inactive', 'suspended'])
+    }
+    // Manual status override within tab
     if (statusFilter) query = query.eq('status', statusFilter)
 
     const { data, count } = await query
@@ -108,16 +179,17 @@ export default function StoresPage() {
       }))
     )
     setLoading(false)
-  }, [page, search, stateFilter, typeFilter, statusFilter])
+  }, [page, search, stateFilter, typeFilter, statusFilter, tab, fetchDrafts])
 
   useEffect(() => {
     fetchStores()
-  }, [fetchStores])
+    refreshCounts()
+  }, [fetchStores, refreshCounts])
 
-  // Reset page on filter change
+  // Reset page when tab or filters change
   useEffect(() => {
     setPage(0)
-  }, [search, stateFilter, typeFilter, statusFilter])
+  }, [tab, search, stateFilter, typeFilter, statusFilter])
 
   async function toggleStatus(store: StoreRow) {
     const newStatus: StoreStatus = store.status === 'active' ? 'inactive' : 'active'
@@ -132,8 +204,22 @@ export default function StoresPage() {
     if (error) {
       toast.error('Failed to update status')
     } else {
-      toast.success(`Store ${newStatus === 'active' ? 'activated' : 'deactivated'}`)
+      toast.success(`Store ${newStatus === 'active' ? 'activated' : 'deactivated'} — moved to ${newStatus === 'active' ? 'Active' : 'Inactive'} tab`)
       fetchStores()
+      refreshCounts()
+    }
+  }
+
+  async function deleteDraft(draft: DraftRow) {
+    if (!confirm(`Delete draft "${draft.title}"? This cannot be undone.`)) return
+    try {
+      const res = await fetch(`/api/store-drafts/${draft.id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error()
+      toast.success('Draft deleted')
+      fetchStores()
+      refreshCounts()
+    } catch {
+      toast.error('Failed to delete')
     }
   }
 
@@ -165,7 +251,7 @@ export default function StoresPage() {
       s.email || '',
       s.city,
       s.state,
-      STORE_TYPE_LABELS[s.store_type] || s.store_type,
+      labelForType(s.store_type),
       s.status,
       s.performance_score,
       s.commission_rate,
@@ -209,7 +295,36 @@ export default function StoresPage() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Tabs */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-1.5 flex gap-1">
+        {([
+          { key: 'active', label: 'Active', count: counts.active },
+          { key: 'inactive', label: 'Inactive', count: counts.inactive },
+          { key: 'drafts', label: 'Drafts', count: counts.drafts },
+        ] as const).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={cn(
+              'flex-1 px-4 py-2 text-sm font-semibold rounded-lg flex items-center justify-center gap-2 transition-colors',
+              tab === t.key
+                ? 'bg-[#0A0A0A] text-[#FFD700]'
+                : 'text-gray-600 hover:bg-gray-50',
+            )}
+          >
+            {t.label}
+            <span className={cn(
+              'text-[10px] font-bold px-1.5 py-0.5 rounded-full',
+              tab === t.key ? 'bg-[#FFD700] text-[#0A0A0A]' : 'bg-gray-100 text-gray-600',
+            )}>
+              {t.count}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Filters — hidden when on Drafts tab */}
+      {tab !== 'drafts' && (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
         <div className="flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-[200px]">
@@ -238,8 +353,8 @@ export default function StoresPage() {
             className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
           >
             <option value="">All Types</option>
-            {Object.entries(STORE_TYPE_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
+            {storeTypes.filter((t) => t.is_active).map((t) => (
+              <option key={t.id} value={t.value}>{t.label}</option>
             ))}
           </select>
           <select
@@ -255,8 +370,64 @@ export default function StoresPage() {
           </select>
         </div>
       </div>
+      )}
 
-      {/* Table */}
+      {/* Drafts tab — separate table */}
+      {tab === 'drafts' && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          {loading ? (
+            <div className="p-8 text-center text-sm text-gray-400">Loading…</div>
+          ) : drafts.length === 0 ? (
+            <div className="p-12 text-center">
+              <FileText size={32} className="text-gray-300 mx-auto mb-2" />
+              <p className="text-sm text-gray-500">No drafts yet.</p>
+              <p className="text-xs text-gray-400 mt-1">
+                Use the <strong>Save Draft</strong> button while creating a store to park an unfinished form here.
+              </p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100">
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Draft Title</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Started</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Last Saved</th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {drafts.map((d) => (
+                  <tr key={d.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                    <td className="px-4 py-3 font-medium text-gray-900">{d.title}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{formatMYDate(d.created_at)}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{formatMYDate(d.updated_at)}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <Link
+                          href={`/admin/stores/new?draft=${d.id}`}
+                          className="px-3 py-1.5 text-xs font-bold bg-[#FFD700] text-[#0A0A0A] rounded-lg hover:opacity-90"
+                        >
+                          Resume
+                        </Link>
+                        <button
+                          onClick={() => deleteDraft(d)}
+                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete draft"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Active/Inactive tabs — stores table */}
+      {tab !== 'drafts' && (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -294,7 +465,7 @@ export default function StoresPage() {
                         {store.city}, {store.state}
                       </td>
                       <td className="px-4 py-3 text-gray-600">
-                        {STORE_TYPE_LABELS[store.store_type] || store.store_type}
+                        {labelForType(store.store_type)}
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={store.status} />
@@ -372,6 +543,7 @@ export default function StoresPage() {
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }

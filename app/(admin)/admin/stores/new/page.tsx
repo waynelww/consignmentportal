@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -88,6 +88,12 @@ function FieldError({ message }: { message?: string }) {
 
 export default function NewStorePage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const initialDraftId = searchParams.get('draft')
+
+  // Track the draft id once we save (so subsequent saves update the same row)
+  const [draftId, setDraftId] = useState<string | null>(initialDraftId)
+  const [savingDraft, setSavingDraft] = useState(false)
   const [step, setStep] = useState(1)
   const [step1Data, setStep1Data] = useState<Step1Data | null>(null)
   const [step2Data, setStep2Data] = useState<Step2Data | null>(null)
@@ -209,6 +215,91 @@ export default function NewStorePage() {
       .finally(() => setLoadingProducts(false))
   }, [step1Data, step])
 
+  // Hydrate from a draft if ?draft=<id> is present on mount
+  useEffect(() => {
+    if (!initialDraftId) return
+    fetch(`/api/store-drafts/${initialDraftId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        const d = res?.draft?.data ?? {}
+        if (d.step1) {
+          form1.reset(d.step1)
+          setStep1Data(d.step1)
+        }
+        if (d.step2) {
+          form2.reset(d.step2)
+          setStep2Data(d.step2)
+        }
+        if (d.step3) {
+          form3.reset(d.step3)
+        }
+        if (Array.isArray(d.selections)) {
+          // Selections will be hydrated when products list arrives — store as pending
+          setPendingSelectionsHydrate(d.selections as { product_id: string; selected: boolean; quantity: number }[])
+        }
+        if (typeof d.step === 'number' && d.step >= 1 && d.step <= 3) {
+          setStep(d.step)
+        }
+        if (typeof d.tempPassword === 'string' && d.tempPassword) {
+          setTempPassword(d.tempPassword)
+        }
+        toast.success(`Resumed draft: ${res?.draft?.title ?? 'Untitled'}`)
+      })
+      .catch(() => toast.error('Failed to load draft'))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDraftId])
+
+  // Hydration queue for selections (applies once products load)
+  const [pendingSelectionsHydrate, setPendingSelectionsHydrate] = useState<
+    { product_id: string; selected: boolean; quantity: number }[] | null
+  >(null)
+  useEffect(() => {
+    if (!pendingSelectionsHydrate || selections.length === 0) return
+    setSelections((prev) =>
+      prev.map((s) => {
+        const match = pendingSelectionsHydrate.find((p) => p.product_id === s.product_id)
+        if (!match) return s
+        return { ...s, selected: match.selected, quantity: match.quantity }
+      })
+    )
+    setPendingSelectionsHydrate(null)
+  }, [pendingSelectionsHydrate, selections.length])
+
+  async function saveDraft() {
+    setSavingDraft(true)
+    try {
+      const data = {
+        step,
+        step1: form1.getValues(),
+        step2: form2.getValues(),
+        step3: form3.getValues(),
+        selections: selections
+          .filter((s) => s.selected)
+          .map((s) => ({
+            product_id: s.product_id,
+            selected: s.selected,
+            quantity: s.quantity,
+          })),
+        tempPassword,
+      }
+      const url = draftId ? `/api/store-drafts/${draftId}` : '/api/store-drafts'
+      const method = draftId ? 'PATCH' : 'POST'
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error ?? 'Failed')
+      if (!draftId && body?.draft?.id) setDraftId(body.draft.id)
+      toast.success('Draft saved — find it under Stores → Drafts tab')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save draft')
+    } finally {
+      setSavingDraft(false)
+    }
+  }
+
   async function onStep1(data: Step1Data) {
     setStep1Data(data)
     form3.setValue('login_email', data.email)
@@ -250,6 +341,10 @@ export default function NewStorePage() {
       }
 
       const { store_id } = await res.json()
+      // Clean up the draft once the real store exists
+      if (draftId) {
+        fetch(`/api/store-drafts/${draftId}`, { method: 'DELETE' }).catch(() => {})
+      }
       toast.success('Store created successfully!')
       router.push(`/admin/stores/${store_id}`)
     } catch {
@@ -390,12 +485,22 @@ Welcome aboard! 🧦`
 
   return (
     <div className="max-w-2xl mx-auto pb-32">
-      {/* Back link */}
-      <div className="mb-4">
+      {/* Back link + Save Draft */}
+      <div className="mb-4 flex items-center justify-between gap-3">
         <Link href="/admin/stores" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors">
           <ArrowLeft size={16} />
           Back to Stores
         </Link>
+        <button
+          type="button"
+          onClick={saveDraft}
+          disabled={savingDraft}
+          className="flex items-center gap-1.5 px-3 py-2 border border-amber-300 bg-amber-50 text-amber-900 rounded-lg text-xs font-bold hover:bg-amber-100 transition-colors disabled:opacity-50"
+          title="Park this form — fill in the rest later from Stores → Drafts"
+        >
+          {savingDraft ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+          {draftId ? 'Save Draft' : 'Save Draft'}
+        </button>
       </div>
 
       {/* Steps header */}

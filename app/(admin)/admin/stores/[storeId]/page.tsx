@@ -16,7 +16,6 @@ import {
   formatCurrency,
   formatMYDate,
   cn,
-  STORE_TYPE_LABELS,
   MALAYSIAN_STATES,
 } from '@/lib/utils'
 import type {
@@ -27,6 +26,7 @@ import type {
   CommissionPeriod,
   Product,
   CommissionStatus,
+  StoreTypeRow,
 } from '@/types'
 import { toast } from 'sonner'
 
@@ -123,6 +123,21 @@ export default function StoreDetailPage() {
   const [adjustQty, setAdjustQty] = useState(0)
   const [adjustType, setAdjustType] = useState<'adjustment_add' | 'adjustment_remove'>('adjustment_add')
   const [adjustNotes, setAdjustNotes] = useState('')
+  const [storeTypes, setStoreTypes] = useState<StoreTypeRow[]>([])
+
+  // Fetch active store types for the dropdown + label lookups
+  useEffect(() => {
+    fetch('/api/store-types')
+      .then((r) => r.json())
+      .then((d) => setStoreTypes((d.store_types ?? []) as StoreTypeRow[]))
+      .catch(() => {})
+  }, [])
+
+  const storeTypeLabelMap: Record<string, string> = Object.fromEntries(
+    storeTypes.map((t) => [t.value, t.label]),
+  )
+  const labelForType = (value: string | null | undefined): string =>
+    (value && storeTypeLabelMap[value]) || value || '—'
   const [paidModal, setPaidModal] = useState<{ open: boolean; periodId: string | null }>({ open: false, periodId: null })
   const [paidRef, setPaidRef] = useState('')
   // Edit store mode
@@ -349,7 +364,19 @@ export default function StoreDetailPage() {
       ? 'text-amber-600'
       : 'text-red-600'
 
-  const storeTypeOptions = Object.entries(STORE_TYPE_LABELS).map(([k, v]) => ({ value: k, label: v }))
+  // Build dropdown options from the dynamic store_types table.
+  // Include the store's current value (even if inactive/missing) so it doesn't
+  // disappear from the dropdown after a type is deactivated.
+  const storeTypeOptions = (() => {
+    const opts = storeTypes
+      .filter((t) => t.is_active)
+      .map((t) => ({ value: t.value, label: t.label }))
+    const current = store?.store_type
+    if (current && !opts.some((o) => o.value === current)) {
+      opts.unshift({ value: current, label: storeTypeLabelMap[current] || current })
+    }
+    return opts
+  })()
   const stateOptions = MALAYSIAN_STATES.map((s) => ({ value: s, label: s }))
 
   return (
@@ -389,7 +416,7 @@ export default function StoreDetailPage() {
             </div>
             <h1 className="text-xl font-bold text-gray-900">{store.store_name}</h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              {STORE_TYPE_LABELS[store.store_type] || store.store_type} · {store.city}, {store.state}
+              {labelForType(store.store_type)} · {store.city}, {store.state}
             </p>
           </div>
           <div className="flex items-start gap-3">
