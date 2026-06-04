@@ -21,6 +21,7 @@ import {
   X,
   Sparkles,
   Tag,
+  Calculator,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -53,6 +54,7 @@ const NAV_ITEMS = [
       { label: 'Delivery Orders', href: '/admin/delivery-orders', icon: Truck },
       { label: 'Commissions', href: '/admin/commissions', icon: DollarSign },
       { label: 'Promos', href: '/admin/promos', icon: Tag },
+      { label: 'OEM Calculator', href: '/admin/oem-calculator', icon: Calculator },
     ],
   },
   {
@@ -92,6 +94,7 @@ function getPageTitle(pathname: string): string {
     '/admin/commissions': 'Commissions',
     '/admin/promos': 'Promos',
     '/admin/reports': 'Reports',
+    '/admin/oem-calculator': 'OEM Calculator',
     '/admin/settings': 'Settings',
     '/admin/profile': 'My Profile',
   }

@@ -42,6 +42,7 @@ export default function ProductsPage() {
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [confirmDeactivate, setConfirmDeactivate] = useState<Product | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const [syncingInventory, setSyncingInventory] = useState(false)
 
   async function syncShopifyImages() {
     if (syncing) return
@@ -62,6 +63,28 @@ export default function ProductsPage() {
       toast.error(`Network error: ${e instanceof Error ? e.message : 'Unknown'}`)
     } finally {
       setSyncing(false)
+    }
+  }
+
+  async function syncShopifyInventory() {
+    if (syncingInventory) return
+    setSyncingInventory(true)
+    try {
+      const res = await fetch('/api/products/sync-shopify-inventory', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error ?? 'Sync failed', { description: data.details, duration: 8000 })
+        return
+      }
+      toast.success(
+        `Inventory synced: ${data.total_warehouse_pairs.toLocaleString()} total pairs in Shopify · ${data.updated} updated · ${data.unchanged} unchanged · ${data.not_found_in_shopify} not found`,
+        { duration: 8000 },
+      )
+      fetchProducts()
+    } catch (e) {
+      toast.error(`Network error: ${e instanceof Error ? e.message : 'Unknown'}`)
+    } finally {
+      setSyncingInventory(false)
     }
   }
   const supabase = createClient()
@@ -177,6 +200,14 @@ export default function ProductsPage() {
     <div className="space-y-5">
       <div className="flex justify-end gap-2 flex-wrap">
         <button
+          onClick={syncShopifyInventory}
+          disabled={syncingInventory}
+          className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-200 text-amber-900 font-semibold rounded-lg text-sm hover:bg-amber-100 transition-colors disabled:opacity-50"
+        >
+          {syncingInventory ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+          {syncingInventory ? 'Syncing…' : 'Sync Shopify inventory'}
+        </button>
+        <button
           onClick={syncShopifyImages}
           disabled={syncing}
           className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50"
@@ -212,6 +243,9 @@ export default function ProductsPage() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Color</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Selling Price</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Cost Price</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500" title="Total pairs available in Shopify across all locations">
+                  Shopify Qty
+                </th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500">Core SKU</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500">Active</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Stores</th>
@@ -222,7 +256,7 @@ export default function ProductsPage() {
               {loading
                 ? Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i} className="border-b border-gray-50">
-                      {Array.from({ length: 10 }).map((_, j) => (
+                      {Array.from({ length: 11 }).map((_, j) => (
                         <td key={j} className="px-4 py-3">
                           <div className="h-4 bg-gray-100 animate-pulse rounded" />
                         </td>
@@ -239,6 +273,21 @@ export default function ProductsPage() {
                       <td className="px-4 py-3 text-gray-600">{p.color}</td>
                       <td className="px-4 py-3 text-right">{formatCurrency(p.selling_price)}</td>
                       <td className="px-4 py-3 text-right text-gray-500">{formatCurrency(p.cost_price)}</td>
+                      <td className="px-4 py-3 text-right font-bold">
+                        {p.shopify_inventory_qty == null ? (
+                          <span className="text-gray-300">—</span>
+                        ) : (
+                          <span className={cn(
+                            p.shopify_inventory_qty <= 0
+                              ? 'text-red-600'
+                              : p.shopify_inventory_qty < 20
+                                ? 'text-amber-600'
+                                : 'text-gray-800',
+                          )}>
+                            {p.shopify_inventory_qty.toLocaleString()}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-center">
                         <button
                           onClick={() => toggleCore(p)}
@@ -278,7 +327,7 @@ export default function ProductsPage() {
                   ))}
               {!loading && products.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-gray-400 text-sm">
+                  <td colSpan={11} className="px-4 py-12 text-center text-gray-400 text-sm">
                     No products yet
                   </td>
                 </tr>

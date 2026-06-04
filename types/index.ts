@@ -102,6 +102,8 @@ export interface Product {
   barcode: string | null
   description: string | null
   image_url: string | null
+  shopify_inventory_qty: number | null
+  shopify_inventory_synced_at: string | null
   created_at: string
   updated_at: string
 }
