@@ -6,11 +6,11 @@ import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Check, Copy, ChevronRight, ArrowLeft, Search, X, Sparkles, MessageCircle } from 'lucide-react'
+import { Check, Copy, ChevronRight, ArrowLeft, Search, X, Sparkles, MessageCircle, Plus, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { MALAYSIAN_STATES, generateRef, cn } from '@/lib/utils'
 import type { Product, StoreTypeRow } from '@/types'
-import { toast } from 'sonner'
 
 // ── Step schemas ──────────────────────────────────────────────────────────────
 
@@ -97,6 +97,54 @@ export default function NewStorePage() {
   const [submitting, setSubmitting] = useState(false)
   const [loadingProducts, setLoadingProducts] = useState(false)
   const [storeTypes, setStoreTypes] = useState<StoreTypeRow[]>([])
+
+  // Inline "+ Add new type" state for the dropdown
+  const [addTypeOpen, setAddTypeOpen] = useState(false)
+  const [newTypeLabel, setNewTypeLabel] = useState('')
+  const [addingType, setAddingType] = useState(false)
+
+  function slugifyType(label: string): string {
+    return label
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+  }
+
+  async function quickAddType() {
+    const label = newTypeLabel.trim()
+    if (!label) return
+    const value = slugifyType(label)
+    if (!value) {
+      toast.error('Type name must include letters or numbers')
+      return
+    }
+    setAddingType(true)
+    try {
+      const res = await fetch('/api/store-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, value, sort_order: 500, is_active: true }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error ?? 'Failed to create')
+
+      // Refresh the list and auto-select the new type
+      const refreshed = await fetch('/api/store-types?active=1')
+        .then((r) => r.json())
+        .then((d) => (d.store_types ?? []) as StoreTypeRow[])
+        .catch(() => storeTypes)
+      setStoreTypes(refreshed)
+      form1.setValue('store_type', value, { shouldValidate: true })
+      toast.success(`"${label}" added and selected`)
+      setNewTypeLabel('')
+      setAddTypeOpen(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create type')
+    } finally {
+      setAddingType(false)
+    }
+  }
 
   // Step 2 two-phase: 'pick' for ticking SKUs, 'quantities' for setting amounts
   const [pickPhase, setPickPhase] = useState<'pick' | 'quantities'>('pick')
@@ -378,15 +426,71 @@ Welcome aboard! 🧦`
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-600 block mb-1">Store Type *</label>
-                <select
-                  {...form1.register('store_type')}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
-                >
-                  <option value="">Select type...</option>
-                  {storeTypes.map((t) => (
-                    <option key={t.id} value={t.value}>{t.label}</option>
-                  ))}
-                </select>
+                <div className="flex gap-2">
+                  <select
+                    {...form1.register('store_type')}
+                    className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                  >
+                    <option value="">Select type...</option>
+                    {storeTypes.map((t) => (
+                      <option key={t.id} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setAddTypeOpen((o) => !o)}
+                    className={cn(
+                      'shrink-0 inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold rounded-lg border transition-colors',
+                      addTypeOpen
+                        ? 'bg-[#0A0A0A] text-[#FFD700] border-[#0A0A0A]'
+                        : 'border-gray-200 text-gray-700 hover:bg-gray-50',
+                    )}
+                    title="Quick-add a new store type"
+                  >
+                    <Plus size={14} />
+                    New
+                  </button>
+                </div>
+
+                {addTypeOpen && (
+                  <div className="mt-2 p-3 rounded-lg bg-amber-50 border border-amber-200 space-y-2">
+                    <p className="text-[11px] text-amber-900 font-semibold">
+                      Add a new store type — it appears in this dropdown right away.
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newTypeLabel}
+                        onChange={(e) => setNewTypeLabel(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            quickAddType()
+                          }
+                          if (e.key === 'Escape') setAddTypeOpen(false)
+                        }}
+                        placeholder="e.g. Coffee Shop"
+                        autoFocus
+                        className="flex-1 px-3 py-2 text-sm border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={quickAddType}
+                        disabled={addingType || !newTypeLabel.trim()}
+                        className="shrink-0 inline-flex items-center gap-1 px-4 py-2 bg-[#0A0A0A] text-[#FFD700] text-xs font-bold rounded-lg disabled:opacity-50"
+                      >
+                        {addingType ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                        Add
+                      </button>
+                    </div>
+                    {newTypeLabel.trim() && (
+                      <p className="text-[10px] text-amber-700 font-mono">
+                        Internal code: <strong>{slugifyType(newTypeLabel) || '—'}</strong>
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <FieldError message={form1.formState.errors.store_type?.message} />
               </div>
             </div>
