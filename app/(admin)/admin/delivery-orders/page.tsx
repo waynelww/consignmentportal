@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, X } from 'lucide-react'
+import { Plus, X, Pencil, Trash2, Loader2, Search } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, cn } from '@/lib/utils'
 import type { DeliveryOrder, DeliveryOrderStatus, DeliveryOrderType, Store, Product } from '@/types'
@@ -40,6 +40,15 @@ export default function DeliveryOrdersPage() {
   const [createNotes, setCreateNotes] = useState('')
   const [createItems, setCreateItems] = useState<CreateDOItem[]>([{ product_id: '', quantity: 1 }])
   const [submitting, setSubmitting] = useState(false)
+
+  // Edit DO state
+  const [editingDo, setEditingDo] = useState<DOWithStore | null>(null)
+  const [editItems, setEditItems] = useState<CreateDOItem[]>([])
+  const [editNotes, setEditNotes] = useState('')
+  const [editSearch, setEditSearch] = useState('')
+  const [editSubmitting, setEditSubmitting] = useState(false)
+  const [cancellingDoId, setCancellingDoId] = useState<string | null>(null)
+
   const supabase = createClient()
 
   const fetchOrders = useCallback(async () => {
@@ -94,6 +103,108 @@ export default function DeliveryOrdersPage() {
       toast.success('Marked as dispatched')
       setDispatchModal({ open: false, doId: '', courier: '', tracking: '' })
       fetchOrders()
+    }
+  }
+
+  async function openEdit(d: DOWithStore) {
+    // Fetch the existing items
+    const { data: items, error } = await supabase
+      .from('delivery_order_items')
+      .select('product_id, quantity')
+      .eq('delivery_order_id', d.id)
+
+    if (error) {
+      toast.error('Failed to load items')
+      return
+    }
+    setEditingDo(d)
+    setEditItems(
+      ((items as { product_id: string; quantity: number }[]) ?? []).map((i) => ({
+        product_id: i.product_id,
+        quantity: i.quantity,
+      }))
+    )
+    setEditNotes(d.notes ?? '')
+    setEditSearch('')
+  }
+
+  function closeEdit() {
+    setEditingDo(null)
+    setEditItems([])
+    setEditNotes('')
+    setEditSearch('')
+  }
+
+  function editAddProduct(productId: string) {
+    // If already in the list, just +1 to its quantity. Otherwise append.
+    setEditItems((prev) => {
+      const existing = prev.find((i) => i.product_id === productId)
+      if (existing) {
+        return prev.map((i) => (i.product_id === productId ? { ...i, quantity: i.quantity + 1 } : i))
+      }
+      return [...prev, { product_id: productId, quantity: 1 }]
+    })
+    setEditSearch('')
+  }
+
+  function editSetQty(productId: string, qty: number) {
+    if (qty <= 0) {
+      editRemove(productId)
+      return
+    }
+    setEditItems((prev) =>
+      prev.map((i) => (i.product_id === productId ? { ...i, quantity: qty } : i))
+    )
+  }
+
+  function editRemove(productId: string) {
+    setEditItems((prev) => prev.filter((i) => i.product_id !== productId))
+  }
+
+  async function submitEdit() {
+    if (!editingDo) return
+    if (editItems.length === 0) {
+      toast.error('At least one SKU is required')
+      return
+    }
+    setEditSubmitting(true)
+    try {
+      const res = await fetch(`/api/delivery-orders/${editingDo.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: editItems.filter((i) => i.product_id && i.quantity > 0),
+          notes: editNotes.trim() || null,
+        }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error ?? 'Failed')
+      toast.success('Delivery order updated')
+      closeEdit()
+      fetchOrders()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update')
+    } finally {
+      setEditSubmitting(false)
+    }
+  }
+
+  async function cancelDO(d: DOWithStore) {
+    const ok = window.confirm(
+      `Cancel ${d.do_number}? This permanently removes the DO and its ${d.total_pairs} pairs.`
+    )
+    if (!ok) return
+    setCancellingDoId(d.id)
+    try {
+      const res = await fetch(`/api/delivery-orders/${d.id}`, { method: 'DELETE' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error ?? 'Failed')
+      toast.success(`${d.do_number} cancelled`)
+      fetchOrders()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to cancel')
+    } finally {
+      setCancellingDoId(null)
     }
   }
 
@@ -323,6 +434,30 @@ export default function DeliveryOrdersPage() {
                               Delivered
                             </button>
                           )}
+                          {/* Edit + Cancel — hidden once the store has acknowledged receipt */}
+                          {d.status !== 'acknowledged' && (
+                            <>
+                              <button
+                                onClick={() => openEdit(d)}
+                                className="text-xs p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                                title="Edit SKUs and quantities"
+                              >
+                                <Pencil size={13} />
+                              </button>
+                              <button
+                                onClick={() => cancelDO(d)}
+                                disabled={cancellingDoId === d.id}
+                                className="text-xs p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40"
+                                title="Cancel this DO"
+                              >
+                                {cancellingDoId === d.id ? (
+                                  <Loader2 size={13} className="animate-spin" />
+                                ) : (
+                                  <Trash2 size={13} />
+                                )}
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -494,6 +629,167 @@ export default function DeliveryOrdersPage() {
                 className="flex-1 py-2.5 bg-[#0A0A0A] text-white rounded-lg text-sm hover:bg-gray-800 disabled:opacity-50 transition-colors"
               >
                 {submitting ? 'Creating...' : 'Create DO'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit DO Modal — locked once status is 'acknowledged' (enforced server-side too) */}
+      {editingDo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6">
+          <div className="absolute inset-0 bg-black/50" onClick={() => !editSubmitting && closeEdit()} />
+          <div className="relative bg-white rounded-xl w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Edit {editingDo.do_number}</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {editingDo.store_name} · {editingDo.status}
+                </p>
+              </div>
+              <button
+                onClick={() => !editSubmitting && closeEdit()}
+                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              {/* Add product search */}
+              <div>
+                <label className="text-xs font-semibold text-gray-600 block mb-1">Add a SKU</label>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={editSearch}
+                    onChange={(e) => setEditSearch(e.target.value)}
+                    placeholder="Search by SKU or name…"
+                    className="w-full h-10 pl-9 pr-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                  />
+                </div>
+                {editSearch.trim() && (
+                  <div className="mt-1 border border-gray-200 rounded-lg max-h-48 overflow-y-auto bg-white shadow-sm">
+                    {products
+                      .filter((p) => {
+                        const q = editSearch.trim().toLowerCase()
+                        return (
+                          p.sku.toLowerCase().includes(q) ||
+                          p.name.toLowerCase().includes(q)
+                        )
+                      })
+                      .slice(0, 15)
+                      .map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => editAddProduct(p.id)}
+                          className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-b-0 flex items-center gap-2 text-sm"
+                        >
+                          <span className="font-mono text-xs text-gray-500 shrink-0 w-16">{p.sku}</span>
+                          <span className="text-gray-800 truncate">{p.name}</span>
+                        </button>
+                      ))}
+                    {products.filter((p) => {
+                      const q = editSearch.trim().toLowerCase()
+                      return p.sku.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)
+                    }).length === 0 && (
+                      <p className="text-xs text-gray-400 px-3 py-2">No SKUs match.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Existing items */}
+              <div>
+                <p className="text-xs font-semibold text-gray-600 mb-2">
+                  Items in this DO ({editItems.length} SKU{editItems.length !== 1 ? 's' : ''} · {editItems.reduce((s, i) => s + i.quantity, 0)} pairs)
+                </p>
+                {editItems.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-4 text-center bg-gray-50 rounded-lg">
+                    No items yet. Search above to add one.
+                  </p>
+                ) : (
+                  <div className="border border-gray-100 rounded-lg overflow-hidden">
+                    {editItems.map((item) => {
+                      const product = products.find((p) => p.id === item.product_id)
+                      return (
+                        <div
+                          key={item.product_id}
+                          className="flex items-center gap-3 px-3 py-2 border-b border-gray-50 last:border-b-0"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-mono text-gray-500">{product?.sku ?? '—'}</p>
+                            <p className="text-sm text-gray-800 truncate">{product?.name ?? '(unknown)'}</p>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => editSetQty(item.product_id, item.quantity - 1)}
+                              className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200"
+                            >
+                              −
+                            </button>
+                            <input
+                              type="number"
+                              min={1}
+                              value={item.quantity}
+                              onChange={(e) => editSetQty(item.product_id, Number(e.target.value) || 1)}
+                              className="w-16 h-8 px-2 text-sm font-bold border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-center"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => editSetQty(item.product_id, item.quantity + 1)}
+                              className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200"
+                            >
+                              +
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => editRemove(item.product_id)}
+                              className="w-7 h-7 rounded-lg bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100 ml-1"
+                              title="Remove"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="text-xs font-semibold text-gray-600 block mb-1">Notes (optional)</label>
+                <textarea
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  rows={2}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] resize-none"
+                  placeholder="Internal notes for this delivery…"
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-4 border-t border-gray-100 shrink-0 flex justify-end gap-2">
+              <button
+                onClick={() => !editSubmitting && closeEdit()}
+                className="px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitEdit}
+                disabled={editSubmitting || editItems.length === 0}
+                className="px-5 py-2 bg-[#0A0A0A] text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 flex items-center gap-2"
+              >
+                {editSubmitting && <Loader2 size={14} className="animate-spin" />}
+                Save Changes
               </button>
             </div>
           </div>
