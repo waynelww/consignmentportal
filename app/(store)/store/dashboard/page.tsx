@@ -345,7 +345,7 @@ export default function DashboardPage() {
             href="/store/promos"
             className="block w-full h-14 bg-white border-2 border-[#FFD700] text-[#0A0A0A] rounded-xl font-semibold text-sm text-center leading-[52px] shadow-sm hover:bg-amber-50 transition-colors"
           >
-            My Promos
+            View Promos
           </Link>
         </div>
       </section>

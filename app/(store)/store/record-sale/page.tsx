@@ -705,13 +705,8 @@ export default function RecordSalePage() {
               {promos.length === 0 ? (
                 <div className="text-center py-8">
                   <Tag size={32} className="text-gray-300 mx-auto mb-2" />
-                  <p className="text-sm text-gray-500">No active promos.</p>
-                  <Link
-                    href="/store/promos"
-                    className="inline-block mt-3 text-xs font-bold text-amber-600 underline"
-                  >
-                    Create a promo →
-                  </Link>
+                  <p className="text-sm text-gray-500">No promos available right now.</p>
+                  <p className="text-xs text-gray-400 mt-1">Xocks will publish promos here when available.</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -770,7 +765,7 @@ export default function RecordSalePage() {
                 href="/store/promos"
                 className="block mt-4 text-center text-xs text-gray-500 underline"
               >
-                Manage all promos →
+                See all available promos →
               </Link>
             </div>
           </div>
