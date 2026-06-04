@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { verifyBotAuth } from '@/lib/bot-auth'
+import { cachedAdminJson } from '@/lib/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // GET /api/bot/sales-summary?from=YYYY-MM-DD&to=YYYY-MM-DD&groupBy=store|sku|store_type|state
@@ -78,7 +79,7 @@ export async function GET(request: NextRequest) {
     .map(([id, v]) => ({ id, ...v }))
     .sort((a, b) => b.revenue - a.revenue)
 
-  return Response.json({
+  return cachedAdminJson({
     period: { from, to },
     groupBy,
     totals: {

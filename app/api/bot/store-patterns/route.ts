@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { verifyBotAuth } from '@/lib/bot-auth'
+import { cachedAdminJson } from '@/lib/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // GET /api/bot/store-patterns?days=90
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
     addTo(categoryByStoreType, storeType, category, r.quantity, Number(r.total_amount))
   }
 
-  return Response.json({
+  return cachedAdminJson({
     period_days: days,
     since,
     sku_by_store_type: rankNested(skuByStoreType),

@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { verifyBotAuth } from '@/lib/bot-auth'
+import { cachedAdminJson } from '@/lib/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // GET /api/bot/shipping-efficiency?days=180
@@ -92,7 +93,7 @@ export async function GET(request: NextRequest) {
     return order[a.flag as keyof typeof order] - order[b.flag as keyof typeof order]
   })
 
-  return Response.json({
+  return cachedAdminJson({
     period_days: days,
     flagged_count: out.filter((s) => s.flag !== 'ok').length,
     stores: out,

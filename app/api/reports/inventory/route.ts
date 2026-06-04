@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { cachedAdminJson } from '@/lib/cache'
 
 export async function GET(_request: NextRequest) {
   const supabase = await createClient()
@@ -54,7 +55,7 @@ export async function GET(_request: NextRequest) {
   const in_stock = snapshot.filter((i) => i.stock_status === 'in_stock').length
   const total_pairs_across_stores = snapshot.reduce((sum, i) => sum + i.quantity_on_hand, 0)
 
-  return Response.json({
+  return cachedAdminJson({
     inventory: snapshot,
     summary: { total_skus, in_stock, low_stock, out_of_stock, total_pairs_across_stores },
   })

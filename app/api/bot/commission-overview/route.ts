@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { verifyBotAuth } from '@/lib/bot-auth'
+import { cachedAdminJson } from '@/lib/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // GET /api/bot/commission-overview?status=pending|approved|paid|disputed (optional)
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest) {
     outstandingByStore[k].commission_owed_rm = round(outstandingByStore[k].commission_owed_rm)
   }
 
-  return Response.json({
+  return cachedAdminJson({
     by_status: byStatus,
     outstanding_by_store: Object.values(outstandingByStore).sort((a, b) => b.commission_owed_rm - a.commission_owed_rm),
     periods: rows,

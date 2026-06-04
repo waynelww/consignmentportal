@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OEM Sock Calculator · Xocks</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  input[type=number]::-webkit-inner-spin-button { opacity: 1; }
+  .ring-gold:focus { --tw-ring-color: #FFD700; }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen text-gray-900">
+
+<div class="max-w-6xl mx-auto p-3 sm:p-6 space-y-4 sm:space-y-6">
+
+  <header class="flex items-center justify-between gap-3">
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-black flex items-center justify-center flex-shrink-0">
+        <span class="text-yellow-400 text-lg sm:text-xl font-black">X</span>
+      </div>
+      <div class="min-w-0">
+        <h1 class="text-lg sm:text-2xl font-bold leading-tight">OEM Sock Calculator</h1>
+        <p class="text-[11px] sm:text-sm text-gray-500 hidden sm:block">Quote selling price and production time from quantity and print sides.</p>
+      </div>
+    </div>
+    <button id="reset-btn" title="Reset defaults" class="text-xs text-gray-500 hover:text-gray-900 transition-colors flex items-center gap-1.5 px-3 py-2 rounded-lg hover:bg-gray-100 flex-shrink-0">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+      <span class="hidden sm:inline">Reset defaults</span>
+    </button>
+  </header>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+    <section class="lg:col-span-2 bg-white rounded-xl border border-gray-100 p-4 sm:p-6 space-y-5">
+      <h2 class="text-sm font-semibold uppercase tracking-wide">Order Details</h2>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+        <div class="space-y-1.5">
+          <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Quantity (pairs)</label>
+          <input id="quantity" type="number" min="1" value="50"
+            class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-gold focus:border-transparent" />
+          <p class="text-[11px] text-gray-500">Snaps up to tier <strong id="tier-hint">50</strong> pairs for pricing.</p>
+        </div>
+
+        <div class="space-y-1.5">
+          <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Customer deadline (optional)</label>
+          <input id="deadline" type="date"
+            class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-gold focus:border-transparent" />
+          <p class="text-[11px] text-gray-500">Needs 7-day buffer beyond production time.</p>
+        </div>
+
+        <div class="space-y-1.5 md:col-span-2">
+          <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide">Print sides</label>
+          <div class="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50 w-full" data-segment="sides">
+            <button type="button" data-value="1" class="seg-btn flex-1 text-sm font-medium px-2 py-2.5 rounded-md transition-all whitespace-nowrap">1 Side <span class="text-gray-400 hidden sm:inline">(1 Logo)</span></button>
+            <button type="button" data-value="2" class="seg-btn flex-1 text-sm font-medium px-2 py-2.5 rounded-md transition-all whitespace-nowrap">2 Sides <span class="text-gray-400 hidden sm:inline">(2 Logos)</span></button>
+          </div>
+          <p class="text-[11px] text-gray-500">1 side = print on one face of each sock. 2 sides = both faces.</p>
+        </div>
+
+      </div>
+    </section>
+
+    <section class="bg-black text-white rounded-xl p-5 sm:p-6 space-y-5">
+      <h3 class="text-xs font-semibold text-yellow-400 uppercase tracking-widest">Quote</h3>
+
+      <div class="space-y-1">
+        <p class="text-[11px] text-white/40 uppercase tracking-wider">Variant</p>
+        <p id="out-variant" class="text-sm font-medium">—</p>
+      </div>
+
+      <div class="space-y-1">
+        <p class="text-[11px] text-white/40 uppercase tracking-wider">Selling price (per pair)</p>
+        <p id="out-price" class="text-3xl font-bold text-yellow-400">—</p>
+        <p id="out-price-warn" class="text-[11px] text-red-300 hidden">Open the pricing grid below to set rates for this variant.</p>
+      </div>
+
+      <div class="space-y-1">
+        <p class="text-[11px] text-white/40 uppercase tracking-wider">Total revenue (<span id="out-qty">0</span> pairs)</p>
+        <p id="out-revenue" class="text-xl font-semibold">—</p>
+      </div>
+
+      <div class="h-px bg-white/10"></div>
+
+      <div class="space-y-1">
+        <p class="text-[11px] text-white/40 uppercase tracking-wider">Production time</p>
+        <p id="out-duration" class="text-2xl font-bold">—</p>
+        <p id="out-pace" class="text-[11px] text-white/50">—</p>
+      </div>
+
+      <div id="out-deadline" class="text-xs rounded-lg px-3 py-2 border hidden"></div>
+
+      <p id="out-breakdown" class="text-[11px] text-white/40 pt-2 leading-relaxed">—</p>
+    </section>
+  </div>
+
+  <section class="bg-white rounded-xl border border-gray-100">
+    <button id="toggle-prices" class="w-full flex items-center justify-between px-4 sm:px-6 py-4 hover:bg-gray-50 transition-colors">
+      <span class="flex items-center gap-2">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span class="text-sm font-semibold">Pricing grid <span class="text-gray-500 font-normal">(RM/pair)</span></span>
+        <span class="text-xs text-gray-500 hidden sm:inline">— edit and updates instantly</span>
+      </span>
+      <span id="prices-chevron">▼</span>
+    </button>
+    <div id="prices-panel" class="hidden px-4 sm:px-6 pb-6 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-gray-500 text-xs uppercase tracking-wide border-b border-gray-100">
+            <th class="py-2 pr-4 font-medium">Variant</th>
+            <th class="py-2 px-2 font-medium text-right">15</th>
+            <th class="py-2 px-2 font-medium text-right">30</th>
+            <th class="py-2 px-2 font-medium text-right">50</th>
+            <th class="py-2 px-2 font-medium text-right">100</th>
+            <th class="py-2 px-2 font-medium text-right">500</th>
+            <th class="py-2 px-2 font-medium text-right">1000</th>
+          </tr>
+        </thead>
+        <tbody id="price-tbody"></tbody>
+      </table>
+      <p class="text-xs text-gray-500 mt-3">
+        Edits save to this browser. Quantities between tiers snap <strong>up</strong> to the next tier (e.g. 75 → uses the 100 column).
+      </p>
+    </div>
+  </section>
+
+  <section class="bg-white rounded-xl border border-gray-100">
+    <button id="toggle-times" class="w-full flex items-center justify-between px-4 sm:px-6 py-4 hover:bg-gray-50 transition-colors">
+      <span class="flex items-center gap-2">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span class="text-sm font-semibold">Time per step <span class="text-gray-500 font-normal">(sec)</span></span>
+        <span class="text-xs text-gray-500 hidden sm:inline">— fill in once, saved locally</span>
+      </span>
+      <span id="times-chevron">▼</span>
+    </button>
+    <div id="times-panel" class="hidden px-4 sm:px-6 pb-6 space-y-6">
+
+      <div>
+        <h4 class="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">Per pair</h4>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="space-y-1.5">
+            <label class="block text-xs font-medium text-gray-600">Remove socks clip</label>
+            <input data-time="removeClip" type="number" min="0" placeholder="sec"
+              class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-gold focus:border-transparent" />
+          </div>
+          <div class="space-y-1.5">
+            <label class="block text-xs font-medium text-gray-600">Put in OPP bag</label>
+            <input data-time="oppBag" type="number" min="0" placeholder="sec"
+              class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-gold focus:border-transparent" />
+          </div>
+          <div class="space-y-1.5">
+            <label class="block text-xs font-medium text-gray-600">QC clip back</label>
+            <input data-time="qcClip" type="number" min="0" placeholder="sec"
+              class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-gold focus:border-transparent" />
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h4 class="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">Per side <span class="text-gray-400 normal-case">(applied per side, so doubled for 2-side jobs)</span></h4>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="space-y-1.5">
+            <label class="block text-xs font-medium text-gray-600">Slot socks in</label>
+            <input data-time="slotIn" type="number" min="0" placeholder="sec"
+              class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-gold focus:border-transparent" />
+          </div>
+          <div class="space-y-1.5">
+            <label class="block text-xs font-medium text-gray-600">Patching</label>
+            <input data-time="patching" type="number" min="0" placeholder="sec"
+              class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-gold focus:border-transparent" />
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h4 class="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">Kick-start prep per 100 pairs</h4>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="space-y-1.5">
+            <label class="block text-xs font-medium text-gray-600">Cutting &amp; printing</label>
+            <input data-time="cutPrint" type="number" min="0" placeholder="sec per 100 pairs"
+              class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-gold focus:border-transparent" />
+            <p class="text-[11px] text-gray-500">Amortised linearly: qty ÷ 100 × this value.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <p class="text-center text-xs text-gray-400 pt-4">Xocks · OEM quoting tool · all data stays in your browser</p>
+</div>
+
+<script>
+const QTY_TIERS = [15, 30, 50, 100, 500, 1000];
+const DEADLINE_BUFFER_DAYS = 7;
+const WORKING_HOURS_PER_DAY = 8;
+
+const DEFAULT_PRICES = {
+  '1s': { 15: 14, 30: 19, 50: 19, 100: 15, 500: 12, 1000: 10 },
+  '2s': { 15: 18, 30: 23, 50: 23, 100: 19, 500: 16, 1000: 14 },
+};
+
+const VARIANT_LABELS = [
+  { key: '1s', label: '1 Side (1 Logo)' },
+  { key: '2s', label: '2 Sides (2 Logos)' },
+];
+
+const DEFAULT_TIMES = {
+  removeClip: 0,
+  oppBag: 0,
+  qcClip: 0,
+  slotIn: 0,
+  patching: 0,
+  cutPrint: 0,
+};
+
+const PRICE_KEY = 'xocks-oem-prices-v2';
+const TIME_KEY = 'xocks-oem-times-v2';
+
+let state = {
+  quantity: 50,
+  sides: 1,
+  deadline: '',
+  prices: loadObj(PRICE_KEY, DEFAULT_PRICES),
+  times: loadObj(TIME_KEY, DEFAULT_TIMES),
+};
+
+function loadObj(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return JSON.parse(JSON.stringify(fallback));
+    return { ...JSON.parse(JSON.stringify(fallback)), ...JSON.parse(raw) };
+  } catch { return JSON.parse(JSON.stringify(fallback)); }
+}
+function save(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+
+function formatRM(n) {
+  return 'RM ' + Number(n).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function snapTier(q) {
+  for (const t of QTY_TIERS) if (q <= t) return t;
+  return QTY_TIERS[QTY_TIERS.length - 1];
+}
+
+function formatDuration(totalSec) {
+  const s = Math.max(0, Math.round(totalSec));
+  const h = Math.floor(s / 3600);
+  const m = Math.round((s % 3600) / 60);
+  if (h === 0 && m === 0 && s > 0) return `${s} sec`;
+  return h > 0 ? `${h} hr ${m} min` : `${m} min`;
+}
+
+function calcSecondsPerPair() {
+  const t = state.times;
+  const perPair = (t.removeClip || 0) + (t.oppBag || 0) + (t.qcClip || 0);
+  const perSide = (t.slotIn || 0) + (t.patching || 0);
+  const perBatchAmortised = (t.cutPrint || 0) / 100;
+  return perPair + (state.sides * perSide) + perBatchAmortised;
+}
+
+function render() {
+  const variantKey = `${state.sides}s`;
+  const variantLabel = (VARIANT_LABELS.find(v => v.key === variantKey) || {}).label || variantKey;
+  const tier = snapTier(state.quantity);
+  const pricePerPair = (state.prices[variantKey] || {})[tier] || 0;
+  const totalRevenue = pricePerPair * state.quantity;
+
+  const secPerPair = calcSecondsPerPair();
+  const totalSec = secPerPair * state.quantity;
+  const workingDays = totalSec / (WORKING_HOURS_PER_DAY * 3600);
+
+  document.getElementById('tier-hint').textContent = tier;
+  document.getElementById('out-variant').textContent = variantLabel;
+  document.getElementById('out-qty').textContent = state.quantity;
+
+  const priceEl = document.getElementById('out-price');
+  const warnEl = document.getElementById('out-price-warn');
+  if (pricePerPair === 0) {
+    priceEl.textContent = 'Not set';
+    priceEl.classList.remove('text-yellow-400');
+    priceEl.classList.add('text-red-400');
+    warnEl.classList.remove('hidden');
+  } else {
+    priceEl.textContent = formatRM(pricePerPair);
+    priceEl.classList.add('text-yellow-400');
+    priceEl.classList.remove('text-red-400');
+    warnEl.classList.add('hidden');
+  }
+  document.getElementById('out-revenue').textContent = formatRM(totalRevenue);
+
+  if (secPerPair === 0) {
+    document.getElementById('out-duration').textContent = '—';
+    document.getElementById('out-pace').textContent = 'Fill in the time steps below to see production time.';
+  } else {
+    document.getElementById('out-duration').textContent = formatDuration(totalSec);
+    document.getElementById('out-pace').textContent =
+      `${secPerPair.toFixed(0)} sec/pair · ≈ ${workingDays.toFixed(1)} working days (${WORKING_HOURS_PER_DAY} hr/day)`;
+  }
+
+  const t = state.times;
+  const parts = [];
+  const perPair = (t.removeClip || 0) + (t.oppBag || 0) + (t.qcClip || 0);
+  const perSide = (t.slotIn || 0) + (t.patching || 0);
+  if (perPair > 0) parts.push(`Per-pair handling: ${formatDuration(perPair * state.quantity)}`);
+  if (perSide > 0) parts.push(`Per-side ops (×${state.sides}): ${formatDuration(perSide * state.sides * state.quantity)}`);
+  if (t.cutPrint > 0) parts.push(`Cutting + printing: ${formatDuration(t.cutPrint * state.quantity / 100)}`);
+  document.getElementById('out-breakdown').textContent = parts.length ? parts.join(' · ') : '—';
+
+  const dlEl = document.getElementById('out-deadline');
+  if (state.deadline) {
+    const due = new Date(state.deadline);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const daysUntil = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const slack = daysUntil - workingDays;
+    dlEl.classList.remove('hidden');
+    if (secPerPair === 0) {
+      dlEl.className = 'text-xs rounded-lg px-3 py-2 border border-white/20 bg-white/5 text-white/60';
+      dlEl.textContent = `${daysUntil} day(s) until deadline. Fill in time steps below to check production fit.`;
+    } else if (slack < DEADLINE_BUFFER_DAYS) {
+      dlEl.className = 'text-xs rounded-lg px-3 py-2 border border-red-500/40 bg-red-500/10 text-red-300';
+      dlEl.textContent = slack < 0
+        ? `Cannot make it: needs ≈ ${workingDays.toFixed(1)} working days but only ${daysUntil} day(s) until deadline.`
+        : `Too tight: only ${slack.toFixed(1)} day(s) buffer (need ${DEADLINE_BUFFER_DAYS}+). Needs ≈ ${workingDays.toFixed(1)} working days.`;
+    } else {
+      dlEl.className = 'text-xs rounded-lg px-3 py-2 border border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
+      dlEl.textContent = `OK: ${slack.toFixed(1)} day(s) buffer beyond ${workingDays.toFixed(1)} working days needed.`;
+    }
+  } else {
+    dlEl.classList.add('hidden');
+  }
+
+  document.querySelectorAll('[data-price-cell]').forEach(el => {
+    const k = el.dataset.priceCell.split('|');
+    const isActive = k[0] === variantKey && Number(k[1]) === tier;
+    el.classList.toggle('border-yellow-400', isActive);
+    el.classList.toggle('bg-yellow-50', isActive);
+  });
+}
+
+function bindSegment(name, key) {
+  document.querySelectorAll(`[data-segment="${name}"] .seg-btn`).forEach(btn => {
+    btn.addEventListener('click', () => {
+      state[key] = Number(btn.dataset.value);
+      paintSegment(name, key);
+      render();
+    });
+  });
+  paintSegment(name, key);
+}
+function paintSegment(name, key) {
+  document.querySelectorAll(`[data-segment="${name}"] .seg-btn`).forEach(btn => {
+    const active = String(btn.dataset.value) === String(state[key]);
+    btn.classList.toggle('bg-white', active);
+    btn.classList.toggle('shadow-sm', active);
+    btn.classList.toggle('text-gray-900', active);
+    btn.classList.toggle('text-gray-500', !active);
+  });
+}
+
+function buildPriceGrid() {
+  const tbody = document.getElementById('price-tbody');
+  tbody.innerHTML = '';
+  for (const { key, label } of VARIANT_LABELS) {
+    const tr = document.createElement('tr');
+    tr.className = 'border-b border-gray-50';
+    tr.innerHTML = `<td class="py-2 pr-4 font-medium text-gray-700">${label}</td>` +
+      QTY_TIERS.map(q => `
+        <td class="py-1 px-1">
+          <input type="number" min="0" step="0.50"
+            data-price-cell="${key}|${q}"
+            value="${state.prices[key][q]}"
+            class="w-20 rounded border border-gray-200 px-2 py-1 text-right text-sm focus:outline-none focus:ring-2 ring-gold focus:border-transparent" />
+        </td>`).join('');
+    tbody.appendChild(tr);
+  }
+  tbody.querySelectorAll('input').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const [k, q] = inp.dataset.priceCell.split('|');
+      state.prices[k][Number(q)] = Math.max(0, Number(inp.value) || 0);
+      save(PRICE_KEY, state.prices);
+      render();
+    });
+  });
+}
+
+function bindTimeInputs() {
+  document.querySelectorAll('[data-time]').forEach(el => {
+    const key = el.dataset.time;
+    el.value = state.times[key] || '';
+    el.addEventListener('input', () => {
+      state.times[key] = Math.max(0, Number(el.value) || 0);
+      save(TIME_KEY, state.times);
+      render();
+    });
+  });
+}
+
+function init() {
+  const qInp = document.getElementById('quantity');
+  qInp.value = state.quantity;
+  qInp.addEventListener('input', () => {
+    state.quantity = Math.max(1, Number(qInp.value) || 0);
+    render();
+  });
+  document.getElementById('deadline').addEventListener('input', e => {
+    state.deadline = e.target.value;
+    render();
+  });
+  bindSegment('sides', 'sides');
+
+  document.getElementById('toggle-prices').addEventListener('click', () => {
+    const p = document.getElementById('prices-panel');
+    p.classList.toggle('hidden');
+    document.getElementById('prices-chevron').textContent = p.classList.contains('hidden') ? '▼' : '▲';
+  });
+  document.getElementById('toggle-times').addEventListener('click', () => {
+    const p = document.getElementById('times-panel');
+    p.classList.toggle('hidden');
+    document.getElementById('times-chevron').textContent = p.classList.contains('hidden') ? '▼' : '▲';
+  });
+
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    if (!confirm('Reset all prices and times to defaults? Your saved edits will be lost.')) return;
+    state.prices = JSON.parse(JSON.stringify(DEFAULT_PRICES));
+    state.times = { ...DEFAULT_TIMES };
+    save(PRICE_KEY, state.prices);
+    save(TIME_KEY, state.times);
+    buildPriceGrid();
+    bindTimeInputs();
+    render();
+  });
+
+  buildPriceGrid();
+  bindTimeInputs();
+  render();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

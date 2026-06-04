@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { verifyBotAuth } from '@/lib/bot-auth'
+import { cachedAdminJson } from '@/lib/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // GET /api/bot/restock-needed
@@ -80,7 +81,7 @@ export async function GET(request: NextRequest) {
     byStore[key][i.urgency as 'critical' | 'high' | 'medium'] += 1
   }
 
-  return Response.json({
+  return cachedAdminJson({
     summary,
     total_skus_needing_restock: items.length,
     stores_affected: Object.keys(byStore).length,

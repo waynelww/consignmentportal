@@ -1,16 +1,26 @@
 /**
  * GET /api/cron/generate-commissions
- * Called by Vercel Cron on the 1st of each month at 01:00 UTC.
- * For each active store:
- *   1. Generates a commission period for the previous month
- *   2. Inserts in-app notifications (store + admin)
- *   3. Sends commission statement email to the store owner
- *   4. Sends Web Push notification to all subscribed store devices
+ * Vercel Cron: 1st of each month at 01:00 UTC.
+ *
+ * Strategy (scales to ~1000 active stores in well under 60s):
+ *   1. Critical path runs in parallel batches of CONCURRENCY stores:
+ *        - skip-if-exists check
+ *        - sales aggregation
+ *        - commission_periods INSERT
+ *        - in-app notifications (both store + admin)
+ *   2. Email + Web Push are queued via `after()` so the response can
+ *      return immediately and Vercel keeps the function alive in the
+ *      background — no extra cost, no extra timeout pressure.
  */
 import { type NextRequest } from 'next/server'
+import { after } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { sendCommissionStatementEmail } from '@/lib/email/send-email'
 import { sendPushToStore } from '@/lib/push/send-push'
+
+export const maxDuration = 300 // 5 min — well above what we need, gives headroom
+
+const CONCURRENCY = 8 // 8 stores processed in parallel per batch
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -22,6 +32,33 @@ function calcCommission(totalAmount: number, commissionRate: number) {
   return { commission_amount: commission, xocks_revenue: Number((totalAmount - commission).toFixed(2)) }
 }
 
+async function chunkedAll<T, R>(items: T[], size: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = []
+  for (let i = 0; i < items.length; i += size) {
+    const slice = items.slice(i, i + size)
+    const settled = await Promise.allSettled(slice.map(fn))
+    for (const s of settled) {
+      if (s.status === 'fulfilled') results.push(s.value)
+      else console.error('[cron generate-commissions] batch item failed:', s.reason)
+    }
+  }
+  return results
+}
+
+interface StoreRow {
+  id: string
+  store_name: string
+  store_code: string
+  email: string | null
+  commission_rate: number
+}
+
+interface CommissionResult {
+  store: StoreRow
+  period_id: string
+  commission_amount: number
+}
+
 export async function GET(request: NextRequest) {
   // Protect cron endpoint
   const authHeader = request.headers.get('authorization')
@@ -29,42 +66,47 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const start = Date.now()
   const svc = await createServiceClient()
 
   // Generate for the PREVIOUS month
   const now = new Date()
   const prevMonth = now.getMonth() === 0 ? 12 : now.getMonth()
-  const prevYear  = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear()
+  const prevYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear()
   const monthName = MONTH_NAMES[prevMonth - 1]
 
   const pad = (n: number) => String(n).padStart(2, '0')
   const startDate = `${prevYear}-${pad(prevMonth)}-01`
-  const lastDay   = new Date(prevYear, prevMonth, 0).getDate()
-  const endDate   = `${prevYear}-${pad(prevMonth)}-${pad(lastDay)}`
+  const lastDay = new Date(prevYear, prevMonth, 0).getDate()
+  const endDate = `${prevYear}-${pad(prevMonth)}-${pad(lastDay)}`
 
   const { data: stores } = await svc
     .from('stores')
     .select('id, store_name, store_code, email, commission_rate')
     .eq('status', 'active')
 
-  let generated = 0
-  let skipped   = 0
-  let emails    = 0
-  let pushSent  = 0
+  const storeList: StoreRow[] = (stores ?? []) as StoreRow[]
+  let skipped = 0
 
-  for (const store of stores ?? []) {
-    // ── 1. Skip if period already exists ─────────────────────────────────────
+  // Critical path: generate the period + in-app notifications, in parallel batches.
+  const generated: CommissionResult[] = []
+
+  const processed = await chunkedAll(storeList, CONCURRENCY, async (store): Promise<CommissionResult | null> => {
+    // Skip if period already exists
     const { data: existing } = await svc
       .from('commission_periods')
       .select('id')
       .eq('store_id', store.id)
       .eq('period_month', prevMonth)
       .eq('period_year', prevYear)
-      .single()
+      .maybeSingle()
 
-    if (existing) { skipped++; continue }
+    if (existing) {
+      skipped++
+      return null
+    }
 
-    // ── 2. Aggregate sales for the period ─────────────────────────────────────
+    // Aggregate sales for the period
     const { data: sales } = await svc
       .from('sales')
       .select('quantity, total_amount')
@@ -73,10 +115,10 @@ export async function GET(request: NextRequest) {
       .lte('sale_date', endDate)
 
     const total_units_sold = (sales ?? []).reduce((s, x) => s + x.quantity, 0)
-    const total_revenue    = Number((sales ?? []).reduce((s, x) => s + x.total_amount, 0).toFixed(2))
+    const total_revenue = Number((sales ?? []).reduce((s, x) => s + x.total_amount, 0).toFixed(2))
     const { commission_amount, xocks_revenue } = calcCommission(total_revenue, store.commission_rate)
 
-    // ── 3. Insert commission period ───────────────────────────────────────────
+    // Insert commission period
     const { data: period, error: periodErr } = await svc
       .from('commission_periods')
       .insert({
@@ -92,84 +134,111 @@ export async function GET(request: NextRequest) {
       .select('id')
       .single()
 
-    if (periodErr || !period) continue
-
-    generated++
+    if (periodErr || !period) return null
 
     const amountStr = `RM ${commission_amount.toFixed(2)}`
 
-    // ── 4. In-app notification → store ────────────────────────────────────────
-    await svc.from('notifications').insert({
-      recipient_role: null,
-      recipient_store_id: store.id,
-      type: 'commission_ready',
-      title: `Invoice Ready — ${monthName} ${prevYear}`,
-      message: `Your commission statement for ${monthName} ${prevYear} is ready. Commission earned: ${amountStr}. Please transfer to Xocks.`,
-      reference_id: period.id,
-      reference_type: 'commission_period',
-      is_read: false,
-    })
-
-    // ── 5. In-app notification → admin ────────────────────────────────────────
-    await svc.from('notifications').insert({
-      recipient_role: 'super_admin',
-      recipient_store_id: null,
-      type: 'commission_ready',
-      title: 'Commission Generated',
-      message: `${store.store_name} (${store.store_code}) — ${monthName} ${prevYear}: ${amountStr}`,
-      reference_id: period.id,
-      reference_type: 'commission_period',
-      is_read: false,
-    })
-
-    // ── 6. Email → store owner ────────────────────────────────────────────────
-    if (store.email) {
-      try {
-        await sendCommissionStatementEmail({
-          to: store.email,
-          storeName: store.store_name,
-          month: monthName,
-          year: prevYear,
-          commissionAmount: commission_amount,
-          pdfUrl: `${process.env.NEXT_PUBLIC_APP_URL}/store/commissions`,
-        })
-        emails++
-      } catch (err) {
-        console.error(`[cron] email failed for ${store.store_code}:`, err)
-      }
-    }
-
-    // ── 7. Web Push → store devices ───────────────────────────────────────────
-    const { data: subs } = await svc
-      .from('push_subscriptions')
-      .select('endpoint, p256dh, auth')
-      .eq('store_id', store.id)
-
-    if (subs && subs.length > 0) {
-      const { sent, expired } = await sendPushToStore(subs, {
+    // Two in-app notifications (store + admin) — also batched in parallel
+    await Promise.all([
+      svc.from('notifications').insert({
+        recipient_role: null,
+        recipient_store_id: store.id,
+        type: 'commission_ready',
         title: `Invoice Ready — ${monthName} ${prevYear}`,
-        body: `${store.store_name}: commission ${amountStr}. Tap to view your invoice.`,
-        url: '/store/commissions',
-        tag: `commission-${period.id}`,
-      })
-      pushSent += sent
+        message: `Your commission statement for ${monthName} ${prevYear} is ready. Commission earned: ${amountStr}. Please transfer to Xocks.`,
+        reference_id: period.id,
+        reference_type: 'commission_period',
+        is_read: false,
+      }),
+      svc.from('notifications').insert({
+        recipient_role: 'super_admin',
+        recipient_store_id: null,
+        type: 'commission_ready',
+        title: 'Commission Generated',
+        message: `${store.store_name} (${store.store_code}) — ${monthName} ${prevYear}: ${amountStr}`,
+        reference_id: period.id,
+        reference_type: 'commission_period',
+        is_read: false,
+      }),
+    ])
 
-      // Clean up expired / revoked subscriptions
-      if (expired.length > 0) {
-        await svc.from('push_subscriptions').delete().in('endpoint', expired)
+    return { store, period_id: period.id, commission_amount }
+  })
+
+  for (const p of processed) if (p) generated.push(p)
+
+  // Background fan-out: emails + push are slower (especially email — Resend
+  // takes ~500ms each). after() keeps Vercel running them concurrently
+  // without blocking the response. If anything fails it's logged but doesn't
+  // affect the cron's success status.
+  after(async () => {
+    let emails = 0
+    let pushSent = 0
+
+    await chunkedAll(generated, CONCURRENCY, async ({ store, period_id, commission_amount }) => {
+      const amountStr = `RM ${commission_amount.toFixed(2)}`
+
+      // Email
+      if (store.email) {
+        try {
+          await sendCommissionStatementEmail({
+            to: store.email,
+            storeName: store.store_name,
+            month: monthName,
+            year: prevYear,
+            commissionAmount: commission_amount,
+            pdfUrl: `${process.env.NEXT_PUBLIC_APP_URL}/store/commissions`,
+          })
+          emails++
+        } catch (err) {
+          console.error(`[cron] email failed for ${store.store_code}:`, err)
+        }
       }
-    }
-  }
 
-  console.log(`[cron] generated=${generated} skipped=${skipped} emails=${emails} push=${pushSent} month=${prevMonth}/${prevYear}`)
+      // Web Push
+      const { data: subs } = await svc
+        .from('push_subscriptions')
+        .select('endpoint, p256dh, auth')
+        .eq('store_id', store.id)
+
+      if (subs && subs.length > 0) {
+        try {
+          const { sent, expired } = await sendPushToStore(subs, {
+            title: `Invoice Ready — ${monthName} ${prevYear}`,
+            body: `${store.store_name}: commission ${amountStr}. Tap to view your invoice.`,
+            url: '/store/commissions',
+            tag: `commission-${period_id}`,
+          })
+          pushSent += sent
+          if (expired.length > 0) {
+            await svc.from('push_subscriptions').delete().in('endpoint', expired)
+          }
+        } catch (err) {
+          console.error(`[cron] push failed for ${store.store_code}:`, err)
+        }
+      }
+    })
+
+    console.log(
+      `[cron generate-commissions] background fan-out done · ` +
+      `emails=${emails} push=${pushSent}`,
+    )
+  })
+
+  const critical_ms = Date.now() - start
+  console.log(
+    `[cron generate-commissions] critical path done · ` +
+    `generated=${generated.length} skipped=${skipped} stores=${storeList.length} · ${critical_ms}ms`,
+  )
 
   return Response.json({
     success: true,
-    generated,
+    generated: generated.length,
     skipped,
-    emails,
-    pushSent,
+    stores_processed: storeList.length,
+    critical_path_ms: critical_ms,
     month: prevMonth,
     year: prevYear,
+    note: 'Emails and push notifications are sent in the background after this response.',
   })
 }

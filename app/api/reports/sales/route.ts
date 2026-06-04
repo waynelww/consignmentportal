@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { cachedAdminJson } from '@/lib/cache'
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -111,5 +112,5 @@ export async function GET(request: NextRequest) {
     transaction_count: filteredSales.length,
   }
 
-  return Response.json({ daily, by_store_type, by_sku, by_state, totals })
+  return cachedAdminJson({ daily, by_store_type, by_sku, by_state, totals })
 }

@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { cachedAdminJson } from '@/lib/cache'
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -118,5 +119,5 @@ export async function GET(request: NextRequest) {
     }
   })
 
-  return Response.json({ stores: result, period: { month, year } })
+  return cachedAdminJson({ stores: result, period: { month, year } })
 }
