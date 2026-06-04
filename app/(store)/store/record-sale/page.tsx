@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { ScanLine, X, ShoppingCart, CheckCircle, Loader2, Search, Minus, Plus, Trash2 } from 'lucide-react'
+import { ScanLine, X, ShoppingCart, CheckCircle, Loader2, Search, Minus, Plus, Trash2, Tag, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import Image from 'next/image'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
-import type { StoreInventory } from '@/types'
+import type { StoreInventory, Promo } from '@/types'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/components/store/StoreContext'
 
@@ -27,7 +28,13 @@ export default function RecordSalePage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [cartOpen, setCartOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [successInfo, setSuccessInfo] = useState<{ pairs: number; total: number } | null>(null)
+  const [successInfo, setSuccessInfo] = useState<{ pairs: number; total: number; discount: number } | null>(null)
+
+  // Promos
+  const [promos, setPromos] = useState<Promo[]>([])
+  const [selectedPromo, setSelectedPromo] = useState<Promo | null>(null)
+  const [promoPickerOpen, setPromoPickerOpen] = useState(false)
+  const [promoCode, setPromoCode] = useState('')
 
   const [search, setSearch] = useState('')
   const [scannerOpen, setScannerOpen] = useState(false)
@@ -36,17 +43,29 @@ export default function RecordSalePage() {
   const controlsRef = useRef<{ stop: () => void } | null>(null)
   const hasScannedRef = useRef(false)
 
-  // Load inventory — storeId from StoreContext, no auth waterfall
+  // Load inventory + promos in parallel
   useEffect(() => {
     if (!storeId) return
     async function load() {
       const supabase = createClient()
-      const { data: invData } = await supabase
-        .from('store_inventory')
-        .select('*, product:products(*)')
-        .eq('store_id', storeId!)
-        .order('quantity_on_hand', { ascending: false })
-      setInventory((invData as StoreInventory[]) ?? [])
+      const [invRes, promosRes] = await Promise.all([
+        supabase
+          .from('store_inventory')
+          .select('*, product:products(*)')
+          .eq('store_id', storeId!)
+          .order('quantity_on_hand', { ascending: false }),
+        fetch(`/api/promos?store_id=${storeId}`).then((r) => r.json()).catch(() => ({ promos: [] })),
+      ])
+      setInventory((invRes.data as StoreInventory[]) ?? [])
+      const allPromos = (promosRes.promos ?? []) as Promo[]
+      // Show only active and non-expired
+      setPromos(
+        allPromos.filter((p) => {
+          if (!p.is_active) return false
+          if (p.expires_at && new Date(p.expires_at) < new Date()) return false
+          return true
+        })
+      )
       setLoadingInventory(false)
     }
     load()
@@ -65,7 +84,62 @@ export default function RecordSalePage() {
 
   // Cart helpers
   const cartCount = cart.reduce((s, c) => s + c.quantity, 0)
-  const cartTotal = cart.reduce((s, c) => s + (c.inventoryItem.product?.selling_price ?? 0) * c.quantity, 0)
+  const cartSubtotal = cart.reduce((s, c) => s + (c.inventoryItem.product?.selling_price ?? 0) * c.quantity, 0)
+
+  // Promo discount calculation + eligibility check
+  function promoEligibility(promo: Promo): { ok: boolean; reason?: string } {
+    if (cartCount < promo.min_quantity) return { ok: false, reason: `Need ${promo.min_quantity} pairs (have ${cartCount})` }
+    if (cartSubtotal < Number(promo.min_amount)) return { ok: false, reason: `Need ${formatCurrency(Number(promo.min_amount))} minimum` }
+    return { ok: true }
+  }
+
+  const promoDiscount = (() => {
+    if (!selectedPromo) return 0
+    const eligibility = promoEligibility(selectedPromo)
+    if (!eligibility.ok) return 0
+    if (selectedPromo.discount_type === 'percentage') {
+      return Number((cartSubtotal * Number(selectedPromo.discount_value) / 100).toFixed(2))
+    }
+    return Math.min(Number(selectedPromo.discount_value), cartSubtotal)
+  })()
+
+  const cartTotal = Math.max(0, cartSubtotal - promoDiscount)
+
+  function applyPromoCode() {
+    const code = promoCode.trim().toUpperCase()
+    if (!code) return
+    const match = promos.find((p) => p.code?.toUpperCase() === code)
+    if (!match) {
+      toast.error('Promo code not found')
+      return
+    }
+    const eligibility = promoEligibility(match)
+    if (!eligibility.ok) {
+      toast.error(eligibility.reason ?? 'Promo not eligible')
+      return
+    }
+    setSelectedPromo(match)
+    setPromoPickerOpen(false)
+    setPromoCode('')
+    toast.success(`${match.name} applied`)
+  }
+
+  function selectPromo(promo: Promo) {
+    const eligibility = promoEligibility(promo)
+    if (!eligibility.ok) {
+      toast.error(eligibility.reason ?? 'Promo not eligible')
+      return
+    }
+    setSelectedPromo(promo)
+    setPromoPickerOpen(false)
+    setPromoCode('')
+    toast.success(`${promo.name} applied`)
+  }
+
+  function clearPromo() {
+    setSelectedPromo(null)
+    setPromoCode('')
+  }
 
   function addToCart(item: StoreInventory) {
     setCart((prev) => {
@@ -206,6 +280,7 @@ export default function RecordSalePage() {
             product_id: c.inventoryItem.product_id,
             quantity: c.quantity,
           })),
+          promo_id: selectedPromo?.id ?? null,
         }),
       })
 
@@ -215,9 +290,15 @@ export default function RecordSalePage() {
       }
 
       const data = await res.json()
-      setSuccessInfo({ pairs: data.total_pairs, total: data.grand_total })
+      setSuccessInfo({
+        pairs: data.total_pairs,
+        total: data.grand_total,
+        discount: data.promo_discount ?? promoDiscount,
+      })
       setCartOpen(false)
       setCart([])
+      setSelectedPromo(null)
+      setPromoCode('')
       setStep('success')
     } catch (err: any) {
       toast.error(err?.message ?? 'Failed to record sale. Please try again.')
@@ -235,6 +316,11 @@ export default function RecordSalePage() {
         </div>
         <h2 className="text-2xl font-bold text-[#0A0A0A]">Order Recorded!</h2>
         <p className="text-gray-500 mt-2">{successInfo.pairs} pair{successInfo.pairs !== 1 ? 's' : ''} sold</p>
+        {successInfo.discount > 0 && (
+          <p className="text-xs text-amber-600 mt-2 font-semibold">
+            Promo discount: −{formatCurrency(successInfo.discount)}
+          </p>
+        )}
         <p className="text-3xl font-bold text-[#0A0A0A] mt-3">{formatCurrency(successInfo.total)}</p>
         <button
           onClick={() => setStep('select')}
@@ -470,11 +556,63 @@ export default function RecordSalePage() {
               })}
             </div>
 
-            {/* Footer */}
+            {/* Footer — promo + totals + confirm */}
             <div className="px-4 pt-3 pb-6 border-t border-gray-100 space-y-3 shrink-0">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">{cartCount} pair{cartCount !== 1 ? 's' : ''}</span>
-                <span className="text-lg font-bold text-[#0A0A0A]">{formatCurrency(cartTotal)}</span>
+              {/* Promo button */}
+              {selectedPromo ? (
+                <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Tag size={14} className="text-amber-600 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-amber-900 truncate">{selectedPromo.name}</p>
+                      <p className="text-[10px] text-amber-700">
+                        −{formatCurrency(promoDiscount)}
+                      </p>
+                    </div>
+                  </div>
+                  <button onClick={clearPromo} className="text-amber-700 hover:text-amber-900 shrink-0">
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setPromoPickerOpen(true)}
+                  disabled={promos.length === 0}
+                  className={cn(
+                    'w-full flex items-center justify-between px-3 py-2 rounded-xl border border-dashed transition-colors',
+                    promos.length === 0
+                      ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                      : 'border-amber-300 text-amber-700 hover:bg-amber-50',
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <Tag size={14} />
+                    <span className="text-xs font-semibold">
+                      {promos.length === 0 ? 'No active promos' : 'Apply Promo'}
+                    </span>
+                  </div>
+                  {promos.length > 0 && <ChevronRight size={14} />}
+                </button>
+              )}
+
+              {/* Totals */}
+              <div className="space-y-0.5">
+                {promoDiscount > 0 && (
+                  <>
+                    <div className="flex justify-between items-center text-xs text-gray-500">
+                      <span>Subtotal</span>
+                      <span>{formatCurrency(cartSubtotal)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs text-amber-600 font-semibold">
+                      <span>Promo discount</span>
+                      <span>−{formatCurrency(promoDiscount)}</span>
+                    </div>
+                  </>
+                )}
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-500">{cartCount} pair{cartCount !== 1 ? 's' : ''}</span>
+                  <span className="text-lg font-bold text-[#0A0A0A]">{formatCurrency(cartTotal)}</span>
+                </div>
               </div>
               <button
                 onClick={confirmOrder}
@@ -496,6 +634,117 @@ export default function RecordSalePage() {
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Promo picker drawer */}
+      {promoPickerOpen && (
+        <div className="fixed inset-0 z-[70] flex flex-col justify-end">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setPromoPickerOpen(false)} />
+          <div className="relative bg-white rounded-t-2xl max-h-[75vh] flex flex-col shadow-2xl mb-[72px]">
+            <div className="flex justify-center pt-3 pb-1 shrink-0">
+              <div className="w-10 h-1 rounded-full bg-gray-300" />
+            </div>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
+              <h2 className="text-base font-bold text-[#0A0A0A]">Apply Promo</h2>
+              <button
+                onClick={() => setPromoPickerOpen(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Code entry */}
+            <div className="px-4 pt-3 pb-2 shrink-0">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Have a code?</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => { if (e.key === 'Enter') applyPromoCode() }}
+                  placeholder="Enter code"
+                  className="flex-1 h-11 px-3 text-sm font-mono uppercase border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                />
+                <button
+                  onClick={applyPromoCode}
+                  disabled={!promoCode.trim()}
+                  className="px-4 h-11 rounded-xl bg-[#0A0A0A] text-[#FFD700] text-sm font-bold disabled:opacity-40"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+
+            {/* Promo list */}
+            <div className="flex-1 overflow-y-auto px-4 pt-3 pb-5">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Available promos {promos.length > 0 && `(${promos.length})`}
+              </p>
+              {promos.length === 0 ? (
+                <div className="text-center py-8">
+                  <Tag size={32} className="text-gray-300 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">No active promos.</p>
+                  <Link
+                    href="/store/promos"
+                    className="inline-block mt-3 text-xs font-bold text-amber-600 underline"
+                  >
+                    Create a promo →
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {promos.map((promo) => {
+                    const eligibility = promoEligibility(promo)
+                    return (
+                      <button
+                        key={promo.id}
+                        onClick={() => selectPromo(promo)}
+                        disabled={!eligibility.ok}
+                        className={cn(
+                          'w-full text-left rounded-xl p-3 border-2 transition-all',
+                          eligibility.ok
+                            ? 'bg-white border-amber-200 hover:border-amber-300 active:scale-[0.98]'
+                            : 'bg-gray-50 border-gray-100 opacity-60 cursor-not-allowed',
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <Tag size={12} className="text-amber-600 shrink-0" />
+                              <p className="text-sm font-bold text-[#0A0A0A] truncate">{promo.name}</p>
+                            </div>
+                            <p className="text-lg font-bold text-[#0A0A0A]">
+                              {promo.discount_type === 'percentage'
+                                ? `${Number(promo.discount_value)}% off`
+                                : `${formatCurrency(Number(promo.discount_value))} off`}
+                            </p>
+                            {promo.code && (
+                              <p className="text-[10px] text-gray-500 mt-0.5">
+                                Code: <span className="font-mono font-bold text-gray-700">{promo.code}</span>
+                              </p>
+                            )}
+                            {!eligibility.ok && (
+                              <p className="text-[10px] text-red-500 mt-1 font-semibold">
+                                {eligibility.reason}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              <Link
+                href="/store/promos"
+                className="block mt-4 text-center text-xs text-gray-500 underline"
+              >
+                Manage all promos →
+              </Link>
             </div>
           </div>
         </div>

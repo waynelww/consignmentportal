@@ -14,6 +14,7 @@ const BatchSaleSchema = z.object({
     product_id: z.string().uuid(),
     quantity: z.number().int().positive(),
   })).min(1),
+  promo_id: z.string().uuid().optional().nullable(),
 })
 
 export async function POST(request: NextRequest) {
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Validation error', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { store_id, items } = parsed.data
+  const { store_id, items, promo_id } = parsed.data
 
   if (profile.role === 'store_owner' && profile.store_id !== store_id) {
     return Response.json({ error: 'Forbidden: cannot record sales for another store' }, { status: 403 })
@@ -107,13 +108,72 @@ export async function POST(request: NextRequest) {
   const sale_group_id = crypto.randomUUID()
   const results = []
 
-  for (const item of items) {
+  // Calculate cart-level totals for promo evaluation
+  const cartSubtotal = items.reduce((sum, item) => {
+    const prod = prodMap[item.product_id]
+    return sum + (prod?.selling_price ?? 0) * item.quantity
+  }, 0)
+  const cartQuantity = items.reduce((s, i) => s + i.quantity, 0)
+
+  // Resolve promo if provided
+  let promoDiscountTotal = 0
+  let resolvedPromoId: string | null = null
+  if (promo_id) {
+    const { data: promo } = await adminClient
+      .from('store_promos')
+      .select('*')
+      .eq('id', promo_id)
+      .eq('store_id', store_id)
+      .single()
+    if (!promo) {
+      return Response.json({ error: 'Promo not found or not for this store' }, { status: 404 })
+    }
+    if (!promo.is_active) {
+      return Response.json({ error: 'Promo is inactive' }, { status: 400 })
+    }
+    if (promo.expires_at && new Date(promo.expires_at) < new Date()) {
+      return Response.json({ error: 'Promo expired' }, { status: 400 })
+    }
+    if (cartQuantity < (promo.min_quantity ?? 0)) {
+      return Response.json({ error: `Minimum ${promo.min_quantity} pairs required for this promo` }, { status: 400 })
+    }
+    if (cartSubtotal < Number(promo.min_amount ?? 0)) {
+      return Response.json({ error: `Minimum cart total RM${promo.min_amount} required for this promo` }, { status: 400 })
+    }
+
+    if (promo.discount_type === 'percentage') {
+      promoDiscountTotal = Number((cartSubtotal * Number(promo.discount_value) / 100).toFixed(2))
+    } else {
+      promoDiscountTotal = Math.min(Number(promo.discount_value), cartSubtotal)
+    }
+    resolvedPromoId = promo.id
+  }
+
+  // Distribute promo discount proportionally across line items by their subtotal
+  // so each sale row carries its share. Last row absorbs rounding remainder.
+  let distributedSoFar = 0
+
+  for (let idx = 0; idx < items.length; idx++) {
+    const item = items[idx]
     const inv = invMap[item.product_id]
     const prod = prodMap[item.product_id]
     if (!prod) return Response.json({ error: `Product price not found for ${item.product_id}` }, { status: 404 })
 
     const unit_price = prod.selling_price
-    const total_amount = Number((item.quantity * unit_price).toFixed(2))
+    const line_subtotal = Number((item.quantity * unit_price).toFixed(2))
+
+    // Per-line discount share (last row absorbs rounding)
+    let line_discount = 0
+    if (promoDiscountTotal > 0 && cartSubtotal > 0) {
+      if (idx === items.length - 1) {
+        line_discount = Number((promoDiscountTotal - distributedSoFar).toFixed(2))
+      } else {
+        line_discount = Number(((line_subtotal / cartSubtotal) * promoDiscountTotal).toFixed(2))
+        distributedSoFar += line_discount
+      }
+    }
+
+    const total_amount = Number((line_subtotal - line_discount).toFixed(2))
     const { commission_amount, xocks_revenue } = calcCommission(total_amount, store.commission_rate)
 
     // INSERT sale — try with sale_group_id, fall back without it if the
@@ -132,19 +192,34 @@ export async function POST(request: NextRequest) {
       sale_date: today,
     }
 
+    // Try full insert (sale_group_id + promo fields), fall back gracefully
     let saleInsert = await supabase
       .from('sales')
-      .insert({ ...baseSaleRow, sale_group_id })
+      .insert({
+        ...baseSaleRow,
+        sale_group_id,
+        promo_id: resolvedPromoId,
+        promo_discount: line_discount,
+      })
       .select('id')
       .single()
 
     if (saleInsert.error && saleInsert.error.code === '42703') {
-      // Column missing — fall back. Sales still work, just not grouped yet.
+      // Column(s) missing — retry with just sale_group_id
       saleInsert = await supabase
         .from('sales')
-        .insert(baseSaleRow)
+        .insert({ ...baseSaleRow, sale_group_id })
         .select('id')
         .single()
+
+      if (saleInsert.error && saleInsert.error.code === '42703') {
+        // sale_group_id missing too — bare insert
+        saleInsert = await supabase
+          .from('sales')
+          .insert(baseSaleRow)
+          .select('id')
+          .single()
+      }
     }
 
     if (saleInsert.error || !saleInsert.data) {
@@ -238,11 +313,20 @@ export async function POST(request: NextRequest) {
       total_amount,
       commission_amount,
       new_quantity: new_quantity_on_hand,
+      promo_discount: line_discount,
     })
   }
 
   const grand_total = results.reduce((s, r) => s + r.total_amount, 0)
   const total_pairs = results.reduce((s, r) => s + r.quantity, 0)
 
-  return Response.json({ success: true, results, grand_total, total_pairs })
+  return Response.json({
+    success: true,
+    results,
+    grand_total,
+    total_pairs,
+    promo_id: resolvedPromoId,
+    promo_discount: promoDiscountTotal,
+    subtotal: cartSubtotal,
+  })
 }

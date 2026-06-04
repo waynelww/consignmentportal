@@ -149,9 +149,27 @@ export interface Sale {
   sale_date: string
   created_at: string
   sale_group_id?: string | null
+  promo_id?: string | null
+  promo_discount?: number
   // joined
   product?: Product
   store?: Store
+  promo?: Promo
+}
+
+export interface Promo {
+  id: string
+  store_id: string
+  code: string | null
+  name: string
+  discount_type: 'percentage' | 'fixed'
+  discount_value: number
+  min_quantity: number
+  min_amount: number
+  is_active: boolean
+  expires_at: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface RestockAlert {

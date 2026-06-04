@@ -334,12 +334,20 @@ export default function DashboardPage() {
         >
           Record a Sale
         </Link>
-        <Link
-          href="/store/restock-request"
-          className="block w-full h-14 bg-white border-2 border-[#0A0A0A] text-[#0A0A0A] rounded-xl font-semibold text-base text-center leading-[52px] shadow-sm hover:bg-gray-50 transition-colors"
-        >
-          Request Restock
-        </Link>
+        <div className="grid grid-cols-2 gap-3">
+          <Link
+            href="/store/restock-request"
+            className="block w-full h-14 bg-white border-2 border-[#0A0A0A] text-[#0A0A0A] rounded-xl font-semibold text-sm text-center leading-[52px] shadow-sm hover:bg-gray-50 transition-colors"
+          >
+            Request Restock
+          </Link>
+          <Link
+            href="/store/promos"
+            className="block w-full h-14 bg-white border-2 border-[#FFD700] text-[#0A0A0A] rounded-xl font-semibold text-sm text-center leading-[52px] shadow-sm hover:bg-amber-50 transition-colors"
+          >
+            My Promos
+          </Link>
+        </div>
       </section>
 
       {/* Recent transactions — grouped by sale_group_id */}
