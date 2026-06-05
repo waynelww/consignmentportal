@@ -622,14 +622,20 @@ export default function DeliveryOrdersPage() {
                     className="w-full h-10 pl-9 pr-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
                   />
                 </div>
-                {createSearch.trim() && (() => {
+                {/* Results panel — fixed height so the layout doesn't jump
+                    as the user types and the match count changes. */}
+                {(() => {
                   const q = createSearch.trim().toLowerCase()
-                  const matches = products
-                    .filter((p) => p.sku.toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
-                    .slice(0, 15)
+                  const matches = q
+                    ? products
+                        .filter((p) => p.sku.toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
+                        .slice(0, 15)
+                    : []
                   return (
-                    <div className="mt-1 border border-gray-200 rounded-lg max-h-48 overflow-y-auto bg-white shadow-sm">
-                      {matches.length === 0 ? (
+                    <div className="mt-1 border border-gray-200 rounded-lg h-48 overflow-y-auto bg-white shadow-sm">
+                      {!q ? (
+                        <p className="text-xs text-gray-400 px-3 py-2">Start typing a SKU or name to search…</p>
+                      ) : matches.length === 0 ? (
                         <p className="text-xs text-gray-400 px-3 py-2">No SKUs match.</p>
                       ) : (
                         matches.map((p) => (
