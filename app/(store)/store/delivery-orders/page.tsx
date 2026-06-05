@@ -147,18 +147,30 @@ export default function StoreDeliveryOrdersPage() {
 
                   {isExpanded && (
                     <div className="border-t border-gray-100 px-4 pb-4">
-                      {/* Items list */}
+                      {/* Items list — thumbnail helps owner spot colour at a glance */}
                       <div className="py-3 space-y-2">
                         {(order.items ?? []).map((item) => (
-                          <div key={item.id} className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <Package size={14} className="text-gray-400 shrink-0" />
-                              <div>
-                                <p className="text-sm text-gray-800">{item.product?.name}</p>
-                                <p className="text-xs text-gray-400">{item.product?.sku}</p>
+                          <div key={item.id} className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-3 min-w-0">
+                              {item.product?.image_url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={item.product.image_url}
+                                  alt={item.product.name ?? item.product.sku ?? ''}
+                                  loading="lazy"
+                                  className="w-12 h-12 rounded-lg object-cover bg-gray-50 border border-gray-100 shrink-0"
+                                />
+                              ) : (
+                                <div className="w-12 h-12 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0">
+                                  <Package size={18} className="text-gray-300" />
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-sm text-gray-800 truncate">{item.product?.name}</p>
+                                <p className="text-xs font-mono text-gray-400">{item.product?.sku}</p>
                               </div>
                             </div>
-                            <span className="text-sm font-semibold text-[#0A0A0A]">× {item.quantity}</span>
+                            <span className="text-sm font-semibold text-[#0A0A0A] shrink-0">× {item.quantity}</span>
                           </div>
                         ))}
                       </div>
