@@ -61,6 +61,15 @@
           <p class="text-[11px] text-gray-500">1 side = print on one face of each sock. 2 sides = both faces.</p>
         </div>
 
+        <div class="space-y-1.5 md:col-span-2">
+          <label class="block text-xs font-semibold text-gray-600 uppercase tracking-wide">OPP bag (individual packaging)</label>
+          <label class="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50">
+            <input id="opp-bag-toggle" type="checkbox" class="w-4 h-4 accent-yellow-400" />
+            <span class="text-sm text-gray-700">Slot each pair into an individual OPP bag</span>
+          </label>
+          <p class="text-[11px] text-gray-500">Adds a per-pair cost <span id="opp-bag-hint-cost" class="text-gray-400">(set in Pricing grid below)</span> and a per-pair handling time.</p>
+        </div>
+
       </div>
     </section>
 
@@ -76,6 +85,11 @@
         <p class="text-[11px] text-white/40 uppercase tracking-wider">Selling price (per pair)</p>
         <p id="out-price" class="text-3xl font-bold text-yellow-400">—</p>
         <p id="out-price-warn" class="text-[11px] text-red-300 hidden">Open the pricing grid below to set rates for this variant.</p>
+      </div>
+
+      <div id="opp-bag-quote-line" class="space-y-0.5 hidden">
+        <p class="text-[11px] text-white/40 uppercase tracking-wider">+ OPP bag (per pair)</p>
+        <p id="out-opp-bag" class="text-sm font-medium text-white/80">—</p>
       </div>
 
       <div class="space-y-1">
@@ -124,6 +138,16 @@
       <p class="text-xs text-gray-500 mt-3">
         Edits save to this browser. Quantities between tiers snap <strong>up</strong> to the next tier (e.g. 75 → uses the 100 column).
       </p>
+
+      <div id="opp-bag-cost-row" class="mt-5 pt-5 border-t border-gray-100 flex flex-wrap items-center gap-3 transition-opacity">
+        <label class="text-sm font-medium text-gray-700">OPP bag cost (RM/pair):</label>
+        <div class="flex items-center gap-2">
+          <span class="text-sm text-gray-500">RM</span>
+          <input id="opp-bag-cost" type="number" min="0" step="0.10" placeholder="0.00"
+            class="w-24 rounded border border-gray-200 px-2 py-1 text-right text-sm focus:outline-none focus:ring-2 ring-gold focus:border-transparent" />
+        </div>
+        <span id="opp-bag-cost-status" class="text-xs text-gray-400">Enable OPP bag in Order Details to apply.</span>
+      </div>
     </div>
   </section>
 
@@ -146,7 +170,7 @@
             <input data-time="removeClip" type="number" min="0" placeholder="sec"
               class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-gold focus:border-transparent" />
           </div>
-          <div class="space-y-1.5">
+          <div id="opp-bag-time-field" class="space-y-1.5 hidden">
             <label class="block text-xs font-medium text-gray-600">Put in OPP bag</label>
             <input data-time="oppBag" type="number" min="0" placeholder="sec"
               class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 ring-gold focus:border-transparent" />
@@ -219,14 +243,26 @@ const DEFAULT_TIMES = {
 
 const PRICE_KEY = 'xocks-oem-prices-v2';
 const TIME_KEY = 'xocks-oem-times-v2';
+const OPP_COST_KEY = 'xocks-oem-opp-cost-v1';
 
 let state = {
   quantity: 50,
   sides: 1,
   deadline: '',
+  oppBag: false,
+  oppBagCost: loadNum(OPP_COST_KEY, 0),
   prices: loadObj(PRICE_KEY, DEFAULT_PRICES),
   times: loadObj(TIME_KEY, DEFAULT_TIMES),
 };
+
+function loadNum(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null) return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : fallback;
+  } catch { return fallback; }
+}
 
 function loadObj(key, fallback) {
   try {
@@ -258,7 +294,8 @@ function formatDuration(totalSec) {
 
 function calcSecondsPerPair() {
   const t = state.times;
-  const perPair = (t.removeClip || 0) + (t.oppBag || 0) + (t.qcClip || 0);
+  const oppBagSec = state.oppBag ? (t.oppBag || 0) : 0;
+  const perPair = (t.removeClip || 0) + oppBagSec + (t.qcClip || 0);
   const perSide = (t.slotIn || 0) + (t.patching || 0);
   const perBatchAmortised = (t.cutPrint || 0) / 100;
   return perPair + (state.sides * perSide) + perBatchAmortised;
@@ -268,7 +305,9 @@ function render() {
   const variantKey = `${state.sides}s`;
   const variantLabel = (VARIANT_LABELS.find(v => v.key === variantKey) || {}).label || variantKey;
   const tier = snapTier(state.quantity);
-  const pricePerPair = (state.prices[variantKey] || {})[tier] || 0;
+  const basePricePerPair = (state.prices[variantKey] || {})[tier] || 0;
+  const oppBagAddon = state.oppBag ? (state.oppBagCost || 0) : 0;
+  const pricePerPair = basePricePerPair + oppBagAddon;
   const totalRevenue = pricePerPair * state.quantity;
 
   const secPerPair = calcSecondsPerPair();
@@ -281,7 +320,7 @@ function render() {
 
   const priceEl = document.getElementById('out-price');
   const warnEl = document.getElementById('out-price-warn');
-  if (pricePerPair === 0) {
+  if (basePricePerPair === 0) {
     priceEl.textContent = 'Not set';
     priceEl.classList.remove('text-yellow-400');
     priceEl.classList.add('text-red-400');
@@ -293,6 +332,47 @@ function render() {
     warnEl.classList.add('hidden');
   }
   document.getElementById('out-revenue').textContent = formatRM(totalRevenue);
+
+  // OPP bag breakdown in quote
+  const oppLine = document.getElementById('opp-bag-quote-line');
+  const oppOut = document.getElementById('out-opp-bag');
+  if (state.oppBag) {
+    oppLine.classList.remove('hidden');
+    oppOut.textContent = oppBagAddon > 0
+      ? `+ ${formatRM(oppBagAddon)} × ${state.quantity} = ${formatRM(oppBagAddon * state.quantity)}`
+      : 'Set OPP bag cost in pricing grid below.';
+  } else {
+    oppLine.classList.add('hidden');
+  }
+
+  // OPP bag time field visibility (only show when ticked)
+  document.getElementById('opp-bag-time-field').classList.toggle('hidden', !state.oppBag);
+
+  // OPP bag cost input — grey out when not ticked
+  const oppCostRow = document.getElementById('opp-bag-cost-row');
+  const oppCostInput = document.getElementById('opp-bag-cost');
+  const oppCostStatus = document.getElementById('opp-bag-cost-status');
+  if (state.oppBag) {
+    oppCostRow.classList.remove('opacity-40');
+    oppCostInput.disabled = false;
+    oppCostStatus.textContent = oppBagAddon > 0 ? `Adds ${formatRM(oppBagAddon)} per pair to the quote.` : 'Set a value to apply.';
+    oppCostStatus.classList.remove('text-gray-400');
+    oppCostStatus.classList.add('text-emerald-600');
+  } else {
+    oppCostRow.classList.add('opacity-40');
+    oppCostInput.disabled = true;
+    oppCostStatus.textContent = 'Enable OPP bag in Order Details to apply.';
+    oppCostStatus.classList.add('text-gray-400');
+    oppCostStatus.classList.remove('text-emerald-600');
+  }
+
+  // Hint near OPP bag checkbox showing currently configured cost
+  const costHint = document.getElementById('opp-bag-hint-cost');
+  if (state.oppBagCost > 0) {
+    costHint.textContent = `(${formatRM(state.oppBagCost)} / pair)`;
+  } else {
+    costHint.textContent = '(set in Pricing grid below)';
+  }
 
   if (secPerPair === 0) {
     document.getElementById('out-duration').textContent = '—';
@@ -414,6 +494,21 @@ function init() {
   });
   bindSegment('sides', 'sides');
 
+  // OPP bag toggle + cost
+  const oppToggle = document.getElementById('opp-bag-toggle');
+  oppToggle.checked = state.oppBag;
+  oppToggle.addEventListener('change', e => {
+    state.oppBag = e.target.checked;
+    render();
+  });
+  const oppCostInp = document.getElementById('opp-bag-cost');
+  oppCostInp.value = state.oppBagCost || '';
+  oppCostInp.addEventListener('input', () => {
+    state.oppBagCost = Math.max(0, Number(oppCostInp.value) || 0);
+    try { localStorage.setItem(OPP_COST_KEY, String(state.oppBagCost)); } catch {}
+    render();
+  });
+
   document.getElementById('toggle-prices').addEventListener('click', () => {
     const p = document.getElementById('prices-panel');
     p.classList.toggle('hidden');
@@ -429,10 +524,13 @@ function init() {
     if (!confirm('Reset all prices and times to defaults? Your saved edits will be lost.')) return;
     state.prices = JSON.parse(JSON.stringify(DEFAULT_PRICES));
     state.times = { ...DEFAULT_TIMES };
+    state.oppBagCost = 0;
     save(PRICE_KEY, state.prices);
     save(TIME_KEY, state.times);
+    try { localStorage.removeItem(OPP_COST_KEY); } catch {}
     buildPriceGrid();
     bindTimeInputs();
+    document.getElementById('opp-bag-cost').value = '';
     render();
   });
 
