@@ -2,7 +2,9 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Image from 'next/image'
-import { Store, Building2, AlertCircle, FileText, QrCode } from 'lucide-react'
+import { Store, Building2, AlertCircle, FileText, QrCode, User, Lock, Mail, Save, Loader2, Eye, EyeOff } from 'lucide-react'
+import { toast } from 'sonner'
+import { MALAYSIAN_STATES } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMonthYear } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -28,6 +30,42 @@ export default function InfoPage() {
   const [mtdRevenue, setMtdRevenue]     = useState(0)
   const [mtdCommission, setMtdCommission] = useState(0)
   const [loading, setLoading]           = useState(true)
+
+  // Tab
+  const [tab, setTab] = useState<'store' | 'me'>('store')
+
+  // "Me" form state — editable contact info
+  interface MeForm {
+    full_name: string
+    phone: string
+    pic_name: string
+    pic_phone: string
+    store_email: string
+    address: string
+    city: string
+    state: string
+    postcode: string
+  }
+  const [meForm, setMeForm] = useState<MeForm>({
+    full_name: '', phone: '', pic_name: '', pic_phone: '',
+    store_email: '', address: '', city: '', state: '', postcode: '',
+  })
+  const [meDirty, setMeDirty] = useState(false)
+  const [savingMe, setSavingMe] = useState(false)
+  const [currentEmail, setCurrentEmail] = useState('')
+
+  // Password modal
+  const [pwdModalOpen, setPwdModalOpen] = useState(false)
+  const [pwdCurrent, setPwdCurrent] = useState('')
+  const [pwdNew, setPwdNew] = useState('')
+  const [pwdConfirm, setPwdConfirm] = useState('')
+  const [pwdSubmitting, setPwdSubmitting] = useState(false)
+  const [pwdShow, setPwdShow] = useState(false)
+
+  // Email modal
+  const [emailModalOpen, setEmailModalOpen] = useState(false)
+  const [newEmail, setNewEmail] = useState('')
+  const [emailSubmitting, setEmailSubmitting] = useState(false)
 
   const load = useCallback(async () => {
     if (!storeId) return
@@ -92,13 +130,361 @@ export default function InfoPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Load editable profile data when entering the Me tab
+  useEffect(() => {
+    if (tab !== 'me' || !storeId) return
+    fetch('/api/profile/me')
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.profile || !data.store) return
+        setMeForm({
+          full_name: data.profile.full_name ?? '',
+          phone: data.profile.phone ?? '',
+          pic_name: data.store.pic_name ?? '',
+          pic_phone: data.store.pic_phone ?? '',
+          store_email: data.store.email ?? '',
+          address: data.store.address ?? '',
+          city: data.store.city ?? '',
+          state: data.store.state ?? '',
+          postcode: data.store.postcode ?? '',
+        })
+        setCurrentEmail(data.profile.email ?? '')
+        setMeDirty(false)
+      })
+      .catch(() => toast.error('Failed to load profile'))
+  }, [tab, storeId])
+
+  function updateMeField<K extends keyof MeForm>(key: K, value: MeForm[K]) {
+    setMeForm((prev) => ({ ...prev, [key]: value }))
+    setMeDirty(true)
+  }
+
+  async function saveMe() {
+    setSavingMe(true)
+    try {
+      const res = await fetch('/api/profile/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(meForm),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error ?? 'Failed')
+      toast.success('Profile updated')
+      setMeDirty(false)
+      load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setSavingMe(false)
+    }
+  }
+
+  async function submitPasswordChange() {
+    if (pwdNew.length < 8) {
+      toast.error('New password must be at least 8 characters')
+      return
+    }
+    if (pwdNew !== pwdConfirm) {
+      toast.error('New passwords do not match')
+      return
+    }
+    setPwdSubmitting(true)
+    try {
+      const res = await fetch('/api/profile/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current_password: pwdCurrent, new_password: pwdNew }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error ?? 'Failed')
+      toast.success('Password updated')
+      setPwdModalOpen(false)
+      setPwdCurrent(''); setPwdNew(''); setPwdConfirm('')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed')
+    } finally {
+      setPwdSubmitting(false)
+    }
+  }
+
+  async function submitEmailChange() {
+    if (!newEmail.includes('@')) {
+      toast.error('Enter a valid email')
+      return
+    }
+    setEmailSubmitting(true)
+    try {
+      const res = await fetch('/api/profile/change-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_email: newEmail }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error ?? 'Failed')
+      toast.success(body.message ?? 'Confirmation email sent', { duration: 8000 })
+      setEmailModalOpen(false)
+      setNewEmail('')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed')
+    } finally {
+      setEmailSubmitting(false)
+    }
+  }
+
   const now = getMYNow()
   const currentMonthLabel = now.toLocaleString('en-MY', { month: 'long', year: 'numeric' })
 
   return (
-    <div className="px-4 py-5 max-w-lg mx-auto space-y-5">
+    <div className="px-4 py-5 max-w-lg mx-auto space-y-4">
       <h1 className="text-xl font-bold text-[#0A0A0A]">Info</h1>
 
+      {/* ── Tabs ────────────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl shadow-sm p-1 flex gap-1">
+        <button
+          onClick={() => setTab('store')}
+          className={cn(
+            'flex-1 px-3 py-2 text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors',
+            tab === 'store' ? 'bg-[#0A0A0A] text-[#FFD700]' : 'text-gray-600 hover:bg-gray-50',
+          )}
+        >
+          <Store size={14} />
+          Store
+        </button>
+        <button
+          onClick={() => setTab('me')}
+          className={cn(
+            'flex-1 px-3 py-2 text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors',
+            tab === 'me' ? 'bg-[#0A0A0A] text-[#FFD700]' : 'text-gray-600 hover:bg-gray-50',
+          )}
+        >
+          <User size={14} />
+          Me
+        </button>
+      </div>
+
+      {tab === 'me' && (
+        <div className="space-y-4 pb-4">
+          {/* Login & security card */}
+          <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Lock size={16} className="text-gray-400" />
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Login & Security</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs text-gray-400">Email</p>
+                <p className="text-sm font-semibold text-gray-800 truncate">{currentEmail || '—'}</p>
+              </div>
+              <button
+                onClick={() => { setNewEmail(''); setEmailModalOpen(true) }}
+                className="text-xs font-bold text-[#0A0A0A] bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg shrink-0"
+              >
+                Change
+              </button>
+            </div>
+            <div className="flex items-center justify-between gap-3 pt-2 border-t border-gray-100">
+              <div>
+                <p className="text-xs text-gray-400">Password</p>
+                <p className="text-sm font-semibold text-gray-800">••••••••</p>
+              </div>
+              <button
+                onClick={() => { setPwdCurrent(''); setPwdNew(''); setPwdConfirm(''); setPwdModalOpen(true) }}
+                className="text-xs font-bold text-[#0A0A0A] bg-[#FFD700] hover:opacity-90 px-3 py-1.5 rounded-lg shrink-0"
+              >
+                Change Password
+              </button>
+            </div>
+          </div>
+
+          {/* Personal info card */}
+          <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
+            <div className="flex items-center gap-2 mb-1">
+              <User size={16} className="text-gray-400" />
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Your Details</span>
+            </div>
+            <div className="space-y-3">
+              <Field label="Your Name" value={meForm.full_name} onChange={(v) => updateMeField('full_name', v)} />
+              <Field label="Your Phone" value={meForm.phone} onChange={(v) => updateMeField('phone', v)} placeholder="01x-xxxxxxx" />
+            </div>
+          </div>
+
+          {/* Store contact card */}
+          <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Store size={16} className="text-gray-400" />
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Store Contact</span>
+            </div>
+            <div className="space-y-3">
+              <Field label="Store Email" value={meForm.store_email} onChange={(v) => updateMeField('store_email', v)} type="email" placeholder="store@example.com" />
+              <Field label="PIC Name" value={meForm.pic_name} onChange={(v) => updateMeField('pic_name', v)} />
+              <Field label="PIC Phone" value={meForm.pic_phone} onChange={(v) => updateMeField('pic_phone', v)} placeholder="01x-xxxxxxx" />
+              <Field label="Address" value={meForm.address} onChange={(v) => updateMeField('address', v)} multiline />
+              <div className="grid grid-cols-3 gap-2">
+                <Field label="City" value={meForm.city} onChange={(v) => updateMeField('city', v)} />
+                <div>
+                  <label className="text-[10px] text-gray-400 uppercase tracking-wide">State</label>
+                  <select
+                    value={meForm.state}
+                    onChange={(e) => updateMeField('state', e.target.value)}
+                    className="w-full h-9 px-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                  >
+                    <option value="">—</option>
+                    {MALAYSIAN_STATES.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                <Field label="Postcode" value={meForm.postcode} onChange={(v) => updateMeField('postcode', v)} />
+              </div>
+            </div>
+          </div>
+
+          {/* What you can't edit */}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+            <p className="text-xs text-amber-900">
+              <strong>Commission rate</strong> and <strong>payment cycle</strong> are set by Xocks ops and can't be edited here. WhatsApp ops if you need a change.
+            </p>
+          </div>
+
+          {/* Save button (sticky-ish at bottom of content) */}
+          <button
+            onClick={saveMe}
+            disabled={!meDirty || savingMe}
+            className={cn(
+              'w-full h-14 rounded-xl font-bold text-base flex items-center justify-center gap-2',
+              !meDirty || savingMe
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-[#0A0A0A] text-[#FFD700] hover:opacity-90 active:scale-95 transition-all',
+            )}
+          >
+            {savingMe ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                Saving…
+              </>
+            ) : (
+              <>
+                <Save size={18} />
+                {meDirty ? 'Save Changes' : 'No Changes to Save'}
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Password modal */}
+      {pwdModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => !pwdSubmitting && setPwdModalOpen(false)} />
+          <div className="relative bg-white rounded-t-2xl w-full max-w-lg px-5 pt-5 pb-6 shadow-2xl mb-[72px]">
+            <div className="flex justify-center mb-3"><div className="w-10 h-1 rounded-full bg-gray-300" /></div>
+            <h3 className="text-base font-bold text-[#0A0A0A] mb-4">Change Password</h3>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Current Password</label>
+                <input
+                  type={pwdShow ? 'text' : 'password'}
+                  value={pwdCurrent}
+                  onChange={(e) => setPwdCurrent(e.target.value)}
+                  className="w-full h-11 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                  autoComplete="current-password"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">New Password</label>
+                <input
+                  type={pwdShow ? 'text' : 'password'}
+                  value={pwdNew}
+                  onChange={(e) => setPwdNew(e.target.value)}
+                  className="w-full h-11 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                  autoComplete="new-password"
+                  minLength={8}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Confirm New Password</label>
+                <input
+                  type={pwdShow ? 'text' : 'password'}
+                  value={pwdConfirm}
+                  onChange={(e) => setPwdConfirm(e.target.value)}
+                  className={cn(
+                    'w-full h-11 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]',
+                    pwdConfirm && pwdNew !== pwdConfirm ? 'border-red-300' : 'border-gray-200',
+                  )}
+                  autoComplete="new-password"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                <input type="checkbox" checked={pwdShow} onChange={(e) => setPwdShow(e.target.checked)} className="accent-[#FFD700]" />
+                Show passwords
+              </label>
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setPwdModalOpen(false)} disabled={pwdSubmitting} className="flex-1 h-12 rounded-xl border border-gray-200 text-sm font-medium hover:bg-gray-50">
+                Cancel
+              </button>
+              <button
+                onClick={submitPasswordChange}
+                disabled={pwdSubmitting || !pwdCurrent || pwdNew.length < 8 || pwdNew !== pwdConfirm}
+                className="flex-1 h-12 rounded-xl bg-[#0A0A0A] text-[#FFD700] text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {pwdSubmitting && <Loader2 size={14} className="animate-spin" />}
+                Update
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Email change modal */}
+      {emailModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => !emailSubmitting && setEmailModalOpen(false)} />
+          <div className="relative bg-white rounded-t-2xl w-full max-w-lg px-5 pt-5 pb-6 shadow-2xl mb-[72px]">
+            <div className="flex justify-center mb-3"><div className="w-10 h-1 rounded-full bg-gray-300" /></div>
+            <h3 className="text-base font-bold text-[#0A0A0A] mb-1">Change Login Email</h3>
+            <p className="text-xs text-gray-500 mb-4">
+              We'll send a confirmation link to your new email. Click it to complete the change.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Current Email</label>
+                <input type="email" value={currentEmail} disabled className="w-full h-11 px-3 text-sm bg-gray-50 border border-gray-200 rounded-lg text-gray-500" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">New Email</label>
+                <input
+                  type="email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder="new@example.com"
+                  className="w-full h-11 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setEmailModalOpen(false)} disabled={emailSubmitting} className="flex-1 h-12 rounded-xl border border-gray-200 text-sm font-medium hover:bg-gray-50">
+                Cancel
+              </button>
+              <button
+                onClick={submitEmailChange}
+                disabled={emailSubmitting || !newEmail.includes('@')}
+                className="flex-1 h-12 rounded-xl bg-[#0A0A0A] text-[#FFD700] text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {emailSubmitting && <Loader2 size={14} className="animate-spin" />}
+                Send Confirmation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'store' && (
+        <>
       {/* ── Store info ─────────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
         <div className="flex items-center gap-2 mb-1">
@@ -309,6 +695,41 @@ export default function InfoPage() {
 
       {/* spacer so last card isn't hidden behind nav */}
       <div className="h-2" />
+        </>
+      )}
+    </div>
+  )
+}
+
+interface FieldProps {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  type?: string
+  placeholder?: string
+  multiline?: boolean
+}
+function Field({ label, value, onChange, type = 'text', placeholder, multiline }: FieldProps) {
+  return (
+    <div>
+      <label className="text-[10px] text-gray-400 uppercase tracking-wide block mb-1">{label}</label>
+      {multiline ? (
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          rows={2}
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] resize-none"
+        />
+      ) : (
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="w-full h-9 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+        />
+      )}
     </div>
   )
 }

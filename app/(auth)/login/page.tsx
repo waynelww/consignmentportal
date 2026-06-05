@@ -72,7 +72,7 @@ export default function LoginPage() {
     setIsResetting(true)
     const supabase = createClient()
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/reset-password`,
+      redirectTo: `${window.location.origin}/reset-password`,
     })
     setIsResetting(false)
 
@@ -169,16 +169,27 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Forgot password */}
-        <div className="mt-4 text-center">
+        {/* Forgot password — more prominent */}
+        <div className="mt-5 pt-5 border-t border-gray-100 text-center">
+          <p className="text-xs text-gray-400 mb-2">Lost your password?</p>
           <button
             type="button"
             onClick={handleForgotPassword}
             disabled={isResetting}
-            className="text-sm text-gray-500 hover:text-[#0A0A0A] underline underline-offset-2 transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 text-sm font-bold text-[#0A0A0A] bg-[#FFD700] px-4 py-2 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
           >
-            {isResetting ? 'Sending…' : 'Forgot password?'}
+            {isResetting ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Sending reset email…
+              </>
+            ) : (
+              'Email me a reset link'
+            )}
           </button>
+          <p className="text-[10px] text-gray-400 mt-2">
+            Enter your email above first, then click here
+          </p>
         </div>
       </div>
 
