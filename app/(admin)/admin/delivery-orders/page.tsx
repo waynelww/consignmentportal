@@ -38,7 +38,8 @@ export default function DeliveryOrdersPage() {
   const [createStore, setCreateStore] = useState('')
   const [createType, setCreateType] = useState<DeliveryOrderType>('restock')
   const [createNotes, setCreateNotes] = useState('')
-  const [createItems, setCreateItems] = useState<CreateDOItem[]>([{ product_id: '', quantity: 1 }])
+  const [createItems, setCreateItems] = useState<CreateDOItem[]>([])
+  const [createSearch, setCreateSearch] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   // Edit DO state
@@ -87,23 +88,44 @@ export default function DeliveryOrdersPage() {
   }, [fetchOrders])
 
   async function markDispatched() {
-    const { error } = await supabase
+    const today = new Date().toISOString().slice(0, 10)
+
+    // Dispatch jumps straight to 'delivered' (Waiting to Receive) — no separate
+    // mark-as-delivered step. Owner sees it in their Deliveries tab right away.
+    const { data: updated, error } = await supabase
       .from('delivery_orders')
       .update({
-        status: 'dispatched',
+        status: 'delivered',
         courier: dispatchModal.courier,
         tracking_number: dispatchModal.tracking,
-        dispatch_date: new Date().toISOString().slice(0, 10),
+        dispatch_date: today,
+        delivery_date: today,
         updated_at: new Date().toISOString(),
       })
       .eq('id', dispatchModal.doId)
+      .select('store_id, do_number, total_pairs')
+      .single()
 
-    if (error) toast.error('Failed to update')
-    else {
-      toast.success('Marked as dispatched')
-      setDispatchModal({ open: false, doId: '', courier: '', tracking: '' })
-      fetchOrders()
+    if (error || !updated) {
+      toast.error('Failed to update')
+      return
     }
+
+    // Notify the store so the Deliveries tab badge lights up immediately
+    await supabase.from('notifications').insert({
+      recipient_role: null,
+      recipient_store_id: updated.store_id,
+      type: 'do_delivered',
+      title: 'Delivery Arrived',
+      message: `${updated.do_number} (${updated.total_pairs} pairs) is waiting for you to confirm receipt.`,
+      reference_id: dispatchModal.doId,
+      reference_type: 'delivery_order',
+      is_read: false,
+    })
+
+    toast.success('Dispatched — store has been notified')
+    setDispatchModal({ open: false, doId: '', courier: '', tracking: '' })
+    fetchOrders()
   }
 
   async function openEdit(d: DOWithStore) {
@@ -244,7 +266,8 @@ export default function DeliveryOrdersPage() {
       if (!res.ok) { toast.error('Failed to create DO'); setSubmitting(false); return }
       toast.success('Delivery order created')
       setCreateModal(false)
-      setCreateItems([{ product_id: '', quantity: 1 }])
+      setCreateItems([])
+      setCreateSearch('')
       setCreateNotes('')
       setCreateStore('')
       fetchOrders()
@@ -254,18 +277,30 @@ export default function DeliveryOrdersPage() {
     setSubmitting(false)
   }
 
-  function addItem() {
-    setCreateItems((prev) => [...prev, { product_id: '', quantity: 1 }])
+  // ─── Create-DO SKU search helpers (same UX as the edit modal) ───────────
+  function createAddProduct(productId: string) {
+    setCreateItems((prev) => {
+      const existing = prev.find((i) => i.product_id === productId)
+      if (existing) {
+        return prev.map((i) => (i.product_id === productId ? { ...i, quantity: i.quantity + 1 } : i))
+      }
+      return [...prev, { product_id: productId, quantity: 1 }]
+    })
+    setCreateSearch('')
   }
 
-  function removeItem(idx: number) {
-    setCreateItems((prev) => prev.filter((_, i) => i !== idx))
-  }
-
-  function updateItem(idx: number, field: keyof CreateDOItem, value: string | number) {
+  function createSetQty(productId: string, qty: number) {
+    if (qty <= 0) {
+      createRemove(productId)
+      return
+    }
     setCreateItems((prev) =>
-      prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item))
+      prev.map((i) => (i.product_id === productId ? { ...i, quantity: qty } : i))
     )
+  }
+
+  function createRemove(productId: string) {
+    setCreateItems((prev) => prev.filter((i) => i.product_id !== productId))
   }
 
   const statusColor = (s: DeliveryOrderStatus) => {
@@ -574,45 +609,102 @@ export default function DeliveryOrdersPage() {
                 </div>
               </div>
 
+              {/* Products * — search-as-you-type by SKU or name */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-gray-600">Products *</label>
-                  <button
-                    onClick={addItem}
-                    className="text-xs text-[#0A0A0A] hover:underline"
-                  >
-                    + Add row
-                  </button>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Products *</label>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={createSearch}
+                    onChange={(e) => setCreateSearch(e.target.value)}
+                    placeholder="Search by SKU or name (e.g. A54, Ankle, Patches)"
+                    className="w-full h-10 pl-9 pr-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                  />
                 </div>
-                <div className="space-y-2">
-                  {createItems.map((item, idx) => (
-                    <div key={idx} className="flex gap-2 items-center">
-                      <select
-                        value={item.product_id}
-                        onChange={(e) => updateItem(idx, 'product_id', e.target.value)}
-                        className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
-                      >
-                        <option value="">Select product...</option>
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.sku} — {p.name}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="number"
-                        min={1}
-                        value={item.quantity}
-                        onChange={(e) => updateItem(idx, 'quantity', Number(e.target.value))}
-                        className="w-20 px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-center"
-                      />
-                      {createItems.length > 1 && (
-                        <button onClick={() => removeItem(idx)} className="text-gray-400 hover:text-red-500">
-                          <X size={16} />
-                        </button>
+                {createSearch.trim() && (() => {
+                  const q = createSearch.trim().toLowerCase()
+                  const matches = products
+                    .filter((p) => p.sku.toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
+                    .slice(0, 15)
+                  return (
+                    <div className="mt-1 border border-gray-200 rounded-lg max-h-48 overflow-y-auto bg-white shadow-sm">
+                      {matches.length === 0 ? (
+                        <p className="text-xs text-gray-400 px-3 py-2">No SKUs match.</p>
+                      ) : (
+                        matches.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => createAddProduct(p.id)}
+                            className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-b-0 flex items-center gap-2 text-sm"
+                          >
+                            <span className="font-mono text-xs text-gray-500 shrink-0 w-16">{p.sku}</span>
+                            <span className="text-gray-800 truncate">{p.name}</span>
+                          </button>
+                        ))
                       )}
                     </div>
-                  ))}
+                  )
+                })()}
+
+                {/* Selected items */}
+                <div className="mt-3">
+                  <p className="text-xs font-semibold text-gray-600 mb-2">
+                    Items in this DO ({createItems.length} SKU{createItems.length !== 1 ? 's' : ''} · {createItems.reduce((s, i) => s + i.quantity, 0)} pairs)
+                  </p>
+                  {createItems.length === 0 ? (
+                    <p className="text-xs text-gray-400 py-4 text-center bg-gray-50 rounded-lg">
+                      No items yet. Search above to add one.
+                    </p>
+                  ) : (
+                    <div className="border border-gray-100 rounded-lg overflow-hidden">
+                      {createItems.map((item) => {
+                        const product = products.find((p) => p.id === item.product_id)
+                        return (
+                          <div
+                            key={item.product_id}
+                            className="flex items-center gap-3 px-3 py-2 border-b border-gray-50 last:border-b-0"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-mono text-gray-500">{product?.sku ?? '—'}</p>
+                              <p className="text-sm text-gray-800 truncate">{product?.name ?? '(unknown)'}</p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => createSetQty(item.product_id, item.quantity - 1)}
+                                className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200"
+                              >
+                                −
+                              </button>
+                              <input
+                                type="number"
+                                min={1}
+                                value={item.quantity}
+                                onChange={(e) => createSetQty(item.product_id, Number(e.target.value) || 1)}
+                                className="w-14 h-7 text-center text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => createSetQty(item.product_id, item.quantity + 1)}
+                                className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200"
+                              >
+                                +
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => createRemove(item.product_id)}
+                                className="ml-1 text-gray-400 hover:text-red-500"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
