@@ -32,11 +32,34 @@ export default function LoginPage() {
   })
 
   async function onSubmit(values: LoginFormValues) {
+    // Server-side rate-limit check before attempting auth
+    const rlRes = await fetch('/api/auth/check-rate-limit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: 'login', email: values.email }),
+    })
+    if (rlRes.status === 429) {
+      const body = await rlRes.json().catch(() => ({}))
+      toast.error(body.error ?? 'Too many login attempts. Please try again later.', { duration: 6000 })
+      return
+    }
+
     const supabase = createClient()
     const { error } = await supabase.auth.signInWithPassword({
       email: values.email,
       password: values.password,
     })
+
+    // Record outcome for rate-limit tracking (failures count, successes don't)
+    fetch('/api/auth/check-rate-limit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        endpoint: 'login',
+        email: values.email,
+        succeeded: !error,
+      }),
+    }).catch(() => {})
 
     if (error) {
       toast.error('Invalid email or password')
@@ -70,10 +93,37 @@ export default function LoginPage() {
     }
 
     setIsResetting(true)
+
+    // Rate-limit: 3 reset emails per hour per IP/email
+    const rlRes = await fetch('/api/auth/check-rate-limit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: 'forgot-password', email }),
+    })
+    if (rlRes.status === 429) {
+      const body = await rlRes.json().catch(() => ({}))
+      toast.error(body.error ?? 'Too many reset requests. Try again later.', { duration: 6000 })
+      setIsResetting(false)
+      return
+    }
+
     const supabase = createClient()
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
     })
+
+    // Record the outcome (failed reset emails count against the limit so people
+    // can't spam non-existent emails)
+    fetch('/api/auth/check-rate-limit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        endpoint: 'forgot-password',
+        email,
+        succeeded: !error,
+      }),
+    }).catch(() => {})
+
     setIsResetting(false)
 
     if (error) {

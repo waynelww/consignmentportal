@@ -37,5 +37,18 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: updateErr.message }, { status: 500 })
   }
 
-  return Response.json({ success: true })
+  // Security hardening: invalidate every OTHER active session for this user
+  // so that if the old password was compromised, the attacker is kicked out.
+  // The current session (the one making this request) is preserved.
+  try {
+    await supabase.auth.signOut({ scope: 'others' })
+  } catch (err) {
+    // Non-fatal — log but don't fail the password change
+    console.warn('[change-password] signOut(others) failed:', err)
+  }
+
+  return Response.json({
+    success: true,
+    message: 'Password updated. All other devices have been signed out.',
+  })
 }
