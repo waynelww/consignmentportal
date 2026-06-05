@@ -645,7 +645,7 @@ export default function DeliveryOrdersPage() {
                             onClick={() => createAddProduct(p.id)}
                             className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-b-0 flex items-center gap-2 text-sm"
                           >
-                            <span className="font-mono text-xs text-gray-500 shrink-0 w-16">{p.sku}</span>
+                            <span className="font-mono text-xs text-gray-500 shrink-0 w-28 truncate">{p.sku}</span>
                             <span className="text-gray-800 truncate">{p.name}</span>
                           </button>
                         ))
