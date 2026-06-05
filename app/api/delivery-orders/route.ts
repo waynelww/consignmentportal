@@ -55,7 +55,10 @@ export async function POST(request: NextRequest) {
 
   const doNumber = await generateDoNumber(supabase)
   const total_pairs = items.reduce((sum, i) => sum + i.quantity, 0)
+  const todayIso = new Date().toISOString().slice(0, 10)
 
+  // New flow: creating a DO moves it straight to "delivered" (Waiting to Receive).
+  // No more separate Mark-as-Dispatched / Mark-as-Delivered steps for admin.
   const { data: deliveryOrder, error: doErr } = await supabase
     .from('delivery_orders')
     .insert({
@@ -63,7 +66,9 @@ export async function POST(request: NextRequest) {
       store_id,
       restock_request_id: restock_request_id ?? null,
       do_type,
-      status: 'confirmed',
+      status: 'delivered',
+      dispatch_date: todayIso,
+      delivery_date: todayIso,
       total_pairs,
       notes: notes ?? null,
       created_by: user.id,
@@ -95,6 +100,18 @@ export async function POST(request: NextRequest) {
   if (itemsErr) {
     return Response.json({ error: 'Failed to insert DO items', details: itemsErr.message }, { status: 500 })
   }
+
+  // Notify the store so the Deliveries badge lights up and they know to receive it.
+  await supabase.from('notifications').insert({
+    recipient_role: null,
+    recipient_store_id: store_id,
+    type: 'do_delivered',
+    title: 'Delivery Arrived',
+    message: `${doNumber} (${total_pairs} pairs) is waiting for you to confirm receipt.`,
+    reference_id: deliveryOrder.id,
+    reference_type: 'delivery_order',
+    is_read: false,
+  })
 
   return Response.json({ success: true, delivery_order_id: deliveryOrder.id, do_number: doNumber })
 }

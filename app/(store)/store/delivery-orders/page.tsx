@@ -21,8 +21,8 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   draft:        { label: 'Draft',        color: 'bg-gray-100 text-gray-600' },
   confirmed:    { label: 'Incoming',     color: 'bg-blue-100 text-blue-700' },
   dispatched:   { label: 'On the Way',   color: 'bg-cyan-100 text-cyan-700' },
-  delivered:    { label: 'Arrived',      color: 'bg-yellow-100 text-yellow-700' },
-  acknowledged: { label: 'Received',     color: 'bg-green-100 text-green-700' },
+  delivered:    { label: 'Waiting to Receive', color: 'bg-yellow-100 text-yellow-700' },
+  acknowledged: { label: 'Shop Received',      color: 'bg-green-100 text-green-700' },
 }
 
 export default function StoreDeliveryOrdersPage() {

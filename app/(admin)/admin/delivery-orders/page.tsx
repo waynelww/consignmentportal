@@ -273,10 +273,21 @@ export default function DeliveryOrdersPage() {
       draft: 'bg-gray-100 text-gray-600',
       confirmed: 'bg-blue-100 text-blue-700',
       dispatched: 'bg-cyan-100 text-cyan-700',
-      delivered: 'bg-green-100 text-green-700',
-      acknowledged: 'bg-purple-100 text-purple-700',
+      delivered: 'bg-yellow-100 text-yellow-800',
+      acknowledged: 'bg-green-100 text-green-700',
     }
     return map[s] || 'bg-gray-100 text-gray-600'
+  }
+
+  const statusLabel = (s: DeliveryOrderStatus): string => {
+    const map: Record<DeliveryOrderStatus, string> = {
+      draft: 'Draft',
+      confirmed: 'Incoming',
+      dispatched: 'On the Way',
+      delivered: 'Waiting to Receive',
+      acknowledged: 'Shop Received',
+    }
+    return map[s] || s
   }
 
   return (
@@ -334,8 +345,8 @@ export default function DeliveryOrdersPage() {
               className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
             >
               <option value="">All Statuses</option>
-              {['draft', 'confirmed', 'dispatched', 'delivered', 'acknowledged'].map((s) => (
-                <option key={s} value={s} className="capitalize">{s}</option>
+              {(['draft', 'confirmed', 'dispatched', 'delivered', 'acknowledged'] as const).map((s) => (
+                <option key={s} value={s}>{statusLabel(s)}</option>
               ))}
             </select>
           </div>
@@ -389,8 +400,8 @@ export default function DeliveryOrdersPage() {
                       <td className="px-4 py-3 font-medium text-gray-800">{d.store_name}</td>
                       <td className="px-4 py-3 capitalize text-gray-600">{d.do_type}</td>
                       <td className="px-4 py-3">
-                        <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-medium capitalize', statusColor(d.status))}>
-                          {d.status}
+                        <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-medium', statusColor(d.status))}>
+                          {statusLabel(d.status)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-gray-500 text-xs">
