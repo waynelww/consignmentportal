@@ -1,7 +1,35 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+// Shared-credentials Basic Auth gate. Used for tools we want to share with
+// the team (and external partners) without giving them an XCMS account.
+function basicAuthGate(request: NextRequest, realm: string, userEnv: string, passEnv: string) {
+  const expectedUser = process.env[userEnv]
+  const expectedPass = process.env[passEnv]
+  if (!expectedUser || !expectedPass) {
+    return new NextResponse(`${realm} is not configured. Set ${userEnv} and ${passEnv} env vars.`, { status: 503 })
+  }
+  const header = request.headers.get('authorization') || ''
+  const expected = `Basic ${btoa(`${expectedUser}:${expectedPass}`)}`
+  if (header !== expected) {
+    return new NextResponse('Authentication required', {
+      status: 401,
+      headers: { 'WWW-Authenticate': `Basic realm="${realm}"` },
+    })
+  }
+  return null
+}
+
 export async function proxy(request: NextRequest) {
+  const path = request.nextUrl.pathname
+
+  // Public tools gated by shared credentials (no XCMS account required).
+  if (path === '/oem-calculator.html') {
+    const denied = basicAuthGate(request, 'OEM Calculator', 'CALC_USER', 'CALC_PASS')
+    if (denied) return denied
+    return NextResponse.next()
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -22,8 +50,6 @@ export async function proxy(request: NextRequest) {
       },
     }
   )
-
-  const path = request.nextUrl.pathname
 
   // Bot API endpoints use their own API key auth — skip Supabase session check.
   if (path.startsWith('/api/bot')) {
@@ -82,5 +108,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|icon-|oem-calculator.html).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|icon-).*)'],
 }
