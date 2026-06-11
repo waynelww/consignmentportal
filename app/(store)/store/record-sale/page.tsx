@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
-import { ScanLine, X, ShoppingCart, CheckCircle, Loader2, Search, Minus, Plus, Trash2, Tag, ChevronRight } from 'lucide-react'
+import { useEffect, useState, useMemo } from 'react'
+import { X, ShoppingCart, CheckCircle, Loader2, Search, Minus, Plus, Trash2, Tag, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -37,11 +37,6 @@ export default function RecordSalePage() {
   const [promoCode, setPromoCode] = useState('')
 
   const [search, setSearch] = useState('')
-  const [scannerOpen, setScannerOpen] = useState(false)
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const readerRef = useRef<any>(null)
-  const controlsRef = useRef<{ stop: () => void } | null>(null)
-  const hasScannedRef = useRef(false)
 
   // Load inventory + promos in parallel
   useEffect(() => {
@@ -199,91 +194,6 @@ export default function RecordSalePage() {
     setCart((prev) => prev.filter((c) => c.inventoryItem.product_id !== productId))
   }
 
-  // Barcode scanner
-  const startScanner = useCallback(async () => {
-    hasScannedRef.current = false
-    setScannerOpen(true)
-
-    try {
-      const { BrowserMultiFormatReader } = await import('@zxing/browser')
-      const { BarcodeFormat, DecodeHintType } = await import('@zxing/library')
-
-      const hints = new Map()
-      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-        BarcodeFormat.EAN_13,
-        BarcodeFormat.EAN_8,
-        BarcodeFormat.CODE_128,
-        BarcodeFormat.CODE_39,
-        BarcodeFormat.UPC_A,
-        BarcodeFormat.QR_CODE,
-      ])
-      hints.set(DecodeHintType.TRY_HARDER, false)
-
-      const reader = new BrowserMultiFormatReader(hints)
-      readerRef.current = reader
-
-      let videoConstraints: MediaTrackConstraints = { facingMode: { ideal: 'environment' } }
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices()
-        const hasRearCamera = devices.some(
-          (d) => d.kind === 'videoinput' && /back|rear|environment/i.test(d.label)
-        )
-        if (hasRearCamera) {
-          videoConstraints = { facingMode: { exact: 'environment' } }
-        }
-      } catch { /* fall back */ }
-
-      const controls = await reader.decodeFromConstraints(
-        { video: videoConstraints },
-        videoRef.current!,
-        (result) => {
-          if (result && !hasScannedRef.current) {
-            hasScannedRef.current = true
-            handleBarcodeResult(result.getText())
-          }
-        }
-      )
-      controlsRef.current = controls
-    } catch {
-      toast.error('Camera access denied — please allow camera access in your browser settings.')
-      setScannerOpen(false)
-    }
-  }, [inventory]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const stopScanner = useCallback(() => {
-    controlsRef.current?.stop()
-    controlsRef.current = null
-    if (readerRef.current) {
-      try { readerRef.current.reset() } catch {}
-      readerRef.current = null
-    }
-    setScannerOpen(false)
-  }, [])
-
-  function handleBarcodeResult(barcode: string) {
-    stopScanner()
-    const scanned = barcode.trim()
-    const match = inventory.find((i) => {
-      const p = i.product
-      if (!p) return false
-      if (p.barcode && p.barcode === scanned) return true
-      if (p.sku && p.sku === scanned) return true
-      if (p.sku && p.sku.toLowerCase() === scanned.toLowerCase()) return true
-      return false
-    })
-
-    if (match) {
-      if (match.quantity_on_hand === 0) {
-        toast.error(`${match.product?.name ?? 'Product'} is out of stock.`)
-        return
-      }
-      addToCart(match)
-      toast.success(`${match.product?.name} added to cart`)
-    } else {
-      toast.error('Barcode not recognised. Please select manually.', { duration: 3000 })
-    }
-  }
-
   async function confirmOrder() {
     if (!storeId || cart.length === 0) return
     setSubmitting(true)
@@ -373,33 +283,24 @@ export default function RecordSalePage() {
         </button>
       </div>
 
-      {/* Scan + search row */}
-      <div className="flex gap-2">
-        <button
-          onClick={startScanner}
-          className="h-12 px-4 rounded-xl border-2 border-dashed border-[#0A0A0A] flex items-center gap-2 font-semibold text-[#0A0A0A] hover:bg-gray-50 transition-colors shrink-0"
-        >
-          <ScanLine size={18} />
-          Scan
-        </button>
-        <div className="relative flex-1">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or SKU…"
-            className="w-full h-12 pl-9 pr-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#FFD700] bg-white"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
+      {/* Search */}
+      <div className="relative">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by name or SKU…"
+          className="w-full h-12 pl-9 pr-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#FFD700] bg-white"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          >
+            <X size={14} />
+          </button>
+        )}
       </div>
 
       {/* Product grid — 3 columns */}
@@ -772,40 +673,6 @@ export default function RecordSalePage() {
         </div>
       )}
 
-      {/* Camera barcode modal */}
-      {scannerOpen && (
-        <div className="fixed inset-0 z-[100] bg-black flex flex-col">
-          <div className="flex items-center justify-between px-4 pt-safe-top py-3">
-            <span className="text-white font-semibold text-base">Scan Barcode</span>
-            <button onClick={stopScanner} className="text-white p-1">
-              <X size={24} />
-            </button>
-          </div>
-
-          <div className="flex-1 relative flex items-center justify-center">
-            <video
-              ref={videoRef}
-              className="w-full h-full object-cover"
-              playsInline
-              autoPlay
-              muted
-            />
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-64 h-40 border-2 border-[#FFD700] rounded-xl" />
-            </div>
-          </div>
-
-          <div className="px-4 pb-8 pt-3 text-center">
-            <p className="text-gray-400 text-sm">Point camera at barcode</p>
-            <button
-              onClick={stopScanner}
-              className="mt-3 w-full h-12 rounded-xl border border-white/30 text-white font-medium"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

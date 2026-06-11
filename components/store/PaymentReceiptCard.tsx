@@ -1,37 +1,13 @@
 'use client'
 
-/**
- * Per-invoice payment receipt block, shown inside each commission period card
- * on the store side. Owners see the exact amount to transfer to Xocks, upload
- * their bank receipt (photo or PDF), and track its review status.
- *
- * Files go straight from the browser to the private 'payment-receipts'
- * bucket (storage RLS restricts uploads to the owner's own {store_code}/
- * folder), then metadata is registered via /api/payments/receipts.
- */
-
 import { useRef, useState } from 'react'
 import { Upload, Loader2, Clock3, CheckCircle2, XCircle, Receipt } from 'lucide-react'
 import { toast } from 'sonner'
-import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, cn } from '@/lib/utils'
 import type { CommissionPeriod } from '@/types'
 
-const MAX_BYTES = 10 * 1024 * 1024
-const ACCEPT = 'image/jpeg,image/png,image/webp,image/heic,application/pdf'
-
-// Derive a safe content-type from the file extension so HEIC/unknown types
-// don't get rejected by the bucket's allowed_mime_types check.
-const EXT_TYPE: Record<string, string> = {
-  jpg: 'image/jpeg', jpeg: 'image/jpeg',
-  png: 'image/png', webp: 'image/webp',
-  heic: 'image/heic', heif: 'image/heic',
-  pdf: 'application/pdf',
-}
-function resolveContentType(file: File): string {
-  const ext = (file.name.split('.').pop() ?? '').toLowerCase()
-  return EXT_TYPE[ext] ?? file.type ?? 'application/octet-stream'
-}
+const MAX_BYTES = 4 * 1024 * 1024   // 4 MB — matches server limit
+const ACCEPT = 'image/*,.pdf'        // image/* allows any photo including HEIC
 
 interface Props {
   period: CommissionPeriod
@@ -62,56 +38,20 @@ export default function PaymentReceiptCard({ period, storeCode, onChanged }: Pro
 
   async function handleFile(file: File) {
     if (file.size > MAX_BYTES) {
-      toast.error('File is too large — max 10 MB. Try compressing or taking a screenshot instead.')
-      return
-    }
-    const contentType = resolveContentType(file)
-    if (!Object.values(EXT_TYPE).includes(contentType)) {
-      toast.error('Please upload a JPG, PNG, WEBP, HEIC photo or a PDF.')
+      toast.error('File too large — max 4 MB. Try a screenshot or compressed photo.')
       return
     }
     setUploading(true)
     try {
-      // Step 1: Get a signed upload URL from the server (bypasses storage RLS)
-      const urlParams = new URLSearchParams({
-        period_id: period.id,
-        filename: file.name,
-        content_type: contentType,
-      })
-      const urlRes = await fetch(`/api/payments/receipts/upload-url?${urlParams}`)
-      const urlBody = await urlRes.json().catch(() => ({}))
-      if (!urlRes.ok) {
-        toast.error(urlBody.error ?? 'Could not prepare upload — please try again')
-        return
-      }
-      const { signedUrl, token, path } = urlBody as { signedUrl: string; token: string; path: string }
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('period_id', period.id)
+      if (bankRef.trim()) fd.append('bank_reference', bankRef.trim())
 
-      // Step 2: Upload the file directly to storage via the signed URL
-      const supabase = createClient()
-      const { error: upErr } = await supabase.storage
-        .from('payment-receipts')
-        .uploadToSignedUrl(path, token, file, { contentType })
-      if (upErr) {
-        toast.error(`Upload failed: ${upErr.message}`)
-        return
-      }
-
-      // Step 3: Register the receipt metadata
-      const res = await fetch('/api/payments/receipts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          commission_period_id: period.id,
-          file_path: path,
-          file_name: file.name,
-          mime_type: contentType,
-          file_size: file.size,
-          bank_reference: bankRef.trim() || null,
-        }),
-      })
+      const res = await fetch('/api/payments/receipts', { method: 'POST', body: fd })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
-        toast.error(body.error ?? 'Failed to submit receipt')
+        toast.error(body.error ?? 'Upload failed — please try again')
         return
       }
       toast.success('Receipt submitted — Xocks will verify your payment shortly.')
@@ -214,6 +154,7 @@ export default function PaymentReceiptCard({ period, storeCode, onChanged }: Pro
         ref={fileRef}
         type="file"
         accept={ACCEPT}
+        capture="environment"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0]
