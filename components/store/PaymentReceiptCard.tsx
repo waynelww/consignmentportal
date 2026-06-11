@@ -72,18 +72,31 @@ export default function PaymentReceiptCard({ period, storeCode, onChanged }: Pro
     }
     setUploading(true)
     try {
-      const supabase = createClient()
-      const ext = (file.name.split('.').pop() ?? 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')
-      const path = `${storeCode}/${period.period_year}-${String(period.period_month).padStart(2, '0')}-${Date.now()}.${ext}`
+      // Step 1: Get a signed upload URL from the server (bypasses storage RLS)
+      const urlParams = new URLSearchParams({
+        period_id: period.id,
+        filename: file.name,
+        content_type: contentType,
+      })
+      const urlRes = await fetch(`/api/payments/receipts/upload-url?${urlParams}`)
+      const urlBody = await urlRes.json().catch(() => ({}))
+      if (!urlRes.ok) {
+        toast.error(urlBody.error ?? 'Could not prepare upload — please try again')
+        return
+      }
+      const { signedUrl, token, path } = urlBody as { signedUrl: string; token: string; path: string }
 
+      // Step 2: Upload the file directly to storage via the signed URL
+      const supabase = createClient()
       const { error: upErr } = await supabase.storage
         .from('payment-receipts')
-        .upload(path, file, { contentType, upsert: false })
+        .uploadToSignedUrl(path, token, file, { contentType })
       if (upErr) {
         toast.error(`Upload failed: ${upErr.message}`)
         return
       }
 
+      // Step 3: Register the receipt metadata
       const res = await fetch('/api/payments/receipts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
