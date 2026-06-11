@@ -45,6 +45,11 @@ export type NotificationType =
   | 'commission_paid'
   | 'performance_warning'
   | 'new_store_added'
+  | 'payment_receipt_submitted'
+  | 'payment_receipt_confirmed'
+  | 'payment_receipt_rejected'
+
+export type PaymentReceiptStatus = 'submitted' | 'confirmed' | 'rejected'
 
 export type RestockAlertStatus = 'pending' | 'acknowledged' | 'fulfilled' | 'dismissed'
 
@@ -281,6 +286,27 @@ export interface CommissionPeriod {
   created_at: string
   // joined
   store?: Store
+  receipt?: PaymentReceipt | null
+}
+
+export interface PaymentReceipt {
+  id: string
+  commission_period_id: string
+  store_id: string
+  file_path: string
+  file_name: string | null
+  mime_type: string | null
+  file_size: number | null
+  bank_reference: string | null
+  transfer_date: string | null
+  store_notes: string | null
+  status: PaymentReceiptStatus
+  admin_notes: string | null
+  reviewed_by: string | null
+  reviewed_at: string | null
+  uploaded_by: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface Notification {

@@ -57,6 +57,7 @@ interface CommissionResult {
   store: StoreRow
   period_id: string
   commission_amount: number
+  xocks_revenue: number
 }
 
 export async function GET(request: NextRequest) {
@@ -136,7 +137,8 @@ export async function GET(request: NextRequest) {
 
     if (periodErr || !period) return null
 
-    const amountStr = `RM ${commission_amount.toFixed(2)}`
+    const commissionStr = `RM ${commission_amount.toFixed(2)}`
+    const transferStr = `RM ${xocks_revenue.toFixed(2)}`
 
     // Two in-app notifications (store + admin) — also batched in parallel
     await Promise.all([
@@ -145,7 +147,7 @@ export async function GET(request: NextRequest) {
         recipient_store_id: store.id,
         type: 'commission_ready',
         title: `Invoice Ready — ${monthName} ${prevYear}`,
-        message: `Your commission statement for ${monthName} ${prevYear} is ready. Commission earned: ${amountStr}. Please transfer to Xocks.`,
+        message: `Your statement for ${monthName} ${prevYear} is ready. Your commission: ${commissionStr}. Amount to transfer to Xocks: ${transferStr} — pay before the 7th and upload your receipt.`,
         reference_id: period.id,
         reference_type: 'commission_period',
         is_read: false,
@@ -155,14 +157,14 @@ export async function GET(request: NextRequest) {
         recipient_store_id: null,
         type: 'commission_ready',
         title: 'Commission Generated',
-        message: `${store.store_name} (${store.store_code}) — ${monthName} ${prevYear}: ${amountStr}`,
+        message: `${store.store_name} (${store.store_code}) — ${monthName} ${prevYear}: to collect ${transferStr}`,
         reference_id: period.id,
         reference_type: 'commission_period',
         is_read: false,
       }),
     ])
 
-    return { store, period_id: period.id, commission_amount }
+    return { store, period_id: period.id, commission_amount, xocks_revenue }
   })
 
   for (const p of processed) if (p) generated.push(p)
@@ -175,8 +177,8 @@ export async function GET(request: NextRequest) {
     let emails = 0
     let pushSent = 0
 
-    await chunkedAll(generated, CONCURRENCY, async ({ store, period_id, commission_amount }) => {
-      const amountStr = `RM ${commission_amount.toFixed(2)}`
+    await chunkedAll(generated, CONCURRENCY, async ({ store, period_id, commission_amount, xocks_revenue }) => {
+      const amountStr = `RM ${xocks_revenue.toFixed(2)}`
 
       // Email
       if (store.email) {
@@ -187,6 +189,7 @@ export async function GET(request: NextRequest) {
             month: monthName,
             year: prevYear,
             commissionAmount: commission_amount,
+            transferAmount: xocks_revenue,
             pdfUrl: `${process.env.NEXT_PUBLIC_APP_URL}/store/commissions`,
           })
           emails++
@@ -205,7 +208,7 @@ export async function GET(request: NextRequest) {
         try {
           const { sent, expired } = await sendPushToStore(subs, {
             title: `Invoice Ready — ${monthName} ${prevYear}`,
-            body: `${store.store_name}: commission ${amountStr}. Tap to view your invoice.`,
+            body: `${store.store_name}: transfer ${amountStr} to Xocks before the 7th. Tap to view your invoice.`,
             url: '/store/commissions',
             tag: `commission-${period_id}`,
           })

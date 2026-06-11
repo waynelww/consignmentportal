@@ -8,9 +8,18 @@ import { formatCurrency, formatMonthYear } from '@/lib/utils'
 import type { CommissionPeriod, Sale, Store } from '@/types'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/components/store/StoreContext'
+import PaymentReceiptCard from '@/components/store/PaymentReceiptCard'
 
 function getMYNow() {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
+}
+
+// One-to-one receipt embed can come back as object or single-element array
+function normalizePeriods(data: unknown): CommissionPeriod[] {
+  return ((data as CommissionPeriod[]) ?? []).map((p) => ({
+    ...p,
+    receipt: Array.isArray(p.receipt) ? (p.receipt[0] ?? null) : (p.receipt ?? null),
+  }))
 }
 
 export default function CommissionsPage() {
@@ -37,7 +46,7 @@ export default function CommissionsPage() {
     const [periodsRes, salesRes] = await Promise.all([
       supabase
         .from('commission_periods')
-        .select('*')
+        .select('*, receipt:payment_receipts(*)')
         .eq('store_id', storeId)
         .order('period_year', { ascending: false })
         .order('period_month', { ascending: false }),
@@ -49,7 +58,7 @@ export default function CommissionsPage() {
     ])
 
     setCommissionRate(contextStore?.commission_rate ?? 0)
-    setPeriods((periodsRes.data as CommissionPeriod[]) ?? [])
+    setPeriods(normalizePeriods(periodsRes.data))
 
     const sales = (salesRes.data as Pick<Sale, 'quantity' | 'total_amount' | 'commission_amount'>[]) ?? []
     setCurrentMonthSales(sales.reduce((s, x) => s + x.quantity, 0))
@@ -72,12 +81,12 @@ export default function CommissionsPage() {
           // Reload to show the newly generated period
           supabase
             .from('commission_periods')
-            .select('*')
+            .select('*, receipt:payment_receipts(*)')
             .eq('store_id', storeId!)
             .order('period_year', { ascending: false })
             .order('period_month', { ascending: false })
             .then(({ data }) => {
-              if (data) setPeriods(data as CommissionPeriod[])
+              if (data) setPeriods(normalizePeriods(data))
             })
         }
       })
@@ -196,6 +205,15 @@ export default function CommissionsPage() {
                         <span className="font-mono">Ref: {period.payment_reference}</span>
                       )}
                     </div>
+                  )}
+
+                  {/* Payment receipt upload / review status */}
+                  {contextStore?.store_code && (
+                    <PaymentReceiptCard
+                      period={period}
+                      storeCode={contextStore.store_code}
+                      onChanged={load}
+                    />
                   )}
                 </div>
               )

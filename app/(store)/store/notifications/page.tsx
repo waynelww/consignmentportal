@@ -14,6 +14,9 @@ const TYPE_ICON: Record<string, string> = {
   commission_paid: '✅',
   performance_warning: '📉',
   new_store_added: '🏪',
+  payment_receipt_submitted: '🧾',
+  payment_receipt_confirmed: '✅',
+  payment_receipt_rejected: '❌',
 }
 
 export default function StoreNotificationsPage() {

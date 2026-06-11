@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
     recipient_store_id: targetStoreId,
     type: 'commission_ready',
     title: 'Invoice Ready',
-    message: `Your invoice for ${month}/${year} is ready. Commission earned: RM${commission_amount.toFixed(2)}`,
+    message: `Your invoice for ${month}/${year} is ready. Your commission: RM${commission_amount.toFixed(2)}. Amount to transfer to Xocks: RM${xocks_revenue.toFixed(2)} — pay before the 7th and upload your receipt.`,
     reference_id: period.id,
     reference_type: 'commission_period',
     is_read: false,

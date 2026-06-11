@@ -10,9 +10,19 @@ import { formatCurrency, formatMonthYear } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { Store as StoreType, CommissionPeriod, Sale } from '@/types'
 import { useStore } from '@/components/store/StoreContext'
+import PaymentReceiptCard from '@/components/store/PaymentReceiptCard'
 
 function getMYNow() {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
+}
+
+// PostgREST returns the one-to-one receipt embed as an object, but older
+// schema caches can hand back an array — accept both shapes.
+function normalizePeriods(data: unknown): CommissionPeriod[] {
+  return ((data as CommissionPeriod[]) ?? []).map((p) => ({
+    ...p,
+    receipt: Array.isArray(p.receipt) ? (p.receipt[0] ?? null) : (p.receipt ?? null),
+  }))
 }
 
 const STATUS_CFG: Record<string, { label: string; classes: string }> = {
@@ -82,7 +92,7 @@ export default function InfoPage() {
     const [periodsRes, salesRes] = await Promise.all([
       supabase
         .from('commission_periods')
-        .select('*')
+        .select('*, receipt:payment_receipts(*)')
         .eq('store_id', storeId)
         .order('period_year', { ascending: false })
         .order('period_month', { ascending: false }),
@@ -94,7 +104,7 @@ export default function InfoPage() {
     ])
 
     setStore(contextStore)
-    setPeriods((periodsRes.data as CommissionPeriod[]) ?? [])
+    setPeriods(normalizePeriods(periodsRes.data))
 
     const sales = (salesRes.data as Pick<Sale, 'quantity' | 'total_amount' | 'commission_amount'>[]) ?? []
     setMtdSales(sales.reduce((s, x) => s + x.quantity, 0))
@@ -116,11 +126,11 @@ export default function InfoPage() {
         if (res.ok && storeId) {
           supabase
             .from('commission_periods')
-            .select('*')
+            .select('*, receipt:payment_receipts(*)')
             .eq('store_id', storeId)
             .order('period_year', { ascending: false })
             .order('period_month', { ascending: false })
-            .then(({ data }) => { if (data) setPeriods(data as CommissionPeriod[]) })
+            .then(({ data }) => { if (data) setPeriods(normalizePeriods(data)) })
         }
       })
     }
@@ -685,6 +695,15 @@ export default function InfoPage() {
                         <span className="font-mono">Ref: {period.payment_reference}</span>
                       )}
                     </div>
+                  )}
+
+                  {/* Payment receipt upload / review status */}
+                  {store?.store_code && (
+                    <PaymentReceiptCard
+                      period={period}
+                      storeCode={store.store_code}
+                      onChanged={load}
+                    />
                   )}
                 </div>
               )

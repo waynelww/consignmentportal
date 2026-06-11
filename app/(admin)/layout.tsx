@@ -22,6 +22,8 @@ import {
   Sparkles,
   Tag,
   Calculator,
+  Wallet,
+  Download,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -52,6 +54,7 @@ const NAV_ITEMS = [
       { label: 'Restock Queue', href: '/admin/restocks', icon: RefreshCcw },
       { label: 'Predictions', href: '/admin/predictions', icon: Sparkles },
       { label: 'Delivery Orders', href: '/admin/delivery-orders', icon: Truck },
+      { label: 'Payments', href: '/admin/payments', icon: Wallet },
       { label: 'Commissions', href: '/admin/commissions', icon: DollarSign },
       { label: 'Promos', href: '/admin/promos', icon: Tag },
       { label: 'OEM Calculator', href: '/admin/oem-calculator', icon: Calculator },
@@ -61,6 +64,7 @@ const NAV_ITEMS = [
     section: 'Analytics',
     items: [
       { label: 'Reports', href: '/admin/reports', icon: BarChart2 },
+      { label: 'Data Export', href: '/admin/exports', icon: Download },
     ],
   },
   {
@@ -91,6 +95,8 @@ function getPageTitle(pathname: string): string {
     '/admin/restocks': 'Restock Queue',
     '/admin/predictions': 'Restock Predictions',
     '/admin/delivery-orders': 'Delivery Orders',
+    '/admin/payments': 'Payments',
+    '/admin/exports': 'Data Export',
     '/admin/commissions': 'Commissions',
     '/admin/promos': 'Promos',
     '/admin/reports': 'Reports',

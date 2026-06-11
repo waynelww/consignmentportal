@@ -291,17 +291,15 @@ export default function CommissionsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">
-                          {row.pdf_url && (
-                            <a
-                              href={row.pdf_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs text-blue-600 hover:underline flex items-center gap-1"
-                            >
-                              <Download size={12} />
-                              PDF
-                            </a>
-                          )}
+                          <a
+                            href={`/api/commissions/${row.id}/pdf`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+                          >
+                            <Download size={12} />
+                            PDF
+                          </a>
                           {row.status === 'pending' && (
                             <button
                               onClick={() => approveRow(row.id)}

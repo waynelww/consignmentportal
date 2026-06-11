@@ -15,6 +15,9 @@ const notificationConfig: Record<NotificationType, { icon: React.ComponentType<{
   commission_paid:     { icon: CreditCard, color: 'text-green-500' },
   performance_warning: { icon: TrendingDown, color: 'text-red-500' },
   new_store_added:     { icon: Store, color: 'text-blue-500' },
+  payment_receipt_submitted: { icon: CreditCard, color: 'text-blue-500' },
+  payment_receipt_confirmed: { icon: CheckCircle, color: 'text-green-500' },
+  payment_receipt_rejected:  { icon: AlertTriangle, color: 'text-red-500' },
 }
 
 interface NotificationBellProps {

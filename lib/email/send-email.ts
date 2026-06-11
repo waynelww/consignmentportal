@@ -163,20 +163,26 @@ export async function sendCommissionStatementEmail(params: {
   month: string
   year: number
   commissionAmount: number
+  /** Balance the store must remit to Xocks (xocks_revenue) */
+  transferAmount?: number
   pdfUrl?: string
 }): Promise<void> {
   try {
+    const rows: [string, string][] = [
+      ['Period', `${params.month} ${params.year}`],
+      ['Your Commission', formatCurrency(params.commissionAmount)],
+    ]
+    if (params.transferAmount != null) {
+      rows.push(['Amount to Transfer to Xocks', formatCurrency(params.transferAmount)])
+    }
     const body = `
       ${h2(`Commission Statement Ready — ${params.month} ${params.year}`)}
       ${p(`Your commission statement for <strong>${params.storeName}</strong> is now available.`)}
-      ${infoTable([
-        ['Period', `${params.month} ${params.year}`],
-        ['Commission Due', formatCurrency(params.commissionAmount)],
-      ])}
+      ${infoTable(rows)}
       ${params.pdfUrl
         ? ctaButton('Download Statement PDF', params.pdfUrl)
         : ctaButton('View Statement', 'https://xcms.xocks.co/store/commissions')}
-      ${p('Payment will be processed once the statement is approved. Contact your account manager for queries.')}
+      ${p('Please transfer the balance to Xocks before the 7th and upload your bank receipt in the app. Late payments incur a 10% surcharge.')}
     `
     await getResend().emails.send({
       from: FROM,
