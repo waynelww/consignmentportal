@@ -56,6 +56,14 @@ export async function proxy(request: NextRequest) {
     return supabaseResponse
   }
 
+  // Cron endpoints authenticate with the CRON_SECRET bearer token (checked
+  // inside each route). They run with no session cookie, so without this
+  // exclusion the gate below 307-redirects them to /login and the handlers
+  // never execute — which is exactly how the 1 June invoice run was lost.
+  if (path.startsWith('/api/cron')) {
+    return supabaseResponse
+  }
+
   const { data: { user } } = await supabase.auth.getUser()
 
   const isAuthPage = path.startsWith('/login')
