@@ -1,0 +1,44 @@
+name: Monthly invoice generation
+
+# Replaces the Vercel cron for /api/cron/generate-commissions.
+# Vercel Hobby caps projects at 2 cron jobs and doesn't honour exact
+# schedules; GitHub Actions is free and fires on the dot. The endpoint is
+# idempotent (skip-if-exists per store), so the sweep run and retries are
+# always safe.
+#
+# Requires repo secret: CRON_SECRET (same value as the Vercel env var).
+# GitHub emails the repo owner automatically when a run fails.
+
+on:
+  schedule:
+    # 1st of month, 01:00 UTC = 09:00 Malaysia time — the main run
+    - cron: '0 1 1 * *'
+    # 2nd of month, 01:00 UTC — sweep in case the 1st-of-month run failed
+    - cron: '0 1 2 * *'
+  workflow_dispatch: {}
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Call generate-commissions endpoint (3 attempts)
+        run: |
+          set -u
+          URL="https://consignmentportal.vercel.app/api/cron/generate-commissions"
+          for attempt in 1 2 3; do
+            echo "Attempt ${attempt}…"
+            code=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              --max-time 300 "$URL" || echo "000")
+            echo "HTTP ${code}"
+            cat /tmp/resp.json || true
+            echo ""
+            if [ "$code" = "200" ]; then
+              echo "✓ Invoice generation succeeded."
+              exit 0
+            fi
+            sleep 90
+          done
+          echo "✗ All attempts failed — check Vercel logs for /api/cron/generate-commissions."
+          exit 1
