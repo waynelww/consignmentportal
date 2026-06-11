@@ -1,0 +1,41 @@
+name: Nightly data backup
+
+# Exports all business-critical tables to CSV and stores them as a workflow
+# artifact (kept 90 days). Free insurance on top of Supabase's 7-day backups:
+# even if the database is lost entirely, we have at-most-24h-old data here.
+#
+# Requires repo secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
+
+on:
+  schedule:
+    # 20:15 UTC daily = 04:15 Malaysia time (after the Shopify syncs)
+    - cron: '15 20 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install supabase-js
+        run: npm install --no-save @supabase/supabase-js
+
+      - name: Export tables to CSV
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/export-backup.mjs
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcms-backup-${{ github.run_id }}
+          path: backup-out/
+          retention-days: 90
+          if-no-files-found: error
