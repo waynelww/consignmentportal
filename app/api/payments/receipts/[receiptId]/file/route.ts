@@ -46,11 +46,26 @@ export async function GET(
     return Response.json({ error: 'File not found in storage' }, { status: 404 })
   }
 
+  // Never trust the stored mime_type — map to a hardcoded allowlist so an
+  // attacker who uploads HTML bytes and registers mime_type:'text/html' can't
+  // get same-origin script execution when an admin opens the review modal.
+  const SAFE_TYPES: Record<string, string> = {
+    'image/jpeg': 'image/jpeg',
+    'image/png': 'image/png',
+    'image/webp': 'image/webp',
+    'image/heic': 'image/heic',
+    'application/pdf': 'application/pdf',
+  }
+  const safeType = (receipt.mime_type && SAFE_TYPES[receipt.mime_type]) || 'application/octet-stream'
+  const disposition = safeType === 'application/octet-stream' ? 'attachment' : 'inline'
+  const safeName = (receipt.file_name ?? 'receipt').replace(/[^a-zA-Z0-9._-]/g, '_')
+
   const bytes = await blob.arrayBuffer()
   return new Response(bytes, {
     headers: {
-      'Content-Type': receipt.mime_type ?? 'application/octet-stream',
-      'Content-Disposition': `inline; filename="${(receipt.file_name ?? 'receipt').replace(/"/g, '')}"`,
+      'Content-Type': safeType,
+      'Content-Disposition': `${disposition}; filename="${safeName}"`,
+      'X-Content-Type-Options': 'nosniff',
       'Cache-Control': 'private, max-age=300',
     },
   })

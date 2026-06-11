@@ -339,6 +339,7 @@ export default function AdminPaymentsPage() {
                         src={`/api/payments/receipts/${reviewing.receipt.id}/file`}
                         className="w-full h-[420px]"
                         title="Payment receipt"
+                        sandbox="allow-same-origin"
                       />
                     )}
                   </div>

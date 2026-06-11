@@ -14,7 +14,10 @@ const PAGE = 1000
 function csvEscape(v: unknown): string {
   if (v == null) return ''
   const s = typeof v === 'object' ? JSON.stringify(v) : String(v)
-  return `"${s.replace(/"/g, '""')}"`
+  // Neutralize formula injection (CWE-1236): Excel/Sheets evaluate cells that
+  // start with = + - @ tab CR as formulas even when double-quoted in CSV.
+  const safe = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s
+  return `"${safe.replace(/"/g, '""')}"`
 }
 
 function toCsv(rows: Record<string, unknown>[], columns: string[]): string {
