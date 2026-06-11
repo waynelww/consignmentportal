@@ -3,18 +3,15 @@
 /**
  * Payments — collections command center.
  *
- * One screen for the team to see who has paid, who has submitted a receipt
- * that needs checking, and who is late. The review modal puts the uploaded
- * bank receipt NEXT TO the expected amount (xocks_revenue — the figure the
- * store must remit) so nobody has to open the invoice PDF and memorise
- * numbers while cross-checking.
- *
- * Due rule (matches the store-side bank card): payment for a month is due by
- * the 7th of the following month. After that the row shows days late.
+ * Invoice PDF viewer, bulk download, receipt review, and manual mark-as-paid.
+ * Due rule: payment for a month is due by the 7th of the following month.
  */
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Wallet, CheckCircle2, XCircle, Loader2, Receipt, AlertTriangle, FileText } from 'lucide-react'
+import {
+  Wallet, CheckCircle2, XCircle, Loader2, Receipt, AlertTriangle,
+  FileText, Download, BadgeCheck,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMonthYear, cn } from '@/lib/utils'
@@ -31,9 +28,6 @@ function getMYNow() {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
 }
 
-// Payment for period (M, Y) is due by the 7th of the following month.
-// period_month is 1-based, JS Date months are 0-based — passing it straight
-// through lands on the NEXT month, which is exactly what we want.
 function dueDate(p: CommissionPeriod): Date {
   return new Date(p.period_year, p.period_month, 7, 23, 59, 59)
 }
@@ -48,9 +42,19 @@ export default function AdminPaymentsPage() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('unpaid')
   const [storeFilter, setStoreFilter] = useState('')
+
+  // Receipt review modal
   const [reviewing, setReviewing] = useState<Row | null>(null)
   const [adminNotes, setAdminNotes] = useState('')
   const [submitting, setSubmitting] = useState<'confirm' | 'reject' | null>(null)
+
+  // Invoice PDF popup
+  const [invoiceViewing, setInvoiceViewing] = useState<Row | null>(null)
+
+  // Manual mark-as-paid modal
+  const [markingPaid, setMarkingPaid] = useState<Row | null>(null)
+  const [payRef, setPayRef] = useState('')
+  const [markingPaidSubmitting, setMarkingPaidSubmitting] = useState(false)
 
   const now = getMYNow()
 
@@ -84,7 +88,6 @@ export default function AdminPaymentsPage() {
     return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]))
   }, [rows])
 
-  // Row state helpers
   const isPaid = (r: Row) => r.status === 'paid'
   const needsReview = (r: Row) => !isPaid(r) && r.receipt?.status === 'submitted'
   const isOverdue = (r: Row) => !isPaid(r) && !needsReview(r) && daysOverdue(r, now) > 0 && Number(r.xocks_revenue) > 0
@@ -100,7 +103,6 @@ export default function AdminPaymentsPage() {
     }
   })
 
-  // Summary numbers
   const outstanding = rows.filter((r) => !isPaid(r)).reduce((s, r) => s + Number(r.xocks_revenue), 0)
   const reviewCount = rows.filter(needsReview).length
   const overdueRows = rows.filter(isOverdue)
@@ -135,10 +137,7 @@ export default function AdminPaymentsPage() {
         body: JSON.stringify({ action, admin_notes: adminNotes.trim() || null }),
       })
       const body = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        toast.error(body.error ?? 'Failed')
-        return
-      }
+      if (!res.ok) { toast.error(body.error ?? 'Failed'); return }
       toast.success(action === 'confirm' ? 'Payment confirmed — store notified' : 'Receipt rejected — store notified')
       setReviewing(null)
       setAdminNotes('')
@@ -148,6 +147,44 @@ export default function AdminPaymentsPage() {
     }
   }
 
+  async function markPaid() {
+    if (!markingPaid) return
+    setMarkingPaidSubmitting(true)
+    try {
+      const res = await fetch(`/api/commissions/${markingPaid.id}/pay`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_reference: payRef.trim() || null }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(body.error ?? 'Failed'); return }
+      toast.success('Payment confirmed — store notified')
+      setMarkingPaid(null)
+      setPayRef('')
+      load()
+    } finally {
+      setMarkingPaidSubmitting(false)
+    }
+  }
+
+  function bulkDownload() {
+    if (filtered.length === 0) return
+    filtered.forEach((r, i) => {
+      setTimeout(() => {
+        const a = document.createElement('a')
+        a.href = `/api/commissions/${r.id}/pdf`
+        a.download = ''
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      }, i * 700)
+    })
+    toast.success(`Downloading ${filtered.length} invoice${filtered.length > 1 ? 's' : ''}…`)
+  }
+
+  const receiptIsImage = (r: PaymentReceipt | null | undefined) =>
+    !!r?.mime_type && r.mime_type.startsWith('image/')
+
   const TABS: { key: Tab; label: string; count?: number }[] = [
     { key: 'unpaid', label: 'Unpaid' },
     { key: 'review', label: 'To Review', count: reviewCount },
@@ -155,9 +192,6 @@ export default function AdminPaymentsPage() {
     { key: 'paid', label: 'Paid' },
     { key: 'all', label: 'All' },
   ]
-
-  const receiptIsImage = (r: PaymentReceipt | null | undefined) =>
-    !!r?.mime_type && r.mime_type.startsWith('image/')
 
   return (
     <div className="space-y-5">
@@ -204,7 +238,7 @@ export default function AdminPaymentsPage() {
             </button>
           ))}
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
           <select
             value={storeFilter}
             onChange={(e) => setStoreFilter(e.target.value)}
@@ -215,6 +249,15 @@ export default function AdminPaymentsPage() {
               <option key={code} value={code}>{name}</option>
             ))}
           </select>
+          {filtered.length > 0 && (
+            <button
+              onClick={bulkDownload}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              <Download size={13} />
+              Download All ({filtered.length})
+            </button>
+          )}
         </div>
       </div>
 
@@ -238,7 +281,7 @@ export default function AdminPaymentsPage() {
             ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-4 py-10 text-center text-gray-400 text-sm">
-                  Nothing here — all clear 🎉
+                  Nothing here — all clear
                 </td>
               </tr>
             ) : (
@@ -281,21 +324,31 @@ export default function AdminPaymentsPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <a
-                          href={`/api/commissions/${r.id}/pdf`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-gray-500 hover:text-gray-900 inline-flex items-center gap-1"
+                        {/* Invoice — opens PDF popup */}
+                        <button
+                          onClick={() => setInvoiceViewing(r)}
+                          className="text-xs text-gray-500 hover:text-gray-900 inline-flex items-center gap-1 transition-colors"
                         >
                           <FileText size={12} />
                           Invoice
-                        </a>
+                        </button>
+                        {/* Receipt review — only when submitted */}
                         {needsReview(r) && (
                           <button
                             onClick={() => { setReviewing(r); setAdminNotes('') }}
                             className="text-xs px-3 py-1.5 bg-[#0A0A0A] text-[#FFD700] rounded-lg font-semibold hover:bg-gray-800 transition-colors"
                           >
                             Review
+                          </button>
+                        )}
+                        {/* Mark paid — for any unpaid row without a pending receipt */}
+                        {!isPaid(r) && !needsReview(r) && (
+                          <button
+                            onClick={() => { setMarkingPaid(r); setPayRef('') }}
+                            className="text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors inline-flex items-center gap-1"
+                          >
+                            <BadgeCheck size={12} />
+                            Mark Paid
                           </button>
                         )}
                       </div>
@@ -308,7 +361,43 @@ export default function AdminPaymentsPage() {
         </table>
       </div>
 
-      {/* Review modal — receipt next to the expected amount */}
+      {/* ── Invoice PDF popup ─────────────────────────────────────────────────── */}
+      {invoiceViewing && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl flex flex-col" style={{ height: '90vh' }}>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">
+                  {invoiceViewing.store?.store_name}
+                </h3>
+                <p className="text-xs text-gray-400">
+                  {formatMonthYear(invoiceViewing.period_month, invoiceViewing.period_year)} · {invoiceViewing.store?.store_code}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={`/api/commissions/${invoiceViewing.id}/pdf`}
+                  download
+                  className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 flex items-center gap-1.5 transition-colors"
+                >
+                  <Download size={12} />
+                  Download
+                </a>
+                <button onClick={() => setInvoiceViewing(null)} className="text-gray-400 hover:text-gray-700">
+                  <XCircle size={18} />
+                </button>
+              </div>
+            </div>
+            <iframe
+              src={`/api/commissions/${invoiceViewing.id}/pdf?inline=1`}
+              className="flex-1 w-full rounded-b-xl"
+              title="Invoice PDF"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Receipt review modal ──────────────────────────────────────────────── */}
       {reviewing && reviewing.receipt && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
@@ -355,7 +444,7 @@ export default function AdminPaymentsPage() {
                   </div>
                 </div>
 
-                {/* Right: what the number on the receipt MUST say */}
+                {/* Right: expected amount + action */}
                 <div className="space-y-4">
                   <div className="bg-[#0A0A0A] rounded-xl p-5 text-center">
                     <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">Amount on receipt must be</p>
@@ -406,6 +495,67 @@ export default function AdminPaymentsPage() {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Manual mark-as-paid modal ─────────────────────────────────────────── */}
+      {markingPaid && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-gray-900">Confirm Payment Received</h3>
+              <button onClick={() => setMarkingPaid(null)} className="text-gray-400 hover:text-gray-700">
+                <XCircle size={18} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">{markingPaid.store?.store_name}</p>
+                <p className="text-xs text-gray-400">
+                  {formatMonthYear(markingPaid.period_month, markingPaid.period_year)} · {markingPaid.store?.store_code}
+                </p>
+              </div>
+
+              <div className="bg-[#0A0A0A] rounded-xl p-4 text-center">
+                <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">Amount to Receive</p>
+                <p className="text-3xl font-extrabold text-[#FFD700]">{formatCurrency(markingPaid.xocks_revenue)}</p>
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600 space-y-1.5">
+                <div className="flex justify-between">
+                  <span>Month revenue</span>
+                  <span className="font-semibold">{formatCurrency(markingPaid.total_revenue)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Store commission</span>
+                  <span className="font-semibold">− {formatCurrency(markingPaid.commission_amount)}</span>
+                </div>
+                <div className="flex justify-between border-t border-gray-200 pt-1.5 font-bold text-gray-900">
+                  <span>Balance to Xocks</span>
+                  <span>{formatCurrency(markingPaid.xocks_revenue)}</span>
+                </div>
+              </div>
+
+              <input
+                type="text"
+                value={payRef}
+                onChange={(e) => setPayRef(e.target.value)}
+                placeholder="Bank reference (optional)"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+              />
+
+              <button
+                onClick={markPaid}
+                disabled={markingPaidSubmitting}
+                className="w-full py-2.5 rounded-xl bg-[#0A0A0A] text-[#FFD700] text-sm font-bold hover:bg-gray-800 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
+              >
+                {markingPaidSubmitting
+                  ? <Loader2 size={14} className="animate-spin" />
+                  : <BadgeCheck size={14} />}
+                Confirm Payment Received
+              </button>
             </div>
           </div>
         </div>

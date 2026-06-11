@@ -2,16 +2,15 @@ import { type NextRequest } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { generateStatementPdf } from '@/lib/pdf/generate-statement'
 
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-]
 const BUCKET = 'commission-pdfs'
+
+const MONTH_ABBRS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ periodId: string }> }
 ) {
+  const inline = _request.nextUrl.searchParams.has('inline')
   const { periodId } = await params
 
   const supabase = await createClient()
@@ -73,8 +72,11 @@ export async function GET(
 
   const svc = await createServiceClient()
   const storagePath = `${store.store_code}/${periodId}.pdf`
-  const monthName = MONTH_NAMES[(period.period_month as number) - 1]
-  const filename = `Statement-${store.store_code}-${monthName}-${period.period_year}.pdf`
+  const monthAbbr = MONTH_ABBRS[(period.period_month as number) - 1]
+  const year2 = String(period.period_year).slice(-2)
+  const safeStoreName = store.store_name.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '')
+  const filename = `${monthAbbr}${year2}-${safeStoreName}-${store.store_code}.pdf`
+  const disposition = inline ? 'inline' : 'attachment'
 
   // ── If already stored, serve from storage ────────────────────────────────────
   if (period.pdf_url) {
@@ -88,7 +90,7 @@ export async function GET(
         status: 200,
         headers: {
           'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="${filename}"`,
+          'Content-Disposition': `${disposition}; filename="${filename}"`,
           'Content-Length': String(arrayBuf.byteLength),
         },
       })
@@ -217,7 +219,7 @@ export async function GET(
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Disposition': `${disposition}; filename="${filename}"`,
       'Content-Length': String(pdfBytes.length),
     },
   })

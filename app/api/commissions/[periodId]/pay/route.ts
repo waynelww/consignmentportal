@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 
 const PaySchema = z.object({
-  payment_reference: z.string().min(1),
+  payment_reference: z.string().max(200).optional().nullable(),
 })
 
 export async function PATCH(
@@ -23,8 +23,8 @@ export async function PATCH(
     .single()
 
   if (!profile) return Response.json({ error: 'Profile not found' }, { status: 403 })
-  if (profile.role !== 'super_admin') {
-    return Response.json({ error: 'Forbidden: super_admin only' }, { status: 403 })
+  if (profile.role !== 'super_admin' && profile.role !== 'ops_manager') {
+    return Response.json({ error: 'Forbidden: admin only' }, { status: 403 })
   }
 
   let body: unknown
@@ -43,23 +43,27 @@ export async function PATCH(
 
   const { data: period, error: periodErr } = await supabase
     .from('commission_periods')
-    .select('id, store_id, status, commission_amount, period_month, period_year')
+    .select('id, store_id, status, commission_amount, xocks_revenue, period_month, period_year')
     .eq('id', periodId)
     .single()
 
   if (periodErr || !period) {
     return Response.json({ error: 'Commission period not found' }, { status: 404 })
   }
-  if (period.status !== 'approved') {
-    return Response.json({ error: `Cannot pay period with status: ${period.status}` }, { status: 400 })
+  if (period.status === 'paid') {
+    return Response.json({ error: 'Period is already marked as paid' }, { status: 400 })
   }
+
+  const ref = parsed.data.payment_reference?.trim() || null
 
   const { error: updateErr } = await supabase
     .from('commission_periods')
     .update({
       status: 'paid',
       paid_at: new Date().toISOString(),
-      payment_reference,
+      payment_reference: ref,
+      approved_by: user.id,
+      approved_at: new Date().toISOString(),
     })
     .eq('id', periodId)
 
@@ -67,12 +71,14 @@ export async function PATCH(
     return Response.json({ error: 'Failed to mark commission as paid', details: updateErr.message }, { status: 500 })
   }
 
+  const xocksAmt = Number(period.xocks_revenue).toFixed(2)
+  const refNote = ref ? `. Reference: ${ref}` : ''
   await supabase.from('notifications').insert({
     recipient_role: null,
     recipient_store_id: period.store_id,
     type: 'commission_paid',
-    title: 'Commission Paid',
-    message: `Your commission of RM${period.commission_amount.toFixed(2)} for ${period.period_month}/${period.period_year} has been paid. Reference: ${payment_reference}`,
+    title: 'Payment Confirmed',
+    message: `Your payment of RM${xocksAmt} for ${period.period_month}/${period.period_year} has been confirmed. Thank you!${refNote}`,
     reference_id: periodId,
     reference_type: 'commission_period',
     is_read: false,

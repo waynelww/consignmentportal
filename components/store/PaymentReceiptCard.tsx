@@ -20,6 +20,19 @@ import type { CommissionPeriod } from '@/types'
 const MAX_BYTES = 10 * 1024 * 1024
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/heic,application/pdf'
 
+// Derive a safe content-type from the file extension so HEIC/unknown types
+// don't get rejected by the bucket's allowed_mime_types check.
+const EXT_TYPE: Record<string, string> = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg',
+  png: 'image/png', webp: 'image/webp',
+  heic: 'image/heic', heif: 'image/heic',
+  pdf: 'application/pdf',
+}
+function resolveContentType(file: File): string {
+  const ext = (file.name.split('.').pop() ?? '').toLowerCase()
+  return EXT_TYPE[ext] ?? file.type ?? 'application/octet-stream'
+}
+
 interface Props {
   period: CommissionPeriod
   storeCode: string
@@ -49,18 +62,23 @@ export default function PaymentReceiptCard({ period, storeCode, onChanged }: Pro
 
   async function handleFile(file: File) {
     if (file.size > MAX_BYTES) {
-      toast.error('File is too large — max 10MB. Try a screenshot instead.')
+      toast.error('File is too large — max 10 MB. Try compressing or taking a screenshot instead.')
+      return
+    }
+    const contentType = resolveContentType(file)
+    if (!Object.values(EXT_TYPE).includes(contentType)) {
+      toast.error('Please upload a JPG, PNG, WEBP, HEIC photo or a PDF.')
       return
     }
     setUploading(true)
     try {
       const supabase = createClient()
-      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')
+      const ext = (file.name.split('.').pop() ?? 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')
       const path = `${storeCode}/${period.period_year}-${String(period.period_month).padStart(2, '0')}-${Date.now()}.${ext}`
 
       const { error: upErr } = await supabase.storage
         .from('payment-receipts')
-        .upload(path, file, { contentType: file.type || 'application/octet-stream' })
+        .upload(path, file, { contentType, upsert: false })
       if (upErr) {
         toast.error(`Upload failed: ${upErr.message}`)
         return
@@ -73,7 +91,7 @@ export default function PaymentReceiptCard({ period, storeCode, onChanged }: Pro
           commission_period_id: period.id,
           file_path: path,
           file_name: file.name,
-          mime_type: file.type || null,
+          mime_type: contentType,
           file_size: file.size,
           bank_reference: bankRef.trim() || null,
         }),
