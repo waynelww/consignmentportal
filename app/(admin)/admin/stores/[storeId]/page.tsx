@@ -10,6 +10,8 @@ import {
   X,
   ArrowLeft,
   Save,
+  TrendingUp,
+  ArrowUpDown,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -32,6 +34,41 @@ import { toast } from 'sonner'
 
 const TABS = ['overview', 'inventory', 'sales', 'delivery-orders', 'commissions'] as const
 type Tab = (typeof TABS)[number]
+
+type InventoryPeriod = '7d' | '14d' | '30d' | 'this-month' | 'last-month' | 'ytd' | 'max'
+type InvSort = 'sold-desc' | 'sold-asc' | 'on-hand-desc' | 'on-hand-asc' | 'velocity-desc' | 'sku'
+
+const PERIOD_LABELS: Record<InventoryPeriod, string> = {
+  '7d': '7 Days', '14d': '14 Days', '30d': '30 Days',
+  'this-month': 'This Month', 'last-month': 'Last Month',
+  'ytd': 'Year to Date', 'max': 'All Time',
+}
+
+function getPeriodRange(period: InventoryPeriod): { from: string; to: string; days: number } {
+  const now = new Date()
+  const todayStr = now.toISOString().slice(0, 10)
+  switch (period) {
+    case '7d':  { const f = new Date(now); f.setDate(f.getDate() - 6);  return { from: f.toISOString().slice(0,10), to: todayStr, days: 7 } }
+    case '14d': { const f = new Date(now); f.setDate(f.getDate() - 13); return { from: f.toISOString().slice(0,10), to: todayStr, days: 14 } }
+    case '30d': { const f = new Date(now); f.setDate(f.getDate() - 29); return { from: f.toISOString().slice(0,10), to: todayStr, days: 30 } }
+    case 'this-month': {
+      const f = new Date(now.getFullYear(), now.getMonth(), 1)
+      const days = Math.max(1, Math.ceil((now.getTime() - f.getTime()) / 86400000) + 1)
+      return { from: f.toISOString().slice(0,10), to: todayStr, days }
+    }
+    case 'last-month': {
+      const f = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      const t = new Date(now.getFullYear(), now.getMonth(), 0)
+      return { from: f.toISOString().slice(0,10), to: t.toISOString().slice(0,10), days: t.getDate() }
+    }
+    case 'ytd': {
+      const f = new Date(now.getFullYear(), 0, 1)
+      const days = Math.max(1, Math.ceil((now.getTime() - f.getTime()) / 86400000) + 1)
+      return { from: f.toISOString().slice(0,10), to: todayStr, days }
+    }
+    default: return { from: '2020-01-01', to: todayStr, days: 365 * 5 }
+  }
+}
 
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -125,6 +162,13 @@ export default function StoreDetailPage() {
   const [adjustNotes, setAdjustNotes] = useState('')
   const [storeTypes, setStoreTypes] = useState<StoreTypeRow[]>([])
 
+  // Inventory analytics
+  const [invPeriod, setInvPeriod] = useState<InventoryPeriod>('30d')
+  const [invSoldMap, setInvSoldMap] = useState<Record<string, number>>({})
+  const [invInboundMap, setInvInboundMap] = useState<Record<string, number>>({})
+  const [invAnalyticsLoading, setInvAnalyticsLoading] = useState(false)
+  const [invSort, setInvSort] = useState<InvSort>('sold-desc')
+
   // Fetch active store types for the dropdown + label lookups
   useEffect(() => {
     fetch('/api/store-types')
@@ -166,11 +210,15 @@ export default function StoreDetailPage() {
   }, [storeId])
 
   useEffect(() => {
-    if (activeTab === 'inventory') loadInventory()
+    if (activeTab === 'inventory') { loadInventory(); loadInventoryAnalytics(invPeriod) }
     if (activeTab === 'sales') loadSales()
     if (activeTab === 'delivery-orders') loadDOs()
     if (activeTab === 'commissions') loadCommissions()
   }, [activeTab, storeId])
+
+  useEffect(() => {
+    if (activeTab === 'inventory') loadInventoryAnalytics(invPeriod)
+  }, [invPeriod])
 
   async function loadInventory() {
     const { data } = await supabase
@@ -179,6 +227,46 @@ export default function StoreDetailPage() {
       .eq('store_id', storeId)
       .order('created_at')
     setInventory((data || []) as StoreInventory[])
+  }
+
+  async function loadInventoryAnalytics(period: InventoryPeriod) {
+    setInvAnalyticsLoading(true)
+    const { from, to } = getPeriodRange(period)
+
+    // Sales in period → group by product_id
+    const { data: salesData } = await supabase
+      .from('sales')
+      .select('product_id, quantity')
+      .eq('store_id', storeId)
+      .gte('sale_date', from)
+      .lte('sale_date', to)
+
+    const soldMap: Record<string, number> = {}
+    for (const s of (salesData || [])) {
+      soldMap[s.product_id] = (soldMap[s.product_id] ?? 0) + (s.quantity ?? 0)
+    }
+    setInvSoldMap(soldMap)
+
+    // Currently inbound: DOs in confirmed/dispatched status (not period-filtered — always current snapshot)
+    const { data: inTransitDos } = await supabase
+      .from('delivery_orders')
+      .select('id')
+      .eq('store_id', storeId)
+      .in('status', ['confirmed', 'dispatched'])
+
+    const doIds = (inTransitDos || []).map((d: { id: string }) => d.id)
+    const inboundMap: Record<string, number> = {}
+    if (doIds.length > 0) {
+      const { data: items } = await supabase
+        .from('delivery_order_items')
+        .select('product_id, quantity')
+        .in('delivery_order_id', doIds)
+      for (const it of (items || [])) {
+        inboundMap[it.product_id] = (inboundMap[it.product_id] ?? 0) + (it.quantity ?? 0)
+      }
+    }
+    setInvInboundMap(inboundMap)
+    setInvAnalyticsLoading(false)
   }
 
   async function loadSales() {
@@ -591,82 +679,192 @@ export default function StoreDetailPage() {
           )}
 
           {/* ── Inventory Tab ── */}
-          {activeTab === 'inventory' && (
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-sm font-semibold text-gray-700">
-                  {inventory.length} SKU{inventory.length !== 1 ? 's' : ''} stocked
-                </h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-100">
-                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Product</th>
-                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">SKU</th>
-                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">On Hand</th>
-                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Threshold</th>
-                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Status</th>
-                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Last Restocked</th>
-                      <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {inventory.map((inv) => {
-                      const qty = inv.quantity_on_hand
-                      const thr = inv.restock_threshold
-                      const status = qty === 0 ? 'Out' : qty <= thr ? 'Low' : 'OK'
-                      const statusColor =
-                        status === 'Out'
-                          ? 'bg-red-100 text-red-700'
-                          : status === 'Low'
-                          ? 'bg-amber-100 text-amber-700'
-                          : 'bg-green-100 text-green-700'
-                      return (
-                        <tr key={inv.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                          <td className="py-3 px-3 font-medium text-gray-800">
-                            {(inv.product as Product)?.name || '—'}
-                          </td>
-                          <td className="py-3 px-3 font-mono text-xs text-gray-500">
-                            {(inv.product as Product)?.sku || '—'}
-                          </td>
-                          <td className="py-3 px-3 text-right font-semibold">{qty}</td>
-                          <td className="py-3 px-3 text-right text-gray-500">{thr}</td>
-                          <td className="py-3 px-3">
-                            <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', statusColor)}>
-                              {status}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-xs text-gray-500">
-                            {inv.last_restocked_at ? formatMYDate(inv.last_restocked_at) : '—'}
-                          </td>
-                          <td className="py-3 px-3 text-right">
-                            <button
-                              onClick={() => {
-                                setAdjustModal({ open: true, inventory: inv })
-                                setAdjustQty(0)
-                                setAdjustNotes('')
-                              }}
-                              className="text-xs px-2.5 py-1 bg-[#0A0A0A] text-white rounded-lg hover:bg-gray-800 transition-colors"
-                            >
-                              Adjust
-                            </button>
+          {activeTab === 'inventory' && (() => {
+            const { days } = getPeriodRange(invPeriod)
+            const sortedInv = [...inventory].sort((a, b) => {
+              const soldA = invSoldMap[a.product_id] ?? 0
+              const soldB = invSoldMap[b.product_id] ?? 0
+              const velA = soldA / days
+              const velB = soldB / days
+              switch (invSort) {
+                case 'sold-asc':     return soldA - soldB
+                case 'on-hand-desc': return b.quantity_on_hand - a.quantity_on_hand
+                case 'on-hand-asc':  return a.quantity_on_hand - b.quantity_on_hand
+                case 'velocity-desc': return velB - velA
+                case 'sku':          return ((a.product as Product)?.sku ?? '').localeCompare((b.product as Product)?.sku ?? '')
+                default:             return soldB - soldA  // sold-desc
+              }
+            })
+
+            const totalSold = sortedInv.reduce((s, i) => s + (invSoldMap[i.product_id] ?? 0), 0)
+            const totalInbound = sortedInv.reduce((s, i) => s + (invInboundMap[i.product_id] ?? 0), 0)
+            const totalOnHand = sortedInv.reduce((s, i) => s + i.quantity_on_hand, 0)
+
+            return (
+              <div className="space-y-4">
+                {/* Period chips */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-gray-500 mr-1">Period:</span>
+                  {(Object.keys(PERIOD_LABELS) as InventoryPeriod[]).map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setInvPeriod(p)}
+                      className={cn(
+                        'px-3 py-1 rounded-full text-xs font-semibold transition-colors',
+                        invPeriod === p
+                          ? 'bg-[#0A0A0A] text-[#FFD700]'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      )}
+                    >
+                      {PERIOD_LABELS[p]}
+                    </button>
+                  ))}
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <ArrowUpDown size={12} className="text-gray-400" />
+                    <select
+                      value={invSort}
+                      onChange={(e) => setInvSort(e.target.value as InvSort)}
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                    >
+                      <option value="sold-desc">Sold (High → Low)</option>
+                      <option value="sold-asc">Sold (Low → High)</option>
+                      <option value="velocity-desc">Velocity (Fast → Slow)</option>
+                      <option value="on-hand-desc">On Hand (High → Low)</option>
+                      <option value="on-hand-asc">On Hand (Low → High)</option>
+                      <option value="sku">SKU A → Z</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Summary cards */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-gray-50 rounded-xl p-3">
+                    <p className="text-xs text-gray-500">Total On Hand</p>
+                    <p className="text-xl font-bold text-gray-900">{totalOnHand}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">pairs in stock now</p>
+                  </div>
+                  <div className="bg-amber-50 rounded-xl p-3">
+                    <p className="text-xs text-amber-700">Inbound (In Transit)</p>
+                    <p className="text-xl font-bold text-amber-900">{totalInbound}</p>
+                    <p className="text-[10px] text-amber-600 mt-0.5">confirmed + dispatched DOs</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-xl p-3">
+                    <div className="flex items-center gap-1">
+                      <TrendingUp size={11} className="text-blue-600" />
+                      <p className="text-xs text-blue-700">Sold ({PERIOD_LABELS[invPeriod]})</p>
+                    </div>
+                    <p className="text-xl font-bold text-blue-900">
+                      {invAnalyticsLoading ? '…' : totalSold}
+                    </p>
+                    <p className="text-[10px] text-blue-500 mt-0.5">
+                      {invAnalyticsLoading ? '' : `~${(totalSold / days).toFixed(1)} pairs/day`}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100 bg-gray-50">
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Product</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">SKU</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">On Hand</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 bg-blue-50/60">
+                          Sold ({PERIOD_LABELS[invPeriod]})
+                        </th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 bg-blue-50/60">
+                          /day
+                        </th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 bg-amber-50/60">Inbound</th>
+                        <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Status</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedInv.map((inv) => {
+                        const qty = inv.quantity_on_hand
+                        const thr = inv.restock_threshold
+                        const sold = invSoldMap[inv.product_id] ?? 0
+                        const inbound = invInboundMap[inv.product_id] ?? 0
+                        const velocity = sold / days
+                        const status = qty === 0 ? 'Out' : qty <= thr ? 'Low' : 'OK'
+                        const statusColor =
+                          status === 'Out' ? 'bg-red-100 text-red-700' :
+                          status === 'Low' ? 'bg-amber-100 text-amber-700' :
+                          'bg-green-100 text-green-700'
+                        const daysLeft = velocity > 0 ? Math.floor(qty / velocity) : null
+                        return (
+                          <tr key={inv.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                            <td className="py-2.5 px-3 font-medium text-gray-800">
+                              {(inv.product as Product)?.name || '—'}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-xs text-gray-500">
+                              {(inv.product as Product)?.sku || '—'}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-semibold">
+                              {qty}
+                              {daysLeft !== null && (
+                                <div className={cn(
+                                  'text-[10px] font-normal',
+                                  daysLeft <= 7 ? 'text-red-500' : daysLeft <= 14 ? 'text-amber-500' : 'text-gray-400'
+                                )}>
+                                  ~{daysLeft}d left
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right bg-blue-50/30">
+                              {invAnalyticsLoading ? (
+                                <span className="text-gray-300">…</span>
+                              ) : (
+                                <span className={cn('font-semibold', sold > 0 ? 'text-blue-700' : 'text-gray-300')}>
+                                  {sold}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right text-xs text-gray-400 bg-blue-50/30">
+                              {!invAnalyticsLoading && sold > 0 ? velocity.toFixed(2) : '—'}
+                            </td>
+                            <td className="py-2.5 px-3 text-right bg-amber-50/30">
+                              {inbound > 0 ? (
+                                <span className="font-semibold text-amber-700">{inbound}</span>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', statusColor)}>
+                                {status}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                onClick={() => {
+                                  setAdjustModal({ open: true, inventory: inv })
+                                  setAdjustQty(0)
+                                  setAdjustNotes('')
+                                }}
+                                className="text-xs px-2.5 py-1 bg-[#0A0A0A] text-white rounded-lg hover:bg-gray-800 transition-colors"
+                              >
+                                Adjust
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                      {inventory.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="py-10 text-center text-gray-400 text-sm">
+                            No inventory records
                           </td>
                         </tr>
-                      )
-                    })}
-                    {inventory.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="py-10 text-center text-gray-400 text-sm">
-                          No inventory records
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* ── Sales Tab ── */}
           {activeTab === 'sales' && (
