@@ -516,7 +516,7 @@ export default function DashboardPage() {
                   {kpis.low_stock_alerts} low stock alert{kpis.low_stock_alerts !== 1 ? 's' : ''}
                 </span>
                 <Link
-                  href="/stock"
+                  href="/admin/stock"
                   className="text-xs bg-amber-600 text-white px-3 py-1.5 rounded-lg hover:bg-amber-700 transition-colors"
                 >
                   View Stock
