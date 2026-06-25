@@ -1124,11 +1124,10 @@ Welcome aboard! 🧦`
                   {pickPhase === 'pick' ? (
                     <button
                       type="button"
-                      onClick={() => setPickPhase('quantities')}
-                      disabled={totalSelectedSKUs === 0}
-                      className="px-5 py-2 bg-[#0A0A0A] text-[#FFD700] text-sm font-semibold rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                      onClick={() => totalSelectedSKUs === 0 ? form2.handleSubmit(onStep2)() : setPickPhase('quantities')}
+                      className="px-5 py-2 bg-[#0A0A0A] text-[#FFD700] text-sm font-semibold rounded-lg hover:opacity-90 transition-all"
                     >
-                      Done Picking →
+                      {totalSelectedSKUs === 0 ? 'Skip SKUs →' : 'Done Picking →'}
                     </button>
                   ) : (
                     <button
