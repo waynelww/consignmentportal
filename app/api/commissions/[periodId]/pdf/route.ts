@@ -160,7 +160,12 @@ export async function GET(
   }
 
   // ── Generate PDF ──────────────────────────────────────────────────────────────
-  const generatedDate = new Date().toLocaleDateString('en-MY', { day: '2-digit', month: 'long', year: 'numeric' })
+  // Issue date is always the 1st of the month following the period
+  // (June 2026 → 01 July 2026, May 2026 → 01 June 2026, etc.)
+  const issueMonth = (period.period_month as number) === 12 ? 1 : (period.period_month as number) + 1
+  const issueYear  = (period.period_month as number) === 12 ? (period.period_year as number) + 1 : period.period_year as number
+  const generatedDate = new Date(issueYear, issueMonth - 1, 1)
+    .toLocaleDateString('en-MY', { day: '2-digit', month: 'long', year: 'numeric' })
   const paidAt = period.paid_at
     ? new Date(period.paid_at).toLocaleDateString('en-MY', { day: '2-digit', month: '2-digit', year: 'numeric' })
     : undefined
@@ -190,30 +195,31 @@ export async function GET(
     paidAt,
   })
 
-  // ── Upload to storage (fire-and-forget, don't block the response) ─────────────
-  ;(async () => {
-    try {
-      // Ensure bucket exists
-      await svc.storage.createBucket(BUCKET, { public: false }).catch(() => {/* already exists */})
+  // ── Upload to storage only if not already stored ──────────────────────────────
+  // Never overwrite an existing PDF — old invoices stay immutable once stored.
+  if (!period.pdf_url) {
+    ;(async () => {
+      try {
+        await svc.storage.createBucket(BUCKET, { public: false }).catch(() => {/* already exists */})
 
-      const { error: upErr } = await svc.storage
-        .from(BUCKET)
-        .upload(storagePath, Buffer.from(pdfBytes), {
-          contentType: 'application/pdf',
-          upsert: true,
-        })
+        const { error: upErr } = await svc.storage
+          .from(BUCKET)
+          .upload(storagePath, Buffer.from(pdfBytes), {
+            contentType: 'application/pdf',
+            upsert: false,
+          })
 
-      if (!upErr) {
-        // Record the storage path so future requests serve from storage
-        await svc
-          .from('commission_periods')
-          .update({ pdf_url: storagePath })
-          .eq('id', periodId)
+        if (!upErr) {
+          await svc
+            .from('commission_periods')
+            .update({ pdf_url: storagePath })
+            .eq('id', periodId)
+        }
+      } catch (err) {
+        console.error('[pdf] storage upload failed:', err)
       }
-    } catch (err) {
-      console.error('[pdf] storage upload failed:', err)
-    }
-  })()
+    })()
+  }
 
   return new Response(Buffer.from(pdfBytes), {
     status: 200,
