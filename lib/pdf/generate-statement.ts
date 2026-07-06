@@ -14,11 +14,6 @@ function fmt(amount: number): string {
   return `RM ${amount.toFixed(2)}`
 }
 
-function truncate(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text
-  return text.slice(0, maxLen - 1) + '…'
-}
-
 // Right-align text at a given x (right edge)
 function drawRight(
   page: ReturnType<PDFDocument['addPage']>,
@@ -31,6 +26,21 @@ function drawRight(
 ) {
   const w = font.widthOfTextAtSize(text, size)
   page.drawText(text, { x: rightX - w, y, size, font, color })
+}
+
+// Truncate text to fit within maxWidth pts at the given font size
+function fitText(
+  text: string,
+  maxWidth: number,
+  size: number,
+  font: Awaited<ReturnType<PDFDocument['embedFont']>>
+): string {
+  if (font.widthOfTextAtSize(text, size) <= maxWidth) return text
+  let t = text
+  while (t.length > 1 && font.widthOfTextAtSize(t + '…', size) > maxWidth) {
+    t = t.slice(0, -1)
+  }
+  return t + '…'
 }
 
 export async function generateStatementPdf(params: {
@@ -193,17 +203,39 @@ export async function generateStatementPdf(params: {
 
   y -= 4
 
-  // Column right edges (for right-alignment of numbers)
-  const C_PRODUCT_L = MARGIN          // Product — left aligned, ends ~195
-  const C_SKU_L     = MARGIN + 175    // SKU — left aligned
-  const C_UNITS_R   = MARGIN + 275    // Units Sold — right aligned
-  const C_PRICE_R   = MARGIN + 345    // Unit Price — right aligned
-  const C_REV_R     = MARGIN + 420    // Revenue — right aligned
-  const C_COMM_R    = MARGIN + 495    // Commission — right aligned (= page right edge)
+  // Column positions — all relative to MARGIN (50). Content width = 495.
+  // Left-edge constants (for left-aligned cols) / right-edge constants (for right-aligned number cols)
+  const C_PROD_L   = MARGIN           // Product name — left-aligned, 185pt wide
+  const C_SKU_L    = MARGIN + 190     // SKU — left-aligned, 65pt wide
+  const C_UNITS_R  = MARGIN + 285     // Units — right-aligned (30pt column)
+  const C_PRICE_R  = MARGIN + 365     // Unit Price — right-aligned (80pt column)
+  const C_REV_R    = MARGIN + 430     // Revenue — right-aligned (65pt column)
+  const C_COMM_R   = MARGIN + 495     // Commission — right-aligned (65pt, = page right edge)
 
-  const ROW_H = 17
+  // Vertical separator x positions (drawn between columns)
+  const SEP_AFTER_PROD  = MARGIN + 187
+  const SEP_AFTER_SKU   = MARGIN + 257
+  const SEP_AFTER_UNITS = MARGIN + 290
+  const SEP_AFTER_PRICE = MARGIN + 370
+  const SEP_AFTER_REV   = MARGIN + 435
+
+  const ROW_H = 18
+  const CELL_PAD = 4
+
+  function drawRowSeparators(topY: number, height: number) {
+    const sepColor = rgb(0.75, 0.75, 0.75)
+    for (const x of [SEP_AFTER_PROD, SEP_AFTER_SKU, SEP_AFTER_UNITS, SEP_AFTER_PRICE, SEP_AFTER_REV]) {
+      page.drawLine({
+        start: { x, y: topY },
+        end:   { x, y: topY - height },
+        thickness: 0.4,
+        color: sepColor,
+      })
+    }
+  }
 
   // Header row
+  const headerTop = y + 4
   page.drawRectangle({
     x: MARGIN,
     y: y - ROW_H + 4,
@@ -212,20 +244,20 @@ export async function generateStatementPdf(params: {
     color: rgb(0.1, 0.1, 0.1),
   })
 
-  const headerY = y - 10
+  const headerY = y - 11
   const hc = rgb(1, 1, 1)
-
-  page.drawText('Product',    { x: C_PRODUCT_L + 4, y: headerY, size: 7.5, font: boldFont, color: hc })
-  page.drawText('SKU',        { x: C_SKU_L + 4,     y: headerY, size: 7.5, font: boldFont, color: hc })
-  drawRight(page, 'Units',    C_UNITS_R - 4,         headerY, 7.5, boldFont, hc)
-  drawRight(page, 'Unit Price', C_PRICE_R - 4,       headerY, 7.5, boldFont, hc)
-  drawRight(page, 'Revenue',  C_REV_R - 4,           headerY, 7.5, boldFont, hc)
-  drawRight(page, 'Commission', C_COMM_R - 4,        headerY, 7.5, boldFont, hc)
+  page.drawText('Product',      { x: C_PROD_L  + CELL_PAD, y: headerY, size: 7.5, font: boldFont, color: hc })
+  page.drawText('SKU',          { x: C_SKU_L   + CELL_PAD, y: headerY, size: 7.5, font: boldFont, color: hc })
+  drawRight(page, 'Units',      C_UNITS_R - CELL_PAD, headerY, 7.5, boldFont, hc)
+  drawRight(page, 'Unit Price', C_PRICE_R - CELL_PAD, headerY, 7.5, boldFont, hc)
+  drawRight(page, 'Revenue',    C_REV_R   - CELL_PAD, headerY, 7.5, boldFont, hc)
+  drawRight(page, 'Commission', C_COMM_R  - CELL_PAD, headerY, 7.5, boldFont, hc)
 
   y -= ROW_H
 
   for (let i = 0; i < params.items.length; i++) {
     const item = params.items[i]
+    const rowTop = y + 4
 
     if (i % 2 === 1) {
       page.drawRectangle({
@@ -237,15 +269,23 @@ export async function generateStatementPdf(params: {
       })
     }
 
-    const rc = rgb(0.1, 0.1, 0.1)
-    const rowY = y - 10
+    // Draw column separators for this row
+    drawRowSeparators(rowTop, ROW_H)
 
-    page.drawText(truncate(item.productName, 22), { x: C_PRODUCT_L + 4, y: rowY, size: 7.5, font: regularFont, color: rc })
-    page.drawText(item.sku,                        { x: C_SKU_L + 4,     y: rowY, size: 7.5, font: regularFont, color: rc })
-    drawRight(page, String(item.unitsSold),         C_UNITS_R - 4,        rowY, 7.5, regularFont, rc)
-    drawRight(page, fmt(item.unitPrice),            C_PRICE_R - 4,        rowY, 7.5, regularFont, rc)
-    drawRight(page, fmt(item.revenue),              C_REV_R - 4,          rowY, 7.5, regularFont, rc)
-    drawRight(page, fmt(item.commission),           C_COMM_R - 4,         rowY, 7.5, regularFont, rc)
+    const rc = rgb(0.1, 0.1, 0.1)
+    const skuColor = rgb(0.35, 0.35, 0.35)
+    const rowY = y - 11
+
+    // Pixel-aware truncation so text never bleeds into the next column
+    const prodMaxW = SEP_AFTER_PROD - C_PROD_L - CELL_PAD * 2
+    const skuMaxW  = SEP_AFTER_SKU  - C_SKU_L  - CELL_PAD * 2
+
+    page.drawText(fitText(item.productName, prodMaxW, 7.5, regularFont), { x: C_PROD_L + CELL_PAD, y: rowY, size: 7.5, font: regularFont, color: rc })
+    page.drawText(fitText(item.sku,         skuMaxW,  7.5, regularFont), { x: C_SKU_L  + CELL_PAD, y: rowY, size: 7.5, font: regularFont, color: skuColor })
+    drawRight(page, String(item.unitsSold), C_UNITS_R - CELL_PAD, rowY, 7.5, regularFont, rc)
+    drawRight(page, fmt(item.unitPrice),    C_PRICE_R - CELL_PAD, rowY, 7.5, regularFont, rc)
+    drawRight(page, fmt(item.revenue),      C_REV_R   - CELL_PAD, rowY, 7.5, regularFont, rc)
+    drawRight(page, fmt(item.commission),   C_COMM_R  - CELL_PAD, rowY, 7.5, regularFont, rc)
 
     y -= ROW_H
 
@@ -255,6 +295,17 @@ export async function generateStatementPdf(params: {
       y = PAGE_HEIGHT - MARGIN
     }
   }
+
+  // Outer border around the whole table (header + rows)
+  page.drawRectangle({
+    x: MARGIN,
+    y: y + 4,
+    width: CONTENT_WIDTH,
+    height: headerTop - (y + 4),
+    borderColor: rgb(0.7, 0.7, 0.7),
+    borderWidth: 0.6,
+    color: rgb(1, 1, 1, 0),  // transparent fill — border only
+  })
 
   // Totals row
   page.drawRectangle({
@@ -266,11 +317,11 @@ export async function generateStatementPdf(params: {
   })
 
   const tc = rgb(0, 0, 0)
-  const totY = y - 10
-  page.drawText('TOTAL', { x: C_PRODUCT_L + 4, y: totY, size: 7.5, font: boldFont, color: tc })
-  drawRight(page, String(params.totalUnits),     C_UNITS_R - 4,  totY, 7.5, boldFont, tc)
-  drawRight(page, fmt(params.totalRevenue),      C_REV_R - 4,    totY, 7.5, boldFont, tc)
-  drawRight(page, fmt(params.totalCommission),   C_COMM_R - 4,   totY, 7.5, boldFont, tc)
+  const totY = y - 11
+  page.drawText('TOTAL', { x: C_PROD_L + CELL_PAD, y: totY, size: 7.5, font: boldFont, color: tc })
+  drawRight(page, String(params.totalUnits),   C_UNITS_R - CELL_PAD, totY, 7.5, boldFont, tc)
+  drawRight(page, fmt(params.totalRevenue),    C_REV_R   - CELL_PAD, totY, 7.5, boldFont, tc)
+  drawRight(page, fmt(params.totalCommission), C_COMM_R  - CELL_PAD, totY, 7.5, boldFont, tc)
 
   y -= ROW_H + 18
 

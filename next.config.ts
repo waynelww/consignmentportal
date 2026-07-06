@@ -16,6 +16,12 @@ const nextConfig: NextConfig = {
   // Pre-existing type errors in codebase — skip during build, fix incrementally
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
+  // Compress HTTP responses
+  compress: true,
+  // Tree-shake heavy icon/chart libraries so only imported symbols are bundled
+  experimental: {
+    optimizePackageImports: ['lucide-react', 'recharts'],
+  },
 };
 
 export default nextConfig;

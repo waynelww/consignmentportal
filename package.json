@@ -12,8 +12,6 @@
     "@hookform/resolvers": "^5.2.2",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
-    "@zxing/browser": "^0.2.0",
-    "@zxing/library": "^0.22.0",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",
     "next": "16.2.6",
