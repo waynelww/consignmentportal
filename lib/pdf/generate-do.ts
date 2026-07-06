@@ -39,7 +39,10 @@ export async function generateDOPdf(params: {
   companyAddress: string
   companyPhone: string
   companyEmail: string
+  // false = store-owner copy: quantities only, no internal cost prices
+  showCosts?: boolean
 }): Promise<Uint8Array> {
+  const showCosts = params.showCosts ?? true
   const pdfDoc = await PDFDocument.create()
   let page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
 
@@ -170,10 +173,11 @@ export async function generateDOPdf(params: {
   y -= 16
 
   // ── Items Table ─────────────────────────────────────────────────────────────
+  // Store-owner copy drops the cost columns and spreads the remaining ones out.
   const COL_NO = MARGIN
   const COL_NAME = MARGIN + 30
-  const COL_SKU = MARGIN + 230
-  const COL_QTY = MARGIN + 320
+  const COL_SKU = showCosts ? MARGIN + 230 : MARGIN + 300
+  const COL_QTY = showCosts ? MARGIN + 320 : MARGIN + 430
   const COL_UNIT = MARGIN + 375
   const COL_TOTAL = MARGIN + 450
   const ROW_H = 18
@@ -193,8 +197,7 @@ export async function generateDOPdf(params: {
     ['Product Name', COL_NAME],
     ['SKU', COL_SKU],
     ['Qty', COL_QTY],
-    ['Unit Cost', COL_UNIT],
-    ['Total', COL_TOTAL],
+    ...(showCosts ? ([['Unit Cost', COL_UNIT], ['Total', COL_TOTAL]] as Array<[string, number]>) : []),
   ]
 
   for (const [label, x] of headers) {
@@ -232,11 +235,13 @@ export async function generateDOPdf(params: {
 
     const rowColor = rgb(0.1, 0.1, 0.1)
     page.drawText(String(i + 1), { x: COL_NO + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
-    page.drawText(truncate(item.name, 28), { x: COL_NAME + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
+    page.drawText(truncate(item.name, showCosts ? 28 : 40), { x: COL_NAME + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
     page.drawText(item.sku, { x: COL_SKU + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
     page.drawText(String(item.quantity), { x: COL_QTY + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
-    page.drawText(formatCurrency(item.unitCost), { x: COL_UNIT + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
-    page.drawText(formatCurrency(rowTotal), { x: COL_TOTAL + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
+    if (showCosts) {
+      page.drawText(formatCurrency(item.unitCost), { x: COL_UNIT + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
+      page.drawText(formatCurrency(rowTotal), { x: COL_TOTAL + 3, y: y - 10, size: 8, font: regularFont, color: rowColor })
+    }
 
     y -= ROW_H
 
@@ -258,19 +263,20 @@ export async function generateDOPdf(params: {
 
   page.drawText('TOTAL', { x: COL_NO + 3, y: y - 10, size: 8, font: boldFont, color: rgb(0, 0, 0) })
   page.drawText(String(totalQty), { x: COL_QTY + 3, y: y - 10, size: 8, font: boldFont, color: rgb(0, 0, 0) })
-  page.drawText(formatCurrency(totalAmount), { x: COL_TOTAL + 3, y: y - 10, size: 8, font: boldFont, color: rgb(0, 0, 0) })
+  if (showCosts) {
+    page.drawText(formatCurrency(totalAmount), { x: COL_TOTAL + 3, y: y - 10, size: 8, font: boldFont, color: rgb(0, 0, 0) })
+  }
 
   y -= ROW_H + 8
 
-  // Table border
+  // Table border — no fill (a color here would paint over the rows)
   page.drawRectangle({
     x: MARGIN,
-    y,
+    y: y + 4,
     width: CONTENT_WIDTH,
-    height: PAGE_HEIGHT - MARGIN - y - (PAGE_HEIGHT - MARGIN - (y + ROW_H * (params.items.length + 2) + 8)),
+    height: ROW_H * (params.items.length + 2),
     borderColor: rgb(0.6, 0.6, 0.6),
     borderWidth: 0.5,
-    color: rgb(1, 1, 1), // white fill (no alpha in pdf-lib)
   })
 
   y -= 20

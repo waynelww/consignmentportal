@@ -6,6 +6,7 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ doId: string }> }
 ) {
+  const inline = _request.nextUrl.searchParams.has('inline')
   const { doId } = await params
 
   const supabase = await createClient()
@@ -138,13 +139,16 @@ export async function GET(
     companyAddress: settingsMap['company_address'] ?? '',
     companyPhone: settingsMap['company_phone'] ?? '',
     companyEmail: settingsMap['company_email'] ?? 'info@xocks.co',
+    // Store owners get the quantities-only copy — internal cost prices stay internal
+    showCosts: profile.role !== 'store_owner',
   })
 
+  const disposition = inline ? 'inline' : 'attachment'
   return new Response(Buffer.from(pdfBytes), {
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="DO-${deliveryOrder.do_number}.pdf"`,
+      'Content-Disposition': `${disposition}; filename="DO-${deliveryOrder.do_number}.pdf"`,
       'Content-Length': String(pdfBytes.length),
     },
   })

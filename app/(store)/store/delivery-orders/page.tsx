@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Truck, CheckCircle, Clock, Package, ChevronDown, ChevronUp } from 'lucide-react'
+import { Truck, CheckCircle, Clock, Package, ChevronDown, ChevronUp, FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, cn } from '@/lib/utils'
 import type { DeliveryOrder, DeliveryOrderItem, Product } from '@/types'
@@ -194,6 +194,16 @@ export default function StoreDeliveryOrdersPage() {
                           )}
                         </button>
                       )}
+
+                      <a
+                        href={`/api/delivery-orders/${order.id}/pdf?inline`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full mt-2 py-3 border border-gray-200 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <FileText size={16} />
+                        View DO Document (PDF)
+                      </a>
                     </div>
                   )}
                 </div>
@@ -210,20 +220,84 @@ export default function StoreDeliveryOrdersPage() {
             Previously Received
           </h2>
           <div className="space-y-2">
-            {history.map((order) => (
-              <div key={order.id} className="bg-white rounded-xl shadow-sm px-4 py-3 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-800 font-mono">{order.do_number}</p>
-                  <p className="text-xs text-gray-400">
-                    {order.total_pairs} pairs · {order.delivery_date ? formatMYDate(order.delivery_date) : formatMYDate(order.created_at)}
-                  </p>
+            {history.map((order) => {
+              const isExpanded = expanded === order.id
+              return (
+                <div key={order.id} className="bg-white rounded-xl shadow-sm overflow-hidden">
+                  <button
+                    className="w-full px-4 py-3 flex items-center justify-between text-left"
+                    onClick={() => setExpanded(isExpanded ? null : order.id)}
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-gray-800 font-mono">{order.do_number}</p>
+                      <p className="text-xs text-gray-400">
+                        {order.total_pairs} pairs · {order.delivery_date ? formatMYDate(order.delivery_date) : formatMYDate(order.created_at)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-1.5 text-green-600">
+                        <CheckCircle size={14} />
+                        <span className="text-xs font-medium">Received</span>
+                      </div>
+                      {isExpanded ? (
+                        <ChevronUp size={16} className="text-gray-400" />
+                      ) : (
+                        <ChevronDown size={16} className="text-gray-400" />
+                      )}
+                    </div>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="border-t border-gray-100 px-4 pb-4">
+                      {(order.courier || order.tracking_number) && (
+                        <p className="text-xs text-gray-400 pt-3">
+                          {order.courier && `Courier: ${order.courier}`}
+                          {order.courier && order.tracking_number && ' · '}
+                          {order.tracking_number && `Tracking: ${order.tracking_number}`}
+                        </p>
+                      )}
+
+                      <div className="py-3 space-y-2">
+                        {(order.items ?? []).map((item) => (
+                          <div key={item.id} className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-3 min-w-0">
+                              {item.product?.image_url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={item.product.image_url}
+                                  alt={item.product.name ?? item.product.sku ?? ''}
+                                  loading="lazy"
+                                  className="w-12 h-12 rounded-lg object-cover bg-gray-50 border border-gray-100 shrink-0"
+                                />
+                              ) : (
+                                <div className="w-12 h-12 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0">
+                                  <Package size={18} className="text-gray-300" />
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-sm text-gray-800 truncate">{item.product?.name}</p>
+                                <p className="text-xs font-mono text-gray-400">{item.product?.sku}</p>
+                              </div>
+                            </div>
+                            <span className="text-sm font-semibold text-[#0A0A0A] shrink-0">× {item.quantity}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <a
+                        href={`/api/delivery-orders/${order.id}/pdf?inline`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-3 border border-gray-200 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <FileText size={16} />
+                        View DO Document (PDF)
+                      </a>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-1.5 text-green-600">
-                  <CheckCircle size={14} />
-                  <span className="text-xs font-medium">Received</span>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </section>
       )}
