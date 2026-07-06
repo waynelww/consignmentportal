@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Plus, X, Pencil, Trash2, Loader2, Search, ArrowUpDown, Truck } from 'lucide-react'
+import { Plus, X, Pencil, Trash2, Loader2, Search, ArrowUpDown, Truck, Eye, FileText, Package } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, cn } from '@/lib/utils'
 import type { DeliveryOrder, DeliveryOrderStatus, DeliveryOrderType, Store, Product } from '@/types'
@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 interface DOWithStore extends DeliveryOrder { store_name: string }
 interface DispatchModal { open: boolean; doId: string; courier: string; tracking: string }
 interface CreateDOItem { product_id: string; quantity: number }
+interface DetailItem { id: string; quantity: number; unit_cost: number; product: { name: string; sku: string; image_url?: string | null } | null }
 
 type SortBy = 'date-desc' | 'date-asc' | 'pairs-desc' | 'pairs-asc' | 'store'
 
@@ -50,7 +51,26 @@ export default function DeliveryOrdersPage() {
   const [editSubmitting, setEditSubmitting] = useState(false)
   const [cancellingDoId, setCancellingDoId] = useState<string | null>(null)
 
+  // Details modal
+  const [detailDO, setDetailDO] = useState<DOWithStore | null>(null)
+  const [detailItems, setDetailItems] = useState<DetailItem[] | null>(null)
+
   const supabase = createClient()
+
+  async function openDetails(d: DOWithStore) {
+    setDetailDO(d)
+    setDetailItems(null)
+    const { data, error } = await supabase
+      .from('delivery_order_items')
+      .select('id, quantity, unit_cost, product:products(name, sku, image_url)')
+      .eq('delivery_order_id', d.id)
+    if (error) {
+      toast.error('Failed to load DO items')
+      setDetailItems([])
+      return
+    }
+    setDetailItems((data as unknown as DetailItem[]) ?? [])
+  }
 
   const fetchOrders = useCallback(async () => {
     setLoading(true)
@@ -412,7 +432,11 @@ export default function DeliveryOrdersPage() {
                           <input type="checkbox" checked={checked} onChange={() => toggleRow(d.id)}
                             className="rounded border-gray-300 text-[#0A0A0A] focus:ring-[#FFD700] cursor-pointer" />
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs text-gray-700">{d.do_number}</td>
+                        <td className="px-4 py-3 font-mono text-xs">
+                          <button onClick={() => openDetails(d)} className="text-blue-700 hover:underline font-semibold">
+                            {d.do_number}
+                          </button>
+                        </td>
                         <td className="px-4 py-3 font-medium text-gray-800">{d.store_name}</td>
                         <td className="px-4 py-3 capitalize text-gray-600">{d.do_type}</td>
                         <td className="px-4 py-3">
@@ -426,9 +450,14 @@ export default function DeliveryOrdersPage() {
                         <td className="px-4 py-3 text-gray-500 text-xs font-mono">{d.tracking_number || '—'}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-2">
-                            {d.pdf_url && (
-                              <a href={d.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">PDF</a>
-                            )}
+                            <button onClick={() => openDetails(d)}
+                              className="text-xs p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors" title="View details">
+                              <Eye size={13} />
+                            </button>
+                            <a href={`/api/delivery-orders/${d.id}/pdf?inline`} target="_blank" rel="noopener noreferrer"
+                              className="text-xs p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors" title="Open PDF">
+                              <FileText size={13} />
+                            </a>
                             {(d.status === 'confirmed' || d.status === 'draft') && (
                               <button onClick={() => setDispatchModal({ open: true, doId: d.id, courier: d.courier || '', tracking: d.tracking_number || '' })}
                                 className="text-xs px-2.5 py-1 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors">
@@ -466,6 +495,82 @@ export default function DeliveryOrdersPage() {
           </table>
         </div>
       </div>
+
+      {/* ── DO Details Modal ──────────────────────────────────────────────────── */}
+      {detailDO && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setDetailDO(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 font-mono">{detailDO.do_number}</h3>
+                <span className={cn('inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-medium', statusColor(detailDO.status))}>
+                  {statusLabel(detailDO.status)}
+                </span>
+              </div>
+              <button onClick={() => setDetailDO(null)}><X size={18} className="text-gray-400 hover:text-gray-600" /></button>
+            </div>
+
+            <div className="px-5 py-4 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mb-4">
+                <div><span className="text-xs text-gray-400 block">Store</span>{detailDO.store_name}</div>
+                <div><span className="text-xs text-gray-400 block">Type</span><span className="capitalize">{detailDO.do_type}</span></div>
+                <div><span className="text-xs text-gray-400 block">Created</span>{formatMYDate(detailDO.created_at)}</div>
+                <div><span className="text-xs text-gray-400 block">Dispatch Date</span>{detailDO.dispatch_date ? formatMYDate(detailDO.dispatch_date) : '—'}</div>
+                <div><span className="text-xs text-gray-400 block">Courier</span>{detailDO.courier || '—'}</div>
+                <div><span className="text-xs text-gray-400 block">Tracking</span><span className="font-mono text-xs">{detailDO.tracking_number || '—'}</span></div>
+              </div>
+              {detailDO.notes && (
+                <p className="text-xs text-gray-500 italic mb-4 bg-gray-50 rounded-lg px-3 py-2">{detailDO.notes}</p>
+              )}
+
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Items {detailItems ? `(${detailItems.length} SKUs · ${detailItems.reduce((s, i) => s + i.quantity, 0)} pairs)` : ''}
+              </h4>
+              {detailItems === null ? (
+                <div className="py-8 flex justify-center"><Loader2 size={20} className="animate-spin text-gray-300" /></div>
+              ) : detailItems.length === 0 ? (
+                <p className="text-sm text-gray-400 py-4 text-center">No items found</p>
+              ) : (
+                <div className="space-y-2">
+                  {detailItems.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between gap-2 py-1.5 border-b border-gray-50 last:border-0">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {item.product?.image_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={item.product.image_url} alt={item.product.sku}
+                            loading="lazy"
+                            className="w-10 h-10 rounded-lg object-cover bg-gray-50 border border-gray-100 shrink-0" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0">
+                            <Package size={16} className="text-gray-300" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-sm text-gray-800 truncate">{item.product?.name ?? 'Unknown product'}</p>
+                          <p className="text-xs font-mono text-gray-400">{item.product?.sku}</p>
+                        </div>
+                      </div>
+                      <span className="text-sm font-semibold shrink-0">× {item.quantity}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-4 border-t border-gray-100 flex gap-3 shrink-0">
+              <a href={`/api/delivery-orders/${detailDO.id}/pdf?inline`} target="_blank" rel="noopener noreferrer"
+                className="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors flex items-center justify-center gap-2">
+                <FileText size={15} />
+                Open PDF
+              </a>
+              <button onClick={() => setDetailDO(null)}
+                className="flex-1 py-2.5 bg-[#0A0A0A] text-white rounded-lg text-sm font-semibold hover:bg-gray-800 transition-colors">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Single Dispatch Modal ─────────────────────────────────────────────── */}
       {dispatchModal.open && (
