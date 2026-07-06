@@ -155,7 +155,8 @@ export async function generateStatementPdf(params: {
     ['PIC', params.picName],
   ]
   if (params.storeAddress) {
-    storeInfoLines.push(['Address', truncate(params.storeAddress, 60)])
+    const addr = params.storeAddress
+    storeInfoLines.push(['Address', addr.length > 60 ? addr.slice(0, 59) + '…' : addr])
   }
 
   const infoBoxH = storeInfoLines.length * 13 + 10
