@@ -221,21 +221,11 @@ export async function generateStatementPdf(params: {
 
   const ROW_H = 18
   const CELL_PAD = 4
-
-  function drawRowSeparators(topY: number, height: number) {
-    const sepColor = rgb(0.75, 0.75, 0.75)
-    for (const x of [SEP_AFTER_PROD, SEP_AFTER_SKU, SEP_AFTER_UNITS, SEP_AFTER_PRICE, SEP_AFTER_REV]) {
-      page.drawLine({
-        start: { x, y: topY },
-        end:   { x, y: topY - height },
-        thickness: 0.4,
-        color: sepColor,
-      })
-    }
-  }
+  const SEP_COLOR = rgb(0.75, 0.75, 0.75)
+  const prodMaxW = SEP_AFTER_PROD - C_PROD_L - CELL_PAD * 2
+  const skuMaxW  = SEP_AFTER_SKU  - C_SKU_L  - CELL_PAD * 2
 
   // Header row
-  const headerTop = y + 4
   page.drawRectangle({
     x: MARGIN,
     y: y - ROW_H + 4,
@@ -257,7 +247,6 @@ export async function generateStatementPdf(params: {
 
   for (let i = 0; i < params.items.length; i++) {
     const item = params.items[i]
-    const rowTop = y + 4
 
     if (i % 2 === 1) {
       page.drawRectangle({
@@ -269,16 +258,15 @@ export async function generateStatementPdf(params: {
       })
     }
 
-    // Draw column separators for this row
-    drawRowSeparators(rowTop, ROW_H)
+    // Column separator lines — drawn on the current page directly
+    const rowTop = y + 4
+    for (const sx of [SEP_AFTER_PROD, SEP_AFTER_SKU, SEP_AFTER_UNITS, SEP_AFTER_PRICE, SEP_AFTER_REV]) {
+      page.drawLine({ start: { x: sx, y: rowTop }, end: { x: sx, y: rowTop - ROW_H }, thickness: 0.4, color: SEP_COLOR })
+    }
 
     const rc = rgb(0.1, 0.1, 0.1)
     const skuColor = rgb(0.35, 0.35, 0.35)
     const rowY = y - 11
-
-    // Pixel-aware truncation so text never bleeds into the next column
-    const prodMaxW = SEP_AFTER_PROD - C_PROD_L - CELL_PAD * 2
-    const skuMaxW  = SEP_AFTER_SKU  - C_SKU_L  - CELL_PAD * 2
 
     page.drawText(fitText(item.productName, prodMaxW, 7.5, regularFont), { x: C_PROD_L + CELL_PAD, y: rowY, size: 7.5, font: regularFont, color: rc })
     page.drawText(fitText(item.sku,         skuMaxW,  7.5, regularFont), { x: C_SKU_L  + CELL_PAD, y: rowY, size: 7.5, font: regularFont, color: skuColor })
@@ -295,17 +283,6 @@ export async function generateStatementPdf(params: {
       y = PAGE_HEIGHT - MARGIN
     }
   }
-
-  // Outer border around the whole table (header + rows)
-  page.drawRectangle({
-    x: MARGIN,
-    y: y + 4,
-    width: CONTENT_WIDTH,
-    height: headerTop - (y + 4),
-    borderColor: rgb(0.7, 0.7, 0.7),
-    borderWidth: 0.6,
-    color: rgb(1, 1, 1, 0),  // transparent fill — border only
-  })
 
   // Totals row
   page.drawRectangle({
