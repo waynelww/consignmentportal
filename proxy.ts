@@ -51,16 +51,13 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  // Bot API endpoints use their own API key auth — skip Supabase session check.
-  if (path.startsWith('/api/bot')) {
-    return supabaseResponse
-  }
-
-  // Cron endpoints authenticate with the CRON_SECRET bearer token (checked
-  // inside each route). They run with no session cookie, so without this
-  // exclusion the gate below 307-redirects them to /login and the handlers
-  // never execute — which is exactly how the 1 June invoice run was lost.
-  if (path.startsWith('/api/cron')) {
+  // Every /api route carries its own auth: session routes call getUser()
+  // themselves, cron uses CRON_SECRET, bot uses BOT_API_KEY, and
+  // check-rate-limit is deliberately public. Skipping the gate here removes
+  // a duplicate Supabase Auth round-trip from every API call.
+  // (This also keeps cron/bot working — they run with no session cookie and
+  // would otherwise be 307-redirected to /login.)
+  if (path.startsWith('/api/')) {
     return supabaseResponse
   }
 
@@ -74,40 +71,49 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  if (user && isAuthPage) {
+  // Role lookup with cookie cache — saves a DB query on every page
+  // navigation. The cookie is bound to the user id so a different account
+  // logging in on the same browser never reads a stale role. Tampering only
+  // affects redirect routing; all data access is enforced by RLS + API auth.
+  const ROLE_COOKIE = 'xcms-role'
+
+  async function getRole(): Promise<string | null> {
+    if (!user) return null
+    const cached = request.cookies.get(ROLE_COOKIE)?.value
+    if (cached) {
+      const [uid, role] = cached.split(':')
+      if (uid === user.id && role) return role
+    }
     const { data: profile } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .single()
-
-    if (profile?.role === 'store_owner') {
-      return NextResponse.redirect(new URL('/store/dashboard', request.url))
-    } else {
-      return NextResponse.redirect(new URL('/admin/dashboard', request.url))
+    if (profile?.role) {
+      supabaseResponse.cookies.set(ROLE_COOKIE, `${user.id}:${profile.role}`, {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60 * 24, // 24h — re-validates daily in case a role changes
+      })
     }
+    return profile?.role ?? null
+  }
+
+  if (user && isAuthPage) {
+    const role = await getRole()
+    const dest = role === 'store_owner' ? '/store/dashboard' : '/admin/dashboard'
+    return NextResponse.redirect(new URL(dest, request.url))
   }
 
   if (user && isAdminPage) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (profile?.role === 'store_owner') {
+    if ((await getRole()) === 'store_owner') {
       return NextResponse.redirect(new URL('/store/dashboard', request.url))
     }
   }
 
   if (user && isStorePage) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (profile?.role !== 'store_owner') {
+    if ((await getRole()) !== 'store_owner') {
       return NextResponse.redirect(new URL('/admin/dashboard', request.url))
     }
   }
