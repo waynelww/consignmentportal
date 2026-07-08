@@ -51,17 +51,24 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  // Every /api route carries its own auth: session routes call getUser()
-  // themselves, cron uses CRON_SECRET, bot uses BOT_API_KEY, and
-  // check-rate-limit is deliberately public. Skipping the gate here removes
-  // a duplicate Supabase Auth round-trip from every API call.
-  // (This also keeps cron/bot working — they run with no session cookie and
-  // would otherwise be 307-redirected to /login.)
-  if (path.startsWith('/api/')) {
+  // Cron/bot endpoints authenticate with CRON_SECRET / BOT_API_KEY and carry
+  // no session cookie — skip the session machinery entirely for them.
+  if (path.startsWith('/api/cron') || path.startsWith('/api/bot')) {
     return supabaseResponse
   }
 
+  // getUser() must run for EVERY cookied request (pages AND api): it is what
+  // refreshes an expiring session and writes the rotated tokens back to the
+  // browser. Skipping it for /api routes caused random logouts — the route
+  // handler would consume the one-time refresh token server-side without
+  // being able to persist the new one, so the browser's next navigation
+  // presented a dead token and got bounced to /login.
   const { data: { user } } = await supabase.auth.getUser()
+
+  // API routes do their own authz — just pass through with fresh cookies.
+  if (path.startsWith('/api/')) {
+    return supabaseResponse
+  }
 
   const isAuthPage = path.startsWith('/login')
   const isAdminPage = path.startsWith('/admin')
