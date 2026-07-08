@@ -874,6 +874,34 @@ Welcome aboard! 🧦`
                     </div>
                   </div>
 
+                  {/* Selected tracker — live list of everything ticked so far */}
+                  {selectedItems.length > 0 && (
+                    <div className="mb-4 rounded-xl border-2 border-[#FFD700] bg-[#FFFDF0] p-3">
+                      <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wide mb-2">
+                        ✓ Selected — {selectedItems.length} SKU{selectedItems.length > 1 ? 's' : ''} · {totalSelectedPairs} pairs
+                      </h4>
+                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                        {selectedItems.map((sel) => (
+                          <span
+                            key={sel.product_id}
+                            className="inline-flex items-center gap-1 bg-white border border-gray-200 rounded-full pl-2 pr-1 py-1 text-xs shadow-sm"
+                          >
+                            <span className="font-mono font-semibold text-gray-700">{sel.product.sku}</span>
+                            <span className="font-bold text-amber-700">×{sel.quantity}</span>
+                            <button
+                              type="button"
+                              onClick={() => toggleSelection(sel.product_id)}
+                              title={`Remove ${sel.product.sku}`}
+                              className="w-4 h-4 rounded-full hover:bg-red-50 flex items-center justify-center text-gray-400 hover:text-red-500 transition-colors"
+                            >
+                              <X size={10} />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Recommended group */}
                   {recommendedItems.length > 0 && (
                     <div className="mb-4">
