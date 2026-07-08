@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { Truck, CheckCircle, Clock, Package, ChevronDown, ChevronUp, FileText } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { Truck, CheckCircle, Clock, Package, ChevronDown, ChevronUp, FileText, PenLine, Eraser } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, cn } from '@/lib/utils'
 import type { DeliveryOrder, DeliveryOrderItem, Product } from '@/types'
@@ -15,6 +15,129 @@ interface DOItem extends DeliveryOrderItem {
 interface DOWithItems extends Omit<DeliveryOrder, 'store'> {
   items?: DOItem[]
   store?: { store_name: string; store_code: string }
+}
+
+function SignatureModal({ doNumber, saving, onCancel, onSave }: {
+  doNumber: string
+  saving: boolean
+  onCancel: () => void
+  onSave: (dataUrl: string) => void
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const drawing = useRef(false)
+  const last = useRef<{ x: number; y: number } | null>(null)
+  const [hasInk, setHasInk] = useState(false)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const dpr = window.devicePixelRatio || 1
+    const rect = canvas.getBoundingClientRect()
+    canvas.width = rect.width * dpr
+    canvas.height = rect.height * dpr
+    const ctx = canvas.getContext('2d')!
+    ctx.scale(dpr, dpr)
+    ctx.lineWidth = 2.5
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.strokeStyle = '#1a1a2e'
+  }, [])
+
+  function pos(e: React.PointerEvent<HTMLCanvasElement>) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  }
+
+  function handleDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    drawing.current = true
+    last.current = pos(e)
+  }
+
+  function handleMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawing.current || !last.current) return
+    const ctx = e.currentTarget.getContext('2d')!
+    const p = pos(e)
+    ctx.beginPath()
+    ctx.moveTo(last.current.x, last.current.y)
+    ctx.lineTo(p.x, p.y)
+    ctx.stroke()
+    last.current = p
+    if (!hasInk) setHasInk(true)
+  }
+
+  function handleUp() {
+    drawing.current = false
+    last.current = null
+  }
+
+  function clear() {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    canvas.getContext('2d')!.clearRect(0, 0, rect.width, rect.height)
+    setHasInk(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5">
+        <h3 className="text-base font-semibold text-gray-900 mb-1">Sign for {doNumber}</h3>
+        <p className="text-xs text-gray-400 mb-3">Draw your signature below with your finger.</p>
+
+        <canvas
+          ref={canvasRef}
+          onPointerDown={handleDown}
+          onPointerMove={handleMove}
+          onPointerUp={handleUp}
+          onPointerCancel={handleUp}
+          className="w-full h-44 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50"
+          style={{ touchAction: 'none' }}
+        />
+
+        <div className="flex gap-2 mt-4">
+          <button
+            type="button"
+            onClick={clear}
+            disabled={saving}
+            className="px-4 py-3 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <Eraser size={14} />
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const canvas = canvasRef.current
+              if (canvas) onSave(canvas.toDataURL('image/png'))
+            }}
+            disabled={!hasInk || saving}
+            className="flex-1 py-3 bg-[#0A0A0A] text-[#FFD700] rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-2"
+          >
+            {saving ? (
+              <>
+                <span className="animate-spin h-4 w-4 border-2 border-[#FFD700] border-t-transparent rounded-full" />
+                Saving…
+              </>
+            ) : (
+              <>
+                <PenLine size={15} />
+                Save Signature
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
@@ -31,6 +154,32 @@ export default function StoreDeliveryOrdersPage() {
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [acknowledging, setAcknowledging] = useState<string | null>(null)
+  const [signingDO, setSigningDO] = useState<DOWithItems | null>(null)
+  const [sigSaving, setSigSaving] = useState(false)
+
+  async function saveSignature(dataUrl: string) {
+    if (!signingDO) return
+    setSigSaving(true)
+    try {
+      const res = await fetch(`/api/delivery-orders/${signingDO.id}/sign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signature: dataUrl }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(json.error ?? 'Failed to save signature', { duration: 6000 })
+        return
+      }
+      toast.success(`${signingDO.do_number} signed! The signed document is now available to you and Xocks.`, { duration: 5000 })
+      setSigningDO(null)
+      loadOrders()
+    } catch (e) {
+      toast.error(`Network error: ${e instanceof Error ? e.message : 'Unknown'}`, { duration: 6000 })
+    } finally {
+      setSigSaving(false)
+    }
+  }
 
   const loadOrders = useCallback(async () => {
     if (!storeId) return
@@ -284,15 +433,37 @@ export default function StoreDeliveryOrdersPage() {
                         ))}
                       </div>
 
-                      <a
-                        href={`/api/delivery-orders/${order.id}/pdf?inline`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-full py-3 border border-gray-200 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
-                      >
-                        <FileText size={16} />
-                        View DO Document (PDF)
-                      </a>
+                      {order.pdf_url ? (
+                        <a
+                          href={`/api/delivery-orders/${order.id}/pdf?inline`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full py-3 bg-green-50 border border-green-200 text-green-700 rounded-xl font-semibold text-sm hover:bg-green-100 transition-colors flex items-center justify-center gap-2"
+                        >
+                          <FileText size={16} />
+                          View Signed DO (PDF)
+                        </a>
+                      ) : (
+                        <div className="space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => setSigningDO(order)}
+                            className="w-full py-3 bg-[#0A0A0A] text-[#FFD700] rounded-xl font-semibold text-sm hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+                          >
+                            <PenLine size={16} />
+                            Sign &amp; Save
+                          </button>
+                          <a
+                            href={`/api/delivery-orders/${order.id}/pdf?inline`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full py-3 border border-gray-200 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+                          >
+                            <FileText size={16} />
+                            View DO Document (PDF)
+                          </a>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -308,6 +479,15 @@ export default function StoreDeliveryOrdersPage() {
           <p className="text-sm text-gray-400">No delivery orders yet</p>
           <p className="text-xs text-gray-300 mt-1">Your admin will send stock here</p>
         </div>
+      )}
+
+      {signingDO && (
+        <SignatureModal
+          doNumber={signingDO.do_number}
+          saving={sigSaving}
+          onCancel={() => setSigningDO(null)}
+          onSave={saveSignature}
+        />
       )}
     </div>
   )

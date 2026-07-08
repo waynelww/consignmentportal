@@ -1,6 +1,8 @@
 import { type NextRequest } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { generateDOPdf } from '@/lib/pdf/generate-do'
+
+const SIGNED_BUCKET = 'do-documents'
 
 export async function GET(
   _request: NextRequest,
@@ -60,6 +62,28 @@ export async function GET(
     }
   } else if (profile.role !== 'super_admin' && profile.role !== 'ops_manager') {
     return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // ── Signed version stored? Serve it — both sides see the same signed doc ─────
+  if (deliveryOrder.pdf_url) {
+    const svc = await createServiceClient()
+    const { data: fileData, error: dlErr } = await svc.storage
+      .from(SIGNED_BUCKET)
+      .download(deliveryOrder.pdf_url)
+
+    if (!dlErr && fileData) {
+      const arrayBuf = await fileData.arrayBuffer()
+      const signedDisposition = _request.nextUrl.searchParams.has('inline') ? 'inline' : 'attachment'
+      return new Response(Buffer.from(arrayBuf), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `${signedDisposition}; filename="DO-${deliveryOrder.do_number}-signed.pdf"`,
+          'Content-Length': String(arrayBuf.byteLength),
+        },
+      })
+    }
+    // Storage fetch failed — fall through to live generation (unsigned)
   }
 
   // ── Fetch company settings ────────────────────────────────────────────────────

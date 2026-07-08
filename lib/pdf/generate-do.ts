@@ -41,6 +41,8 @@ export async function generateDOPdf(params: {
   companyEmail: string
   // false = store-owner copy: quantities only, no internal cost prices
   showCosts?: boolean
+  // When present, the "Received by" line is replaced with the drawn signature
+  signature?: { pngBase64: string; signedBy: string; signedAt: string }
 }): Promise<Uint8Array> {
   const showCosts = params.showCosts ?? true
   const pdfDoc = await PDFDocument.create()
@@ -317,14 +319,44 @@ export async function generateDOPdf(params: {
 
   y -= 6
 
-  // Signature line
-  page.drawText('Received by: _________________________    Date: ___________________', {
-    x: MARGIN,
-    y,
-    size: 9,
-    font: regularFont,
-    color: rgb(0.2, 0.2, 0.2),
-  })
+  // Signature line — embedded signature image when signed, blank line otherwise
+  if (params.signature) {
+    const SIG_W = 160
+    const SIG_H = 55
+    try {
+      const sigImage = await pdfDoc.embedPng(Buffer.from(params.signature.pngBase64, 'base64'))
+      page.drawText('Received by:', { x: MARGIN, y, size: 9, font: boldFont, color: rgb(0.2, 0.2, 0.2) })
+      y -= SIG_H + 4
+      page.drawImage(sigImage, { x: MARGIN, y, width: SIG_W, height: SIG_H })
+      page.drawLine({
+        start: { x: MARGIN, y: y - 3 },
+        end: { x: MARGIN + SIG_W + 40, y: y - 3 },
+        thickness: 0.5,
+        color: rgb(0.4, 0.4, 0.4),
+      })
+      y -= 15
+      page.drawText(`${params.signature.signedBy}    ·    Signed on ${params.signature.signedAt}`, {
+        x: MARGIN,
+        y,
+        size: 8.5,
+        font: regularFont,
+        color: rgb(0.2, 0.2, 0.2),
+      })
+    } catch {
+      // Bad PNG — fall back to the blank line rather than failing the whole PDF
+      page.drawText('Received by: _________________________    Date: ___________________', {
+        x: MARGIN, y, size: 9, font: regularFont, color: rgb(0.2, 0.2, 0.2),
+      })
+    }
+  } else {
+    page.drawText('Received by: _________________________    Date: ___________________', {
+      x: MARGIN,
+      y,
+      size: 9,
+      font: regularFont,
+      color: rgb(0.2, 0.2, 0.2),
+    })
+  }
 
   y -= 20
 

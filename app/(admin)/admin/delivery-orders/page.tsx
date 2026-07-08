@@ -443,6 +443,11 @@ export default function DeliveryOrdersPage() {
                           <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-medium', statusColor(d.status))}>
                             {statusLabel(d.status)}
                           </span>
+                          {d.pdf_url && (
+                            <span className="ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-600 text-white">
+                              ✓ Signed
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-gray-500 text-xs">{d.dispatch_date ? formatMYDate(d.dispatch_date) : '—'}</td>
                         <td className="px-4 py-3 text-right font-medium">{d.total_pairs}</td>
