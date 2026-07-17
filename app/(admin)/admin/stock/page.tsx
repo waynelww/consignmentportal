@@ -199,6 +199,7 @@ export default function StockPage() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">SKU</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Stores</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Deployed</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Stores Low In Stock</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Stock In Office</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-56">Edit Stock</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500" />
@@ -208,7 +209,7 @@ export default function StockPage() {
               {loading
                 ? Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i} className="border-b border-gray-50">
-                      {Array.from({ length: 7 }).map((_, j) => (
+                      {Array.from({ length: 8 }).map((_, j) => (
                         <td key={j} className="px-4 py-3">
                           <div className="h-4 bg-gray-100 animate-pulse rounded" />
                         </td>
@@ -236,6 +237,15 @@ export default function StockPage() {
                         </td>
                         <td className="px-4 py-3 text-right font-semibold cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
                           {row.total_deployed}
+                        </td>
+                        <td className="px-4 py-3 text-right cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
+                          {row.low_stock_stores > 0 ? (
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
+                              {row.low_stock_stores}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">0</span>
+                          )}
                         </td>
                         {/* Stock In Office — plain display of the total we currently have; never changes until Confirm */}
                         <td className="px-4 py-3 text-right font-semibold text-gray-900 tabular-nums">
@@ -309,7 +319,7 @@ export default function StockPage() {
                       </tr>
                       {row.expanded && (
                         <tr key={`${row.product.id}-expand`} className="bg-gray-50 border-b border-gray-100">
-                          <td colSpan={7} className="px-6 py-3">
+                          <td colSpan={8} className="px-6 py-3">
                             <div className="max-h-64 overflow-y-auto overflow-x-auto rounded-lg border border-gray-100 bg-white">
                               <table className="w-full text-xs">
                                 <thead className="sticky top-0 bg-gray-50">
