@@ -168,7 +168,7 @@ export default function StockPage() {
       <div className="grid grid-cols-3 gap-4">
         {[
           { label: 'Total Pairs Deployed', value: loading ? '—' : totalDeployed.toLocaleString(), color: 'bg-blue-500' },
-          { label: 'Stores with Low Stock', value: loading ? '—' : lowStockStores.toString(), color: 'bg-amber-500' },
+          { label: 'Stores Low Stock', value: loading ? '—' : lowStockStores.toString(), color: 'bg-amber-500' },
           { label: 'Total Active SKUs', value: loading ? '—' : totalSKUs.toString(), color: 'bg-green-500' },
         ].map((card) => (
           <div key={card.label} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
