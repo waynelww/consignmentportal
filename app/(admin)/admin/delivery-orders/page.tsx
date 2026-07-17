@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Plus, X, Pencil, Trash2, Loader2, Search, ArrowUpDown, Truck, Eye, FileText, Package, AlertTriangle } from 'lucide-react'
+import { Plus, X, Pencil, Trash2, Loader2, Search, ArrowUpDown, Truck, Eye, FileText, Package, AlertTriangle, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, cn } from '@/lib/utils'
 import type { DeliveryOrder, DeliveryOrderStatus, DeliveryOrderType, Store, Product } from '@/types'
@@ -123,7 +123,7 @@ export default function DeliveryOrdersPage() {
             name: r.product?.name ?? 'Unknown product',
             quantity_on_hand: r.quantity_on_hand,
             threshold: r.restock_threshold,
-            suggested_qty: suggestQty(r.quantity_on_hand, r.restock_threshold),
+            suggested_qty: suggestQty(r.restock_threshold),
           }))
           .sort((a, b) => a.quantity_on_hand - b.quantity_on_hand)
         setUnderstocked(items)
@@ -299,10 +299,10 @@ export default function DeliveryOrdersPage() {
   }
   function createRemove(productId: string) { setCreateItems((prev) => prev.filter((i) => i.product_id !== productId)) }
 
-  // Suggest a restock qty that brings the store back above its threshold,
-  // not just up to it — otherwise it re-triggers a low-stock alert immediately.
-  function suggestQty(quantityOnHand: number, threshold: number) {
-    return Math.max(threshold * 2 - quantityOnHand, 1)
+  // Suggested restock qty is simply the store's own threshold — predictable
+  // and easy to reason about (restock threshold 5 → suggest sending 5).
+  function suggestQty(threshold: number) {
+    return Math.max(threshold, 1)
   }
 
   function addSuggested(item: UnderstockedItem) {
@@ -498,14 +498,17 @@ export default function DeliveryOrdersPage() {
                         <td className="px-4 py-3 font-medium text-gray-800">{d.store_name}</td>
                         <td className="px-4 py-3 capitalize text-gray-600">{d.do_type}</td>
                         <td className="px-4 py-3">
-                          <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-medium', statusColor(d.status))}>
-                            {statusLabel(d.status)}
-                          </span>
-                          {d.pdf_url && (
-                            <span className="ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-600 text-white">
-                              ✓ Signed
+                          <div className="flex flex-col items-start gap-1">
+                            <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap', statusColor(d.status))}>
+                              {statusLabel(d.status)}
                             </span>
-                          )}
+                            {d.pdf_url && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-600 text-white whitespace-nowrap">
+                                <Check size={10} strokeWidth={3} />
+                                Signed
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-gray-500 text-xs">{d.dispatch_date ? formatMYDate(d.dispatch_date) : '—'}</td>
                         <td className="px-4 py-3 text-right font-medium">{d.total_pairs}</td>

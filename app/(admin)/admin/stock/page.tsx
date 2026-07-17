@@ -194,7 +194,8 @@ export default function StockPage() {
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Stores</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Deployed</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Low Stock</th>
-                <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 w-56">Stock In Office</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Office Stock</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-48">Edit</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500" />
               </tr>
             </thead>
@@ -202,7 +203,7 @@ export default function StockPage() {
               {loading
                 ? Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i} className="border-b border-gray-50">
-                      {Array.from({ length: 7 }).map((_, j) => (
+                      {Array.from({ length: 8 }).map((_, j) => (
                         <td key={j} className="px-4 py-3">
                           <div className="h-4 bg-gray-100 animate-pulse rounded" />
                         </td>
@@ -242,42 +243,53 @@ export default function StockPage() {
                             <span className="text-gray-400">0</span>
                           )}
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => adjustOffice(row.product.id, row.office_delta - 1)}
-                              disabled={row.office_saving}
-                              className="w-6 h-6 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200 disabled:opacity-40"
-                            >
-                              −
-                            </button>
-                            <span className="text-sm font-semibold text-gray-900 w-8 text-center tabular-nums">
-                              {row.office_quantity}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => adjustOffice(row.product.id, row.office_delta + 1)}
-                              disabled={row.office_saving}
-                              className="w-6 h-6 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200 disabled:opacity-40"
-                            >
-                              +
-                            </button>
+                        {/* Office Stock — plain display of the committed quantity, never changes until Confirm */}
+                        <td className="px-4 py-3 text-right font-semibold text-gray-900 tabular-nums">
+                          {row.office_quantity}
+                        </td>
+
+                        {/* Edit — separate column, this is the only place adjustments happen */}
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-col gap-1.5">
+                            <div className="inline-flex items-center border border-gray-200 rounded-lg overflow-hidden w-fit">
+                              <button
+                                type="button"
+                                onClick={() => adjustOffice(row.product.id, row.office_delta - 1)}
+                                disabled={row.office_saving}
+                                className="w-7 h-7 flex items-center justify-center text-gray-600 text-sm font-bold hover:bg-gray-100 disabled:opacity-40"
+                              >
+                                −
+                              </button>
+                              <input
+                                type="number"
+                                value={row.office_delta}
+                                onChange={(e) => setOfficeDelta(row.product.id, parseInt(e.target.value, 10) || 0)}
+                                disabled={row.office_saving}
+                                className="w-14 h-7 text-center text-xs border-x border-gray-200 outline-none tabular-nums"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => adjustOffice(row.product.id, row.office_delta + 1)}
+                                disabled={row.office_saving}
+                                className="w-7 h-7 flex items-center justify-center text-gray-600 text-sm font-bold hover:bg-gray-100 disabled:opacity-40"
+                              >
+                                +
+                              </button>
+                            </div>
                             {row.office_delta !== 0 && (
-                              <>
+                              <div className="flex items-center gap-1.5">
                                 <span className={cn(
-                                  'text-xs font-bold tabular-nums ml-1',
+                                  'text-[11px] font-semibold tabular-nums',
                                   row.office_delta > 0 ? 'text-green-600' : 'text-red-600'
                                 )}>
-                                  {row.office_delta > 0 ? `+${row.office_delta}` : row.office_delta}
-                                  {' → '}{Math.max(0, row.office_quantity + row.office_delta)}
+                                  → {Math.max(0, row.office_quantity + row.office_delta)}
                                 </span>
                                 <button
                                   type="button"
                                   onClick={() => confirmOffice(row.product.id)}
                                   disabled={row.office_saving}
                                   title="Confirm"
-                                  className="w-6 h-6 rounded-lg bg-green-600 text-white flex items-center justify-center hover:bg-green-700 disabled:opacity-40"
+                                  className="w-6 h-6 rounded-md bg-green-600 text-white flex items-center justify-center hover:bg-green-700 disabled:opacity-40 shrink-0"
                                 >
                                   {row.office_saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
                                 </button>
@@ -286,21 +298,22 @@ export default function StockPage() {
                                   onClick={() => resetOfficeDelta(row.product.id)}
                                   disabled={row.office_saving}
                                   title="Reset"
-                                  className="w-6 h-6 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center hover:bg-gray-200 disabled:opacity-40"
+                                  className="w-6 h-6 rounded-md bg-gray-100 text-gray-500 flex items-center justify-center hover:bg-gray-200 disabled:opacity-40 shrink-0"
                                 >
                                   <RotateCcw size={12} />
                                 </button>
-                              </>
+                              </div>
                             )}
                           </div>
                         </td>
+
                         <td className="px-4 py-3 text-right text-gray-400 cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
                           {row.expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                         </td>
                       </tr>
                       {row.expanded && (
                         <tr key={`${row.product.id}-expand`} className="bg-gray-50 border-b border-gray-100">
-                          <td colSpan={7} className="px-6 py-3">
+                          <td colSpan={8} className="px-6 py-3">
                             <div className="max-h-64 overflow-y-auto overflow-x-auto rounded-lg border border-gray-100 bg-white">
                               <table className="w-full text-xs">
                                 <thead className="sticky top-0 bg-gray-50">
