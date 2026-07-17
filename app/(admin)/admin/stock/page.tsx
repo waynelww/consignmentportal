@@ -253,7 +253,7 @@ export default function StockPage() {
                                 value={row.office_delta}
                                 onChange={(e) => setOfficeDelta(row.product.id, parseInt(e.target.value, 10) || 0)}
                                 disabled={row.office_saving}
-                                className="w-14 h-7 text-center text-xs border-x border-gray-200 outline-none tabular-nums"
+                                className="w-14 h-7 text-center text-xs border-x border-gray-200 outline-none tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                               />
                               <button
                                 type="button"
