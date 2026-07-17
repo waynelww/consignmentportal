@@ -189,13 +189,12 @@ export default function StockPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Product</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-48">Product</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">SKU</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Stores</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Deployed</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Low Stock</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Office Stock</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-48">Edit</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Stock In Office</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-56">Edit Stock</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500" />
               </tr>
             </thead>
@@ -203,7 +202,7 @@ export default function StockPage() {
               {loading
                 ? Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i} className="border-b border-gray-50">
-                      {Array.from({ length: 8 }).map((_, j) => (
+                      {Array.from({ length: 7 }).map((_, j) => (
                         <td key={j} className="px-4 py-3">
                           <div className="h-4 bg-gray-100 animate-pulse rounded" />
                         </td>
@@ -219,11 +218,9 @@ export default function StockPage() {
                           row.expanded && 'bg-gray-50'
                         )}
                       >
-                        <td className="px-4 py-3 font-medium text-gray-900 cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
-                          {row.product.name}
-                          <span className="ml-2 text-xs text-gray-400">
-                            {PRODUCT_CATEGORY_LABELS[row.product.category]}
-                          </span>
+                        <td className="px-4 py-3 cursor-pointer max-w-[192px]" onClick={() => toggleExpand(row.product.id)}>
+                          <p className="font-medium text-gray-900 truncate" title={row.product.name}>{row.product.name}</p>
+                          <p className="text-[10px] text-gray-400">{PRODUCT_CATEGORY_LABELS[row.product.category]}</p>
                         </td>
                         <td className="px-4 py-3 font-mono text-xs text-gray-500 cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
                           {row.product.sku}
@@ -234,21 +231,12 @@ export default function StockPage() {
                         <td className="px-4 py-3 text-right font-semibold cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
                           {row.total_deployed}
                         </td>
-                        <td className="px-4 py-3 text-right cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
-                          {row.low_stock_stores > 0 ? (
-                            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
-                              {row.low_stock_stores}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">0</span>
-                          )}
-                        </td>
-                        {/* Office Stock — plain display of the committed quantity, never changes until Confirm */}
+                        {/* Stock In Office — plain display of the total we currently have; never changes until Confirm */}
                         <td className="px-4 py-3 text-right font-semibold text-gray-900 tabular-nums">
                           {row.office_quantity}
                         </td>
 
-                        {/* Edit — separate column, this is the only place adjustments happen */}
+                        {/* Edit Stock — separate column, this is the only place adjustments happen */}
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <div className="flex flex-col gap-1.5">
                             <div className="inline-flex items-center border border-gray-200 rounded-lg overflow-hidden w-fit">
@@ -313,7 +301,7 @@ export default function StockPage() {
                       </tr>
                       {row.expanded && (
                         <tr key={`${row.product.id}-expand`} className="bg-gray-50 border-b border-gray-100">
-                          <td colSpan={8} className="px-6 py-3">
+                          <td colSpan={7} className="px-6 py-3">
                             <div className="max-h-64 overflow-y-auto overflow-x-auto rounded-lg border border-gray-100 bg-white">
                               <table className="w-full text-xs">
                                 <thead className="sticky top-0 bg-gray-50">
