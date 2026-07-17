@@ -195,14 +195,14 @@ export default function StockPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-48">Product</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">SKU</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Stores</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Deployed</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Stores Low In Stock</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Stock In Office</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-56">Edit Stock</th>
-                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500" />
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-72">Product</th>
+                <th className="text-center px-2 py-3 text-xs font-semibold text-gray-500 w-16">SKU</th>
+                <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-20">Stores</th>
+                <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-24">Deployed</th>
+                <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-36">Stores Low In Stock</th>
+                <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-32">Stock In Office</th>
+                <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 w-60">Edit Stock</th>
+                <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-10" />
               </tr>
             </thead>
             <tbody>
@@ -225,20 +225,20 @@ export default function StockPage() {
                           row.expanded && 'bg-gray-50'
                         )}
                       >
-                        <td className="px-4 py-3 cursor-pointer max-w-[192px]" onClick={() => toggleExpand(row.product.id)}>
+                        <td className="px-4 py-3 cursor-pointer w-72" onClick={() => toggleExpand(row.product.id)}>
                           <p className="font-medium text-gray-900 truncate" title={row.product.name}>{row.product.name}</p>
                           <p className="text-[10px] text-gray-400">{PRODUCT_CATEGORY_LABELS[row.product.category]}</p>
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs text-gray-500 cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
+                        <td className="px-2 py-3 text-center font-mono text-xs text-gray-500 cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
                           {row.product.sku}
                         </td>
-                        <td className="px-4 py-3 text-right cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
+                        <td className="px-3 py-3 text-center cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
                           {row.stores_stocking}
                         </td>
-                        <td className="px-4 py-3 text-right font-semibold cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
+                        <td className="px-3 py-3 text-center font-semibold cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
                           {row.total_deployed}
                         </td>
-                        <td className="px-4 py-3 text-right cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
+                        <td className="px-3 py-3 text-center cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
                           {row.low_stock_stores > 0 ? (
                             <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
                               {row.low_stock_stores}
@@ -248,13 +248,13 @@ export default function StockPage() {
                           )}
                         </td>
                         {/* Stock In Office — plain display of the total we currently have; never changes until Confirm */}
-                        <td className="px-4 py-3 text-right font-semibold text-gray-900 tabular-nums">
+                        <td className="px-3 py-3 text-center font-semibold text-gray-900 tabular-nums">
                           {row.office_quantity}
                         </td>
 
                         {/* Edit Stock — separate column, this is the only place adjustments happen */}
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex flex-col gap-1.5">
+                          <div className="flex flex-col items-center gap-1.5">
                             <div className="inline-flex items-center border border-gray-200 rounded-lg overflow-hidden w-fit">
                               <button
                                 type="button"
@@ -313,8 +313,10 @@ export default function StockPage() {
                           </div>
                         </td>
 
-                        <td className="px-4 py-3 text-right text-gray-400 cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
-                          {row.expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        <td className="px-3 py-3 text-center text-gray-400 cursor-pointer" onClick={() => toggleExpand(row.product.id)}>
+                          <div className="flex justify-center">
+                            {row.expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                          </div>
                         </td>
                       </tr>
                       {row.expanded && (
