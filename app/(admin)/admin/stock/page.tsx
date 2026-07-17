@@ -118,15 +118,21 @@ export default function StockPage() {
     )
   }
 
+  // Guards against the classic <input type="number"> footgun: scrolling the
+  // page while the field has focus makes Chrome silently step the value on
+  // every wheel tick, which can dump thousands into the delta in an instant.
+  const MAX_DELTA = 9999
+  const clampDelta = (n: number) => Math.max(-MAX_DELTA, Math.min(MAX_DELTA, n))
+
   function adjustOffice(productId: string, delta: number) {
     setRows((prev) =>
-      prev.map((r) => r.product.id === productId ? { ...r, office_delta: r.office_delta + delta } : r)
+      prev.map((r) => r.product.id === productId ? { ...r, office_delta: clampDelta(r.office_delta + delta) } : r)
     )
   }
 
   function setOfficeDelta(productId: string, delta: number) {
     setRows((prev) =>
-      prev.map((r) => r.product.id === productId ? { ...r, office_delta: delta } : r)
+      prev.map((r) => r.product.id === productId ? { ...r, office_delta: clampDelta(delta) } : r)
     )
   }
 
@@ -252,6 +258,8 @@ export default function StockPage() {
                                 type="number"
                                 value={row.office_delta}
                                 onChange={(e) => setOfficeDelta(row.product.id, parseInt(e.target.value, 10) || 0)}
+                                onWheel={(e) => e.currentTarget.blur()}
+                                autoComplete="off"
                                 disabled={row.office_saving}
                                 className="w-14 h-7 text-center text-xs border-x border-gray-200 outline-none tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                               />
