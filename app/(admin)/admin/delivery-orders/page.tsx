@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Plus, X, Pencil, Trash2, Loader2, Search, ArrowUpDown, Truck, Eye, FileText, Package } from 'lucide-react'
+import { Plus, X, Pencil, Trash2, Loader2, Search, ArrowUpDown, Truck, Eye, FileText, Package, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, cn } from '@/lib/utils'
 import type { DeliveryOrder, DeliveryOrderStatus, DeliveryOrderType, Store, Product } from '@/types'
@@ -11,6 +11,7 @@ interface DOWithStore extends DeliveryOrder { store_name: string }
 interface DispatchModal { open: boolean; doId: string; courier: string; tracking: string }
 interface CreateDOItem { product_id: string; quantity: number }
 interface DetailItem { id: string; quantity: number; unit_cost: number; product: { name: string; sku: string; image_url?: string | null } | null }
+interface UnderstockedItem { product_id: string; sku: string; name: string; quantity_on_hand: number; threshold: number; suggested_qty: number }
 
 type SortBy = 'date-desc' | 'date-asc' | 'pairs-desc' | 'pairs-asc' | 'store'
 
@@ -44,6 +45,8 @@ export default function DeliveryOrdersPage() {
   const [createItems, setCreateItems] = useState<CreateDOItem[]>([])
   const [createSearch, setCreateSearch] = useState('')
   const [submitting, setSubmitting]   = useState(false)
+  const [understocked, setUnderstocked] = useState<UnderstockedItem[]>([])
+  const [loadingUnderstocked, setLoadingUnderstocked] = useState(false)
   const [editingDo, setEditingDo]     = useState<DOWithStore | null>(null)
   const [editItems, setEditItems]     = useState<CreateDOItem[]>([])
   const [editNotes, setEditNotes]     = useState('')
@@ -99,6 +102,34 @@ export default function DeliveryOrdersPage() {
 
   // Clear selection when filters/sort change
   useEffect(() => { setSelectedIds(new Set()) }, [dateFrom, dateTo, storeFilter, statusFilter, typeFilter, sortBy])
+
+  // Load the selected store's below-threshold SKUs so the admin can
+  // one-click add them to the DO being created.
+  useEffect(() => {
+    if (!createModal || !createStore) { setUnderstocked([]); return }
+    setLoadingUnderstocked(true)
+    supabase
+      .from('store_inventory')
+      .select('product_id, quantity_on_hand, restock_threshold, product:products(sku, name)')
+      .eq('store_id', createStore)
+      .then(({ data, error }) => {
+        if (error || !data) { setUnderstocked([]); return }
+        type Row = { product_id: string; quantity_on_hand: number; restock_threshold: number; product: { sku: string; name: string } | null }
+        const items = (data as unknown as Row[])
+          .filter((r) => r.quantity_on_hand <= r.restock_threshold)
+          .map((r) => ({
+            product_id: r.product_id,
+            sku: r.product?.sku ?? '—',
+            name: r.product?.name ?? 'Unknown product',
+            quantity_on_hand: r.quantity_on_hand,
+            threshold: r.restock_threshold,
+            suggested_qty: suggestQty(r.quantity_on_hand, r.restock_threshold),
+          }))
+          .sort((a, b) => a.quantity_on_hand - b.quantity_on_hand)
+        setUnderstocked(items)
+      })
+      .finally(() => setLoadingUnderstocked(false))
+  }, [createModal, createStore])
 
   const sorted = useMemo(() => {
     return [...orders].sort((a, b) => {
@@ -267,6 +298,33 @@ export default function DeliveryOrdersPage() {
     setCreateItems((prev) => prev.map((i) => i.product_id === productId ? { ...i, quantity: qty } : i))
   }
   function createRemove(productId: string) { setCreateItems((prev) => prev.filter((i) => i.product_id !== productId)) }
+
+  // Suggest a restock qty that brings the store back above its threshold,
+  // not just up to it — otherwise it re-triggers a low-stock alert immediately.
+  function suggestQty(quantityOnHand: number, threshold: number) {
+    return Math.max(threshold * 2 - quantityOnHand, 1)
+  }
+
+  function addSuggested(item: UnderstockedItem) {
+    setCreateItems((prev) => {
+      const ex = prev.find((i) => i.product_id === item.product_id)
+      return ex
+        ? prev.map((i) => i.product_id === item.product_id ? { ...i, quantity: item.suggested_qty } : i)
+        : [...prev, { product_id: item.product_id, quantity: item.suggested_qty }]
+    })
+  }
+
+  function addAllSuggested() {
+    setCreateItems((prev) => {
+      const next = [...prev]
+      for (const item of understocked) {
+        const idx = next.findIndex((i) => i.product_id === item.product_id)
+        if (idx >= 0) next[idx] = { ...next[idx], quantity: item.suggested_qty }
+        else next.push({ product_id: item.product_id, quantity: item.suggested_qty })
+      }
+      return next
+    })
+  }
   async function createDO() {
     if (!createStore) { toast.error('Select a store'); return }
     const validItems = createItems.filter((i) => i.product_id && i.quantity > 0)
@@ -680,6 +738,56 @@ export default function DeliveryOrdersPage() {
                   </select>
                 </div>
               </div>
+
+              {createStore && (loadingUnderstocked || understocked.length > 0) && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <AlertTriangle size={13} className="text-amber-600" />
+                      <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wide">
+                        Below Threshold at This Store
+                      </h4>
+                    </div>
+                    {understocked.length > 0 && (
+                      <button type="button" onClick={addAllSuggested}
+                        className="text-xs font-semibold text-amber-800 bg-amber-200 hover:bg-amber-300 px-2.5 py-1 rounded-lg transition-colors">
+                        + Add all ({understocked.length})
+                      </button>
+                    )}
+                  </div>
+                  {loadingUnderstocked ? (
+                    <p className="text-xs text-amber-700 py-1">Checking stock levels…</p>
+                  ) : (
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {understocked.map((item) => {
+                        const alreadyAdded = createItems.some((i) => i.product_id === item.product_id)
+                        return (
+                          <div key={item.product_id} className="flex items-center justify-between gap-2 bg-white rounded-lg px-2.5 py-1.5">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="font-mono text-xs text-gray-500 shrink-0">{item.sku}</span>
+                              <span className="text-sm text-gray-800 truncate">{item.name}</span>
+                              <span className="text-xs text-amber-700 font-semibold shrink-0">
+                                {item.quantity_on_hand}/{item.threshold}
+                              </span>
+                            </div>
+                            <button type="button" onClick={() => addSuggested(item)}
+                              disabled={alreadyAdded}
+                              className={cn(
+                                'text-xs font-semibold px-2.5 py-1 rounded-lg shrink-0 transition-colors',
+                                alreadyAdded
+                                  ? 'bg-green-100 text-green-700 cursor-default'
+                                  : 'bg-[#0A0A0A] text-[#FFD700] hover:opacity-90'
+                              )}>
+                              {alreadyAdded ? '✓ Added' : `+ Add ${item.suggested_qty}`}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="text-xs font-medium text-gray-600 block mb-1">Products *</label>
                 <div className="relative">
