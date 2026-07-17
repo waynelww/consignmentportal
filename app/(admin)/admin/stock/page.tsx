@@ -258,7 +258,7 @@ export default function StockPage() {
                             <div className="inline-flex items-center border border-gray-200 rounded-lg overflow-hidden w-fit">
                               <button
                                 type="button"
-                                onClick={() => adjustOffice(row.product.id, row.office_delta - 1)}
+                                onClick={() => adjustOffice(row.product.id, -1)}
                                 disabled={row.office_saving}
                                 className="w-7 h-7 flex items-center justify-center text-gray-600 text-sm font-bold hover:bg-gray-100 disabled:opacity-40"
                               >
@@ -275,7 +275,7 @@ export default function StockPage() {
                               />
                               <button
                                 type="button"
-                                onClick={() => adjustOffice(row.product.id, row.office_delta + 1)}
+                                onClick={() => adjustOffice(row.product.id, 1)}
                                 disabled={row.office_saving}
                                 className="w-7 h-7 flex items-center justify-center text-gray-600 text-sm font-bold hover:bg-gray-100 disabled:opacity-40"
                               >
