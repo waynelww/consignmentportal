@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { ChevronDown, ChevronUp, Check, RotateCcw, Loader2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Check, RotateCcw, Loader2, History, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn, PRODUCT_CATEGORY_LABELS } from '@/lib/utils'
 import type { Product } from '@/types'
@@ -26,12 +26,28 @@ interface ProductStockRow {
   office_saving: boolean
 }
 
+interface WarehouseMovement {
+  id: string
+  delta: number
+  quantity_before: number
+  quantity_after: number
+  reason: string
+  reference_type: string | null
+  created_at: string
+  created_by_profile: { full_name: string } | null
+}
+
 export default function StockPage() {
   const [rows, setRows] = useState<ProductStockRow[]>([])
   const [loading, setLoading] = useState(true)
   const [totalDeployed, setTotalDeployed] = useState(0)
   const [lowStockStores, setLowStockStores] = useState(0)
   const [totalSKUs, setTotalSKUs] = useState(0)
+  const [reasonModal, setReasonModal] = useState<{ productId: string; delta: number; newQty: number } | null>(null)
+  const [reasonText, setReasonText] = useState('')
+  const [reasonSaving, setReasonSaving] = useState(false)
+  const [historyModal, setHistoryModal] = useState<{ productId: string; productName: string } | null>(null)
+  const [historyItems, setHistoryItems] = useState<WarehouseMovement[] | null>(null)
   const supabase = createClient()
 
   const fetchData = useCallback(async () => {
@@ -142,30 +158,61 @@ export default function StockPage() {
     )
   }
 
-  async function confirmOffice(productId: string) {
+  // Confirm no longer writes directly — it opens a reason prompt first.
+  // Every office stock change must be attributable (see ReasonModal below).
+  function openConfirm(productId: string) {
     const row = rows.find((r) => r.product.id === productId)
     if (!row || row.office_delta === 0) return
+    setReasonModal({
+      productId,
+      delta: row.office_delta,
+      newQty: Math.max(0, row.office_quantity + row.office_delta),
+    })
+    setReasonText('')
+  }
 
-    const newQty = Math.max(0, row.office_quantity + row.office_delta)
-    setRows((prev) => prev.map((r) => r.product.id === productId ? { ...r, office_saving: true } : r))
+  async function submitReason() {
+    if (!reasonModal || !reasonText.trim()) return
+    const { productId, delta } = reasonModal
+    setReasonSaving(true)
 
-    const { error } = await supabase
-      .from('warehouse_stock')
-      .upsert({ product_id: productId, quantity: newQty, updated_at: new Date().toISOString() })
-
-    if (error) {
-      toast.error('Failed to update office stock')
-      setRows((prev) => prev.map((r) => r.product.id === productId ? { ...r, office_saving: false } : r))
-    } else {
+    try {
+      const res = await fetch('/api/warehouse-stock/adjust', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_id: productId, delta, reason: reasonText.trim() }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(body.error ?? 'Failed to update office stock')
+        return
+      }
       toast.success('Office stock updated')
       setRows((prev) =>
         prev.map((r) =>
           r.product.id === productId
-            ? { ...r, office_quantity: newQty, office_delta: 0, office_saving: false }
+            ? { ...r, office_quantity: body.quantity_after, office_delta: 0 }
             : r
         )
       )
+      setReasonModal(null)
+      setReasonText('')
+    } finally {
+      setReasonSaving(false)
     }
+  }
+
+  async function openHistory(productId: string, productName: string) {
+    setHistoryModal({ productId, productName })
+    setHistoryItems(null)
+    const res = await fetch(`/api/warehouse-stock/movements?product_id=${productId}`)
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      toast.error('Failed to load history')
+      setHistoryItems([])
+      return
+    }
+    setHistoryItems(body.movements ?? [])
   }
 
   return (
@@ -248,8 +295,18 @@ export default function StockPage() {
                           )}
                         </td>
                         {/* Stock In Office — plain display of the total we currently have; never changes until Confirm */}
-                        <td className="px-3 py-3 text-center font-semibold text-gray-900 tabular-nums">
-                          {row.office_quantity}
+                        <td className="px-3 py-3 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <span className="font-semibold text-gray-900 tabular-nums">{row.office_quantity}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); openHistory(row.product.id, row.product.name) }}
+                              title="View change history"
+                              className="text-gray-300 hover:text-gray-600"
+                            >
+                              <History size={13} />
+                            </button>
+                          </div>
                         </td>
 
                         {/* Edit Stock — separate column, this is the only place adjustments happen */}
@@ -292,7 +349,7 @@ export default function StockPage() {
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() => confirmOffice(row.product.id)}
+                                  onClick={() => openConfirm(row.product.id)}
                                   disabled={row.office_saving}
                                   title="Confirm"
                                   className="w-6 h-6 rounded-md bg-green-600 text-white flex items-center justify-center hover:bg-green-700 disabled:opacity-40 shrink-0"
@@ -372,6 +429,113 @@ export default function StockPage() {
           </table>
         </div>
       </div>
+
+      {/* ── Reason Modal — every office stock change must be attributed ────────── */}
+      {reasonModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => !reasonSaving && setReasonModal(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold text-gray-900">Confirm Stock Change</h3>
+              <button onClick={() => !reasonSaving && setReasonModal(null)}><X size={18} className="text-gray-400 hover:text-gray-600" /></button>
+            </div>
+
+            <div className="flex items-center justify-center gap-2 mb-4 bg-gray-50 rounded-lg py-3">
+              <span className={cn('text-lg font-bold tabular-nums', reasonModal.delta > 0 ? 'text-green-600' : 'text-red-600')}>
+                {reasonModal.delta > 0 ? `+${reasonModal.delta}` : reasonModal.delta}
+              </span>
+              <span className="text-sm text-gray-400">→</span>
+              <span className="text-lg font-bold text-gray-900 tabular-nums">{reasonModal.newQty}</span>
+            </div>
+
+            <label className="text-xs font-medium text-gray-600 block mb-1.5">Reason (required)</label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {['New stock arrived', 'Physical recount', 'Damaged / written off'].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setReasonText(preset)}
+                  className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50"
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+            <textarea
+              rows={2}
+              value={reasonText}
+              onChange={(e) => setReasonText(e.target.value)}
+              placeholder="Why is office stock changing?"
+              disabled={reasonSaving}
+              autoFocus
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] resize-none"
+            />
+
+            <div className="flex gap-3 mt-5">
+              <button
+                type="button"
+                onClick={() => setReasonModal(null)}
+                disabled={reasonSaving}
+                className="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitReason}
+                disabled={reasonSaving || !reasonText.trim()}
+                className="flex-1 py-2.5 bg-[#0A0A0A] text-white rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {reasonSaving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── History Modal ───────────────────────────────────────────────────────── */}
+      {historyModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setHistoryModal(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <h3 className="text-base font-semibold text-gray-900">{historyModal.productName} — Stock History</h3>
+              <button onClick={() => setHistoryModal(null)}><X size={18} className="text-gray-400 hover:text-gray-600" /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {historyItems === null ? (
+                <div className="py-8 flex justify-center"><Loader2 size={20} className="animate-spin text-gray-300" /></div>
+              ) : historyItems.length === 0 ? (
+                <p className="text-sm text-gray-400 py-8 text-center">No changes recorded yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {historyItems.map((m) => (
+                    <div key={m.id} className="border border-gray-100 rounded-lg px-3 py-2.5">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={cn('text-sm font-bold tabular-nums', m.delta > 0 ? 'text-green-600' : 'text-red-600')}>
+                          {m.delta > 0 ? `+${m.delta}` : m.delta}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {new Date(m.created_at).toLocaleString('en-MY', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-600">{m.reason}</p>
+                      <div className="flex items-center justify-between mt-1.5">
+                        <span className="text-[10px] text-gray-400">
+                          {m.quantity_before} → {m.quantity_after}
+                          {m.reference_type && m.reference_type !== 'manual' && (
+                            <span className="ml-1.5 px-1.5 py-0.5 bg-gray-100 rounded-full">{m.reference_type.replace('_', ' ')}</span>
+                          )}
+                        </span>
+                        <span className="text-[10px] text-gray-400">{m.created_by_profile?.full_name ?? 'Unknown'}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

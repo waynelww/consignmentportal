@@ -24,6 +24,7 @@ import {
   Calculator,
   Wallet,
   Download,
+  CalendarDays,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -54,6 +55,7 @@ const NAV_ITEMS = [
       { label: 'Restock Queue', href: '/admin/restocks', icon: RefreshCcw },
       { label: 'Predictions', href: '/admin/predictions', icon: Sparkles },
       { label: 'Delivery Orders', href: '/admin/delivery-orders', icon: Truck },
+      { label: 'Events', href: '/admin/events', icon: CalendarDays },
       { label: 'Payments', href: '/admin/payments', icon: Wallet },
       { label: 'Commissions', href: '/admin/commissions', icon: DollarSign },
       { label: 'Promos', href: '/admin/promos', icon: Tag },
@@ -95,6 +97,7 @@ function getPageTitle(pathname: string): string {
     '/admin/restocks': 'Restock Queue',
     '/admin/predictions': 'Restock Predictions',
     '/admin/delivery-orders': 'Delivery Orders',
+    '/admin/events': 'Events',
     '/admin/payments': 'Payments',
     '/admin/exports': 'Data Export',
     '/admin/commissions': 'Commissions',
