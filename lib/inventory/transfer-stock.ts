@@ -22,6 +22,24 @@ export async function transferStock(params: TransferParams): Promise<{ success: 
 
   const svc = await createServiceClient()
 
+  // Verify the source actually has enough BEFORE crediting the destination.
+  // Without this check, transferring more than a location holds would floor
+  // the source at 0 while still crediting the full amount elsewhere —
+  // creating phantom stock out of nowhere, which defeats the entire point
+  // of a ledger meant to be a trustworthy number.
+  if (params.fromLocationId) {
+    const { data: sourceStock } = await svc
+      .from('location_stock')
+      .select('quantity')
+      .eq('location_id', params.fromLocationId)
+      .eq('product_id', params.productId)
+      .maybeSingle()
+    const available = sourceStock?.quantity ?? 0
+    if (available < params.quantity) {
+      return { error: `Only ${available} available at the source location — cannot transfer ${params.quantity}` }
+    }
+  }
+
   async function adjustLocation(locationId: string, delta: number): Promise<string | null> {
     const { data: existing } = await svc
       .from('location_stock')

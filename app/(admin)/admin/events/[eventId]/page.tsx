@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Search, X, Package, CheckCircle2, AlertTriangle, Loader2, RefreshCcw } from 'lucide-react'
+import { ArrowLeft, Search, X, Package, CheckCircle2, AlertTriangle, Loader2, RefreshCcw, Upload, ArrowRightLeft, ArrowUpRight, ArrowDownLeft } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn, formatMYDate } from '@/lib/utils'
 import type { Product } from '@/types'
@@ -31,6 +31,29 @@ interface EventItem {
 }
 
 interface CheckoutDraftItem { product_id: string; quantity: number }
+type MoveDirection = 'outbound' | 'inbound'
+
+interface ParsedLine { sku: string; quantity: number; product_id: string | null; product_name: string | null }
+
+// Accepts "SKU, Quantity" or "SKU<TAB>Quantity" per line — pasted straight
+// from Excel/Sheets, or read from an uploaded .csv/.txt file. Skips blank
+// lines and an optional header row.
+function parseSkuQtyText(text: string, products: Product[]): ParsedLine[] {
+  const bySku = new Map(products.map((p) => [p.sku.toUpperCase(), p]))
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  const out: ParsedLine[] = []
+  for (const line of lines) {
+    const parts = line.split(/[,\t]+/).map((p) => p.trim()).filter(Boolean)
+    if (parts.length < 2) continue
+    const sku = parts[0]
+    const qty = parseInt(parts[1], 10)
+    if (!sku || Number.isNaN(qty) || qty <= 0) continue
+    if (sku.toLowerCase() === 'sku' || /qty|quantity/i.test(parts[1])) continue // header row
+    const match = bySku.get(sku.toUpperCase())
+    out.push({ sku, quantity: qty, product_id: match?.id ?? null, product_name: match?.name ?? null })
+  }
+  return out
+}
 
 export default function EventDetailPage() {
   const { eventId } = useParams<{ eventId: string }>()
@@ -42,9 +65,14 @@ export default function EventDetailPage() {
   const [loading, setLoading] = useState(true)
   const [products, setProducts] = useState<Product[]>([])
 
+  const [direction, setDirection] = useState<MoveDirection>('outbound')
   const [search, setSearch] = useState('')
   const [draft, setDraft] = useState<CheckoutDraftItem[]>([])
   const [checkingOut, setCheckingOut] = useState(false)
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkText, setBulkText] = useState('')
+  const [bulkPreview, setBulkPreview] = useState<ParsedLine[] | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [closeModal, setCloseModal] = useState(false)
   const [closeRows, setCloseRows] = useState<Record<string, { sold: number; returned: number }>>({})
@@ -52,6 +80,8 @@ export default function EventDetailPage() {
   const [shopifyFetchError, setShopifyFetchError] = useState<string | null>(null)
   const [closing, setClosing] = useState(false)
   const [closeResult, setCloseResult] = useState<{ tallies: boolean } | null>(null)
+  const [closeBulkOpen, setCloseBulkOpen] = useState(false)
+  const [closeBulkText, setCloseBulkText] = useState('')
 
   const fetchDetail = useCallback(async () => {
     setLoading(true)
@@ -82,23 +112,62 @@ export default function EventDetailPage() {
     setDraft((prev) => prev.map((i) => i.product_id === productId ? { ...i, quantity: qty } : i))
   }
 
-  async function submitCheckout() {
+  async function submitMove() {
     if (draft.length === 0) return
     setCheckingOut(true)
+    const endpoint = direction === 'outbound' ? 'checkout' : 'return'
     try {
-      const res = await fetch(`/api/events/${eventId}/checkout`, {
+      const res = await fetch(`/api/events/${eventId}/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: draft }),
       })
       const body = await res.json().catch(() => ({}))
-      if (!res.ok) { toast.error(body.error ?? 'Checkout failed'); return }
-      toast.success('Stock checked out to event')
+      if (!res.ok) { toast.error(body.error ?? 'Failed'); return }
+      toast.success(direction === 'outbound' ? 'Stock checked out to event' : 'Stock returned to office')
       setDraft([])
+      setBulkText('')
+      setBulkPreview(null)
+      setBulkOpen(false)
       fetchDetail()
     } finally {
       setCheckingOut(false)
     }
+  }
+
+  function parseBulk() {
+    const parsed = parseSkuQtyText(bulkText, products)
+    setBulkPreview(parsed)
+  }
+
+  function applyBulkPreview() {
+    if (!bulkPreview) return
+    const matched = bulkPreview.filter((l) => l.product_id)
+    if (matched.length === 0) { toast.error('No matching SKUs found'); return }
+    setDraft((prev) => {
+      const next = [...prev]
+      for (const line of matched) {
+        const idx = next.findIndex((i) => i.product_id === line.product_id)
+        if (idx >= 0) next[idx] = { ...next[idx], quantity: next[idx].quantity + line.quantity }
+        else next.push({ product_id: line.product_id!, quantity: line.quantity })
+      }
+      return next
+    })
+    toast.success(`${matched.length} SKU${matched.length > 1 ? 's' : ''} added to the list below`)
+    setBulkText('')
+    setBulkPreview(null)
+  }
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      setBulkText(String(reader.result ?? ''))
+      setBulkPreview(null)
+    }
+    reader.readAsText(file)
+    e.target.value = ''
   }
 
   function openCloseModal() {
@@ -154,6 +223,24 @@ export default function EventDetailPage() {
     }
   }
 
+  // Bulk-fill the Returned column from a pasted/uploaded "SKU, Quantity"
+  // list — same import format as the outbound/inbound panel above.
+  function applyCloseBulk() {
+    const parsed = parseSkuQtyText(closeBulkText, products)
+    const matched = parsed.filter((l) => l.product_id && items.some((it) => it.product_id === l.product_id))
+    if (matched.length === 0) { toast.error('No matching SKUs found among items in this event'); return }
+    setCloseRows((prev) => {
+      const next = { ...prev }
+      for (const line of matched) {
+        next[line.product_id!] = { ...next[line.product_id!], returned: line.quantity }
+      }
+      return next
+    })
+    toast.success(`Filled Returned for ${matched.length} SKU${matched.length > 1 ? 's' : ''}`)
+    setCloseBulkText('')
+    setCloseBulkOpen(false)
+  }
+
   const searchMatches = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return []
@@ -200,10 +287,26 @@ export default function EventDetailPage() {
         </div>
       </div>
 
-      {/* Checkout — only while active */}
+      {/* Move Stock — only while active. Direct outbound (to event) or
+          inbound (partial return), by search or bulk paste/file import. */}
       {isActive && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">Check Out Stock to This Event</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-900">Move Stock</h3>
+            <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+              <button type="button" onClick={() => setDirection('outbound')}
+                className={cn('flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors',
+                  direction === 'outbound' ? 'bg-[#0A0A0A] text-white' : 'text-gray-500 hover:bg-gray-50')}>
+                <ArrowUpRight size={12} /> Outbound (to event)
+              </button>
+              <button type="button" onClick={() => setDirection('inbound')}
+                className={cn('flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors border-l border-gray-200',
+                  direction === 'inbound' ? 'bg-[#0A0A0A] text-white' : 'text-gray-500 hover:bg-gray-50')}>
+                <ArrowDownLeft size={12} /> Inbound (partial return)
+              </button>
+            </div>
+          </div>
+
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
             <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
@@ -219,6 +322,57 @@ export default function EventDetailPage() {
                   <span className="text-gray-800 truncate">{p.name}</span>
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* Bulk import — paste from Excel/Sheets or upload a .csv/.txt */}
+          <button type="button" onClick={() => setBulkOpen((v) => !v)}
+            className="mt-2 text-xs text-blue-600 hover:underline flex items-center gap-1">
+            <Upload size={12} /> {bulkOpen ? 'Hide bulk import' : 'Bulk import from file / paste a list'}
+          </button>
+
+          {bulkOpen && (
+            <div className="mt-2 border border-gray-200 rounded-lg p-3 bg-gray-50/50">
+              <p className="text-[11px] text-gray-500 mb-2">One SKU per line: <code className="bg-white px-1 rounded border border-gray-200">SKU, Quantity</code> — paste straight from a spreadsheet, or upload a file.</p>
+              <div className="flex items-center gap-2 mb-2">
+                <button type="button" onClick={() => fileInputRef.current?.click()}
+                  className="text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 flex items-center gap-1.5">
+                  <Upload size={12} /> Upload CSV / TXT
+                </button>
+                <input ref={fileInputRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleFileUpload} />
+              </div>
+              <textarea
+                rows={4}
+                value={bulkText}
+                onChange={(e) => { setBulkText(e.target.value); setBulkPreview(null) }}
+                placeholder={'A1, 12\nA27, 6\nMAROONHORNBILL, 3'}
+                className="w-full px-3 py-2 text-xs font-mono border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] resize-none"
+              />
+              <button type="button" onClick={parseBulk} disabled={!bulkText.trim()}
+                className="mt-2 text-xs px-3 py-1.5 bg-gray-800 text-white rounded-lg hover:bg-gray-900 disabled:opacity-40">
+                Preview
+              </button>
+
+              {bulkPreview && (
+                <div className="mt-2 space-y-1">
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {bulkPreview.map((line, i) => (
+                      <div key={i} className={cn('flex items-center justify-between text-xs px-2 py-1 rounded',
+                        line.product_id ? 'bg-white' : 'bg-red-50')}>
+                        <span className="font-mono text-gray-600">{line.sku}</span>
+                        <span className={cn('truncate flex-1 mx-2', line.product_id ? 'text-gray-700' : 'text-red-600')}>
+                          {line.product_name ?? 'Not found in product list'}
+                        </span>
+                        <span className="font-semibold text-gray-800 shrink-0">×{line.quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button type="button" onClick={applyBulkPreview}
+                    className="w-full mt-1 py-2 bg-[#0A0A0A] text-[#FFD700] rounded-lg text-xs font-semibold hover:opacity-90">
+                    Add {bulkPreview.filter((l) => l.product_id).length} Matched SKU{bulkPreview.filter((l) => l.product_id).length === 1 ? '' : 's'} to List
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -246,9 +400,16 @@ export default function EventDetailPage() {
           )}
 
           {draft.length > 0 && (
-            <button onClick={submitCheckout} disabled={checkingOut}
-              className="w-full mt-3 py-2.5 bg-[#0A0A0A] text-[#FFD700] rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity">
-              {checkingOut ? 'Checking out…' : `Check Out ${draft.reduce((s, i) => s + i.quantity, 0)} Pairs`}
+            <button onClick={submitMove} disabled={checkingOut}
+              className="w-full mt-3 py-2.5 bg-[#0A0A0A] text-[#FFD700] rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2">
+              {checkingOut ? (
+                <>Processing…</>
+              ) : (
+                <>
+                  <ArrowRightLeft size={14} />
+                  {direction === 'outbound' ? 'Check Out' : 'Return'} {draft.reduce((s, i) => s + i.quantity, 0)} Pairs
+                </>
+              )}
             </button>
           )}
         </div>
@@ -343,6 +504,27 @@ export default function EventDetailPage() {
               {shopifyFetchError && (
                 <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-3">
                   <AlertTriangle size={12} /> {shopifyFetchError}
+                </div>
+              )}
+
+              <button type="button" onClick={() => setCloseBulkOpen((v) => !v)}
+                className="text-xs text-blue-600 hover:underline flex items-center gap-1 mb-2">
+                <Upload size={12} /> {closeBulkOpen ? 'Hide bulk fill' : 'Bulk fill Returned from file / paste a list'}
+              </button>
+              {closeBulkOpen && (
+                <div className="mb-3 border border-gray-200 rounded-lg p-3 bg-gray-50/50">
+                  <p className="text-[11px] text-gray-500 mb-2">One SKU per line: <code className="bg-white px-1 rounded border border-gray-200">SKU, Quantity Returned</code></p>
+                  <textarea
+                    rows={3}
+                    value={closeBulkText}
+                    onChange={(e) => setCloseBulkText(e.target.value)}
+                    placeholder={'A1, 4\nA27, 2'}
+                    className="w-full px-3 py-2 text-xs font-mono border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] resize-none"
+                  />
+                  <button type="button" onClick={applyCloseBulk} disabled={!closeBulkText.trim()}
+                    className="mt-2 text-xs px-3 py-1.5 bg-gray-800 text-white rounded-lg hover:bg-gray-900 disabled:opacity-40">
+                    Fill Returned Column
+                  </button>
                 </div>
               )}
 
