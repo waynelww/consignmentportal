@@ -22,7 +22,6 @@ interface EventDetail {
 }
 
 interface EventItem {
-  id: string
   product_id: string
   quantity_taken: number
   quantity_sold_shopify: number | null
@@ -281,7 +280,7 @@ export default function EventDetailPage() {
             </thead>
             <tbody>
               {items.map((item) => (
-                <tr key={item.id} className="border-b border-gray-50 last:border-0">
+                <tr key={item.product_id} className="border-b border-gray-50 last:border-0">
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
                       {item.product?.image_url ? (
@@ -351,7 +350,7 @@ export default function EventDetailPage() {
                 {items.map((item) => {
                   const row = closeRows[item.product_id] ?? { sold: 0, returned: 0 }
                   return (
-                    <div key={item.id} className="flex items-center gap-3 border border-gray-100 rounded-lg px-3 py-2.5">
+                    <div key={item.product_id} className="flex items-center gap-3 border border-gray-100 rounded-lg px-3 py-2.5">
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-mono text-gray-400">{item.product?.sku}</p>
                         <p className="text-sm text-gray-800 truncate">{item.product?.name}</p>

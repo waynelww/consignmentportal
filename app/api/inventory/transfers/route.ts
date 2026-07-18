@@ -12,16 +12,27 @@ export async function GET(request: NextRequest) {
   }
 
   const productId = request.nextUrl.searchParams.get('product_id')
-  if (!productId) return Response.json({ error: 'product_id is required' }, { status: 400 })
+  const locationId = request.nextUrl.searchParams.get('location_id')
+  if (!productId && !locationId) {
+    return Response.json({ error: 'product_id or location_id is required' }, { status: 400 })
+  }
 
-  const { data, error } = await supabase
-    .from('warehouse_stock_movements')
-    .select('*, created_by_profile:profiles(full_name)')
-    .eq('product_id', productId)
+  let query = supabase
+    .from('stock_transfers')
+    .select(`
+      *,
+      from_location:from_location_id(name, type),
+      to_location:to_location_id(name, type),
+      created_by_profile:profiles(full_name)
+    `)
     .order('created_at', { ascending: false })
     .limit(100)
 
+  if (productId) query = query.eq('product_id', productId)
+  if (locationId) query = query.or(`from_location_id.eq.${locationId},to_location_id.eq.${locationId}`)
+
+  const { data, error } = await query
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
-  return Response.json({ movements: data ?? [] })
+  return Response.json({ transfers: data ?? [] })
 }

@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import { adjustWarehouseStock } from '@/lib/inventory/adjust-warehouse-stock'
+import { transferStock, getLocationIdByType } from '@/lib/inventory/transfer-stock'
 
 const CheckoutSchema = z.object({
   items: z.array(z.object({
@@ -34,41 +34,25 @@ export async function POST(
 
   const svc = await createServiceClient()
 
-  const { data: event } = await svc.from('events').select('id, name, status').eq('id', eventId).single()
-  if (!event) return Response.json({ error: 'Event not found' }, { status: 404 })
+  const { data: event } = await svc.from('events').select('id, name, status, stock_location_id').eq('id', eventId).single()
+  if (!event || !event.stock_location_id) return Response.json({ error: 'Event not found' }, { status: 404 })
   if (event.status !== 'active') return Response.json({ error: 'Event is closed — cannot check out more stock' }, { status: 400 })
+
+  const officeId = await getLocationIdByType('office')
+  if (!officeId) return Response.json({ error: 'Office location is not configured' }, { status: 500 })
 
   const failures: string[] = []
 
   for (const item of parsed.data.items) {
-    const result = await adjustWarehouseStock({
+    const result = await transferStock({
       productId: item.product_id,
-      delta: -item.quantity,
+      quantity: item.quantity,
+      fromLocationId: officeId,
+      toLocationId: event.stock_location_id,
       reason: `Event checkout: ${event.name}`,
-      referenceType: 'event_checkout',
-      referenceId: eventId,
       createdBy: user.id,
     })
-    if ('error' in result) { failures.push(`${item.product_id}: ${result.error}`); continue }
-
-    const { data: existingItem } = await svc
-      .from('event_stock_items')
-      .select('id, quantity_taken')
-      .eq('event_id', eventId)
-      .eq('product_id', item.product_id)
-      .maybeSingle()
-
-    if (existingItem) {
-      await svc.from('event_stock_items')
-        .update({ quantity_taken: existingItem.quantity_taken + item.quantity, updated_at: new Date().toISOString() })
-        .eq('id', existingItem.id)
-    } else {
-      await svc.from('event_stock_items').insert({
-        event_id: eventId,
-        product_id: item.product_id,
-        quantity_taken: item.quantity,
-      })
-    }
+    if ('error' in result) failures.push(`${item.product_id}: ${result.error}`)
   }
 
   if (failures.length > 0) {

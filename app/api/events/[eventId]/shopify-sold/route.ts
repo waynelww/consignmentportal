@@ -22,11 +22,11 @@ export async function GET(
 
   const { data: event } = await supabase
     .from('events')
-    .select('shopify_location_id, start_date, end_date')
+    .select('shopify_location_id, start_date, end_date, stock_location_id')
     .eq('id', eventId)
     .single()
 
-  if (!event) return Response.json({ error: 'Event not found' }, { status: 404 })
+  if (!event || !event.stock_location_id) return Response.json({ error: 'Event not found' }, { status: 404 })
   if (!event.shopify_location_id) {
     return Response.json({ error: 'This event has no Shopify location attached — enter sold quantities manually' }, { status: 400 })
   }
@@ -38,15 +38,16 @@ export async function GET(
       endDate: event.end_date ?? new Date().toISOString().slice(0, 10),
     })
 
-    const { data: items } = await supabase
-      .from('event_stock_items')
-      .select('product_id, product:products(sku)')
-      .eq('event_id', eventId)
+    // Products checked out to this event, read from the transfer ledger.
+    const { data: transfers } = await supabase
+      .from('stock_transfers')
+      .select('product_id, products(sku)')
+      .eq('to_location_id', event.stock_location_id)
 
     const result: Record<string, number> = {}
-    for (const item of (items ?? []) as unknown as Array<{ product_id: string; product: { sku: string } | null }>) {
-      const sku = (item.product?.sku ?? '').toUpperCase()
-      result[item.product_id] = skuToQty.get(sku) ?? 0
+    for (const t of (transfers ?? []) as unknown as Array<{ product_id: string; products: { sku: string } | null }>) {
+      const sku = (t.products?.sku ?? '').toUpperCase()
+      result[t.product_id] = skuToQty.get(sku) ?? 0
     }
 
     return Response.json({ sold_by_product: result })

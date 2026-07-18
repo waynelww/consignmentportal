@@ -1,6 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 
 const CreateEventSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -29,30 +29,49 @@ export async function GET() {
   if (ctx.error) return ctx.error
   const { supabase } = ctx
 
-  const { data, error } = await supabase
+  const { data: events, error } = await supabase
     .from('events')
-    .select('*, items:event_stock_items(quantity_taken, quantity_returned)')
+    .select('*')
     .order('start_date', { ascending: false })
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
-  const events = (data ?? []).map((e) => {
-    const items = (e.items as Array<{ quantity_taken: number; quantity_returned: number | null }>) ?? []
+  const locationIds = (events ?? []).map((e) => e.stock_location_id).filter(Boolean) as string[]
+
+  // Aggregate "taken" per event from the ledger — inbound transfers into
+  // that event's location — instead of a separately-maintained counter.
+  let takenByLocation: Record<string, { skus: Set<string>; totalTaken: number }> = {}
+  if (locationIds.length > 0) {
+    const { data: transfers } = await supabase
+      .from('stock_transfers')
+      .select('to_location_id, product_id, quantity')
+      .in('to_location_id', locationIds)
+
+    takenByLocation = {}
+    for (const t of transfers ?? []) {
+      const key = t.to_location_id as string
+      if (!takenByLocation[key]) takenByLocation[key] = { skus: new Set(), totalTaken: 0 }
+      takenByLocation[key].skus.add(t.product_id)
+      takenByLocation[key].totalTaken += t.quantity
+    }
+  }
+
+  const result = (events ?? []).map((e) => {
+    const agg = e.stock_location_id ? takenByLocation[e.stock_location_id] : undefined
     return {
       ...e,
-      items: undefined,
-      sku_count: items.length,
-      total_taken: items.reduce((s, i) => s + i.quantity_taken, 0),
+      sku_count: agg?.skus.size ?? 0,
+      total_taken: agg?.totalTaken ?? 0,
     }
   })
 
-  return Response.json({ events })
+  return Response.json({ events: result })
 }
 
 export async function POST(request: NextRequest) {
   const ctx = await requireAdmin()
   if (ctx.error) return ctx.error
-  const { supabase, user } = ctx
+  const { user } = ctx
 
   let body: unknown
   try { body = await request.json() } catch { return Response.json({ error: 'Invalid JSON body' }, { status: 400 }) }
@@ -62,13 +81,35 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Validation error', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { data, error } = await supabase
+  const svc = await createServiceClient()
+
+  // Event and its stock location reference each other — create in three
+  // steps, cleaning up if a later step fails.
+  const { data: event, error: eventErr } = await svc
     .from('events')
     .insert({ ...parsed.data, created_by: user!.id })
+    .select('id, name')
+    .single()
+
+  if (eventErr || !event) return Response.json({ error: eventErr?.message ?? 'Failed to create event' }, { status: 500 })
+
+  const { data: location, error: locErr } = await svc
+    .from('stock_locations')
+    .insert({ name: event.name, type: 'event', event_id: event.id })
     .select('id')
     .single()
 
-  if (error || !data) return Response.json({ error: error?.message ?? 'Failed to create event' }, { status: 500 })
+  if (locErr || !location) {
+    await svc.from('events').delete().eq('id', event.id)
+    return Response.json({ error: locErr?.message ?? 'Failed to create event location' }, { status: 500 })
+  }
 
-  return Response.json({ success: true, id: data.id })
+  const { error: linkErr } = await svc.from('events').update({ stock_location_id: location.id }).eq('id', event.id)
+  if (linkErr) {
+    await svc.from('stock_locations').delete().eq('id', location.id)
+    await svc.from('events').delete().eq('id', event.id)
+    return Response.json({ error: linkErr.message }, { status: 500 })
+  }
+
+  return Response.json({ success: true, id: event.id })
 }

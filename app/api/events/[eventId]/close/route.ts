@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import { adjustWarehouseStock } from '@/lib/inventory/adjust-warehouse-stock'
+import { transferStock, getLocationIdByType } from '@/lib/inventory/transfer-stock'
 
 const CloseSchema = z.object({
   items: z.array(z.object({
@@ -35,45 +35,54 @@ export async function POST(
 
   const svc = await createServiceClient()
 
-  const { data: event } = await svc.from('events').select('id, name, status').eq('id', eventId).single()
-  if (!event) return Response.json({ error: 'Event not found' }, { status: 404 })
+  const { data: event } = await svc.from('events').select('id, name, status, stock_location_id').eq('id', eventId).single()
+  if (!event || !event.stock_location_id) return Response.json({ error: 'Event not found' }, { status: 404 })
   if (event.status !== 'active') return Response.json({ error: 'Event is already closed' }, { status: 400 })
+
+  const officeId = await getLocationIdByType('office')
+  if (!officeId) return Response.json({ error: 'Office location is not configured' }, { status: 500 })
+
+  // "Taken" per product, read fresh from the ledger, to compute variance.
+  const { data: transfers } = await svc
+    .from('stock_transfers')
+    .select('product_id, quantity, to_location_id')
+    .eq('to_location_id', event.stock_location_id)
+
+  const takenByProduct: Record<string, number> = {}
+  for (const t of transfers ?? []) takenByProduct[t.product_id] = (takenByProduct[t.product_id] ?? 0) + t.quantity
 
   const failures: string[] = []
   const results: Array<{ product_id: string; variance: number }> = []
 
   for (const item of parsed.data.items) {
-    const { data: existingItem } = await svc
-      .from('event_stock_items')
-      .select('id, quantity_taken')
-      .eq('event_id', eventId)
-      .eq('product_id', item.product_id)
-      .maybeSingle()
+    const taken = takenByProduct[item.product_id] ?? 0
+    if (taken === 0) { failures.push(`${item.product_id}: was never checked out to this event`); continue }
 
-    if (!existingItem) { failures.push(`${item.product_id}: was never checked out to this event`); continue }
-
-    const expectedRemaining = existingItem.quantity_taken - item.quantity_sold
-    const variance = item.quantity_returned - expectedRemaining
-
-    if (item.quantity_returned > 0) {
-      const result = await adjustWarehouseStock({
+    if (item.quantity_sold > 0) {
+      const soldResult = await transferStock({
         productId: item.product_id,
-        delta: item.quantity_returned,
-        reason: `Event return: ${event.name}`,
-        referenceType: 'event_return',
-        referenceId: eventId,
+        quantity: item.quantity_sold,
+        fromLocationId: event.stock_location_id,
+        toLocationId: null,
+        reason: `Sold at event (Shopify): ${event.name}`,
         createdBy: user.id,
       })
-      if ('error' in result) { failures.push(`${item.product_id}: ${result.error}`); continue }
+      if ('error' in soldResult) { failures.push(`${item.product_id}: ${soldResult.error}`); continue }
     }
 
-    await svc.from('event_stock_items').update({
-      quantity_sold_shopify: item.quantity_sold,
-      quantity_returned: item.quantity_returned,
-      variance,
-      updated_at: new Date().toISOString(),
-    }).eq('id', existingItem.id)
+    if (item.quantity_returned > 0) {
+      const returnResult = await transferStock({
+        productId: item.product_id,
+        quantity: item.quantity_returned,
+        fromLocationId: event.stock_location_id,
+        toLocationId: officeId,
+        reason: `Event return: ${event.name}`,
+        createdBy: user.id,
+      })
+      if ('error' in returnResult) { failures.push(`${item.product_id}: ${returnResult.error}`); continue }
+    }
 
+    const variance = item.quantity_returned - (taken - item.quantity_sold)
     results.push({ product_id: item.product_id, variance })
   }
 
@@ -83,6 +92,5 @@ export async function POST(
 
   await svc.from('events').update({ status: 'closed', closed_at: new Date().toISOString() }).eq('id', eventId)
 
-  const totalVariance = results.reduce((s, r) => s + r.variance, 0)
-  return Response.json({ success: true, results, tallies: totalVariance === 0 && results.every((r) => r.variance === 0) })
+  return Response.json({ success: true, results, tallies: results.every((r) => r.variance === 0) })
 }
