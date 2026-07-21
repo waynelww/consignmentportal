@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { verifyBotAuth } from '@/lib/bot-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { grantShopifyPerk } from '@/lib/gang/grant-perk'
 
 const UploadSchema = z.object({
   type: z.literal('upload'),
@@ -66,10 +67,34 @@ export async function POST(request: NextRequest) {
       .select('id', { count: 'exact', head: true })
       .eq('status', 'pending')
 
+    // Grant the Shopify perk for every member with a valid order who
+    // doesn't have one yet — covers members matched just now AND anyone
+    // whose grant attempt failed on a previous run (self-healing retry).
+    const { data: allValid } = await supabase
+      .from('gang_order_submissions')
+      .select('member_id')
+      .eq('status', 'valid')
+    const candidateMemberIds = [...new Set((allValid ?? []).map((r) => r.member_id))]
+
+    let perksGranted = 0
+    if (candidateMemberIds.length) {
+      const { data: ungranted } = await supabase
+        .from('gang_members')
+        .select('id')
+        .in('id', candidateMemberIds)
+        .is('perk_granted_at', null)
+
+      for (const m of ungranted ?? []) {
+        const perk = await grantShopifyPerk(supabase, m.id)
+        if (perk) perksGranted++
+      }
+    }
+
     return Response.json({
       uploaded: rows.length,
       matched: matched?.length ?? 0,
       stillPending: stillPending ?? 0,
+      perksGranted,
     })
   }
 

@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { checkRateLimit, recordAttempt } from '@/lib/rate-limit'
 import { normalizePhone } from '@/lib/gang/phone'
 import { getActivePrizes } from '@/lib/gang/prizes'
+import { grantShopifyPerk } from '@/lib/gang/grant-perk'
 
 const Schema = z.object({
   phone: z.string().min(6),
@@ -114,7 +115,11 @@ export async function POST(request: NextRequest) {
 
   const prizes = await getActivePrizes(supabase).catch(() => [])
 
+  // Only the immediate-match path grants the perk here — an order that's
+  // still 'pending' gets it later, when the bot's daily upload verifies it.
+  const perk = status === 'valid' ? await grantShopifyPerk(supabase, member!.id) : null
+
   await recordAttempt(request, { endpoint: 'gang-register', succeeded: true })
 
-  return Response.json({ member, submission, prizes })
+  return Response.json({ member, submission, prizes, perk })
 }

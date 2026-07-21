@@ -18,6 +18,7 @@ interface RegisterResult {
     verified_at: string | null
   }
   prizes: GangPrize[]
+  perk: { code: string; min_quantity: number; discount_amount: number } | null
 }
 
 const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_GANG_WHATSAPP_NUMBER || '60000000000'
@@ -109,6 +110,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
 
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [result, setResult] = useState<RegisterResult | null>(null)
+  const [perkCopied, setPerkCopied] = useState(false)
 
   const [timer, setTimer] = useState('--:--:--')
   const confettiRef = useRef<HTMLCanvasElement>(null)
@@ -296,6 +298,17 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
     setOrderNumber('')
     setErrors({})
     setResult(null)
+    setPerkCopied(false)
+  }
+
+  async function copyPerkCode(code: string) {
+    try {
+      await navigator.clipboard.writeText(code)
+      setPerkCopied(true)
+      setTimeout(() => setPerkCopied(false), 2000)
+    } catch {
+      // Clipboard API unavailable — the code is still visible to copy by hand.
+    }
   }
 
   function segClass(i: number) {
@@ -570,6 +583,32 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                       <span>{STATUS_COPY[result.submission.status].desc}</span>
                     </div>
                   </div>
+
+                  {result.submission.status === 'valid' && result.perk && (
+                    <div className={styles.perkcard}>
+                      <div className={styles.perkhead}>🧦 Your standing checkout perk</div>
+                      <div className={styles.perkdesc}>
+                        Get RM{result.perk.discount_amount.toFixed(2)} off any order once you've got{' '}
+                        {result.perk.min_quantity}+ pairs in your cart — use it every time you shop.
+                      </div>
+                      <div className={styles.perkcoderow}>
+                        <span className={styles.perkcode}>{result.perk.code}</span>
+                        <button className={styles.perkcopy} onClick={() => copyPerkCode(result.perk!.code)}>
+                          {perkCopied ? 'Copied ✓' : 'Copy code'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {result.submission.status === 'valid' && !result.perk && (
+                    <div className={styles.perkpending}>
+                      🧦 Your standing checkout perk is being set up — check back shortly.
+                    </div>
+                  )}
+                  {result.submission.status !== 'valid' && (
+                    <div className={styles.perkpending}>
+                      🧦 Once your order's verified, you'll unlock a personal checkout discount code too.
+                    </div>
+                  )}
 
                   <div className={styles.ticket}>
                     <div className={styles.ticketHead}>🎟️ Your Grand Draw Entry This Month</div>
