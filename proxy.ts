@@ -30,6 +30,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Xocks Gang registration — fully public (QR code on the thank-you card),
+  // no XCMS session involved. Its own API routes (/api/gang/*) do their own
+  // rate limiting; skip the session/redirect machinery entirely here.
+  if (path.startsWith('/gang')) {
+    return NextResponse.next()
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -51,9 +58,10 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  // Cron/bot endpoints authenticate with CRON_SECRET / BOT_API_KEY and carry
-  // no session cookie — skip the session machinery entirely for them.
-  if (path.startsWith('/api/cron') || path.startsWith('/api/bot')) {
+  // Cron/bot endpoints authenticate with CRON_SECRET / BOT_API_KEY, and the
+  // public Gang API carries no session cookie either — skip the session
+  // machinery entirely for all three.
+  if (path.startsWith('/api/cron') || path.startsWith('/api/bot') || path.startsWith('/api/gang')) {
     return supabaseResponse
   }
 
