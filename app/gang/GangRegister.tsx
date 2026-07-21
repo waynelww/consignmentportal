@@ -96,6 +96,12 @@ function maskPhone(phone: string) {
   return '•••• ' + phone.slice(-4)
 }
 
+const DEMO_MONTHLY_PRIZES: GangPrize[] = [
+  { id: 'demo-1', tier_label: '🏆 Free Socks for a Year', probability_text: '1 / 10,000', cadence: 'monthly', prize_label: '' },
+  { id: 'demo-2', tier_label: '🎁 Mystery "Hidden" Gift', probability_text: 'rolling', cadence: 'monthly', prize_label: '' },
+  { id: 'demo-3', tier_label: '🎫 Buy 1 Free 1 Voucher', probability_text: 'rolling', cadence: 'monthly', prize_label: '' },
+]
+
 export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) {
   const [step, setStep] = useState(0)
   const [returning, setReturning] = useState(false)
@@ -115,9 +121,13 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
   const [timer, setTimer] = useState('--:--:--')
   const confettiRef = useRef<HTMLCanvasElement>(null)
   const floatersRef = useRef<HTMLDivElement>(null)
+  const emailRef = useRef<HTMLInputElement>(null)
 
   const monthlyPrizes = initialPrizes.filter((p) => p.cadence === 'monthly')
   const dailyPrizes = initialPrizes.filter((p) => p.cadence === 'daily')
+  const displayMonthly = monthlyPrizes.length ? monthlyPrizes : DEMO_MONTHLY_PRIZES
+  const topPrize = displayMonthly[0]
+  const moreCount = displayMonthly.length - 1
 
   useEffect(() => {
     function tick() {
@@ -202,10 +212,6 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
       else ctx!.clearRect(0, 0, canvas!.width, canvas!.height)
     }
     draw()
-  }
-
-  function scrollToForm() {
-    document.getElementById('gang-progress')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   async function handlePhoneContinue() {
@@ -358,34 +364,16 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
 
           <div className={styles.prizepreview}>
             <div className={styles.ppHead}>🎉 This month&apos;s grand draw</div>
-            <div className={styles.ppList}>
-              {(monthlyPrizes.length
-                ? monthlyPrizes
-                : [
-                    { id: 'demo-1', tier_label: '🏆 Free Socks for a Year', probability_text: '1 / 10,000', cadence: 'monthly' as const, prize_label: '' },
-                    { id: 'demo-2', tier_label: '🎁 Mystery "Hidden" Gift', probability_text: 'rolling', cadence: 'monthly' as const, prize_label: '' },
-                    { id: 'demo-3', tier_label: '🎫 Buy 1 Free 1 Voucher', probability_text: 'rolling', cadence: 'monthly' as const, prize_label: '' },
-                  ]
-              ).map((p, i) => (
-                <div key={p.id} className={`${styles.ppRow} ${i === 0 ? styles.ppRowTop : ''}`}>
-                  <span className={styles.tier}>{p.tier_label}</span>
-                  <span className={styles.ppOdds}>{p.probability_text ?? '—'}</span>
-                </div>
-              ))}
+            <div className={`${styles.ppRow} ${styles.ppRowTop}`}>
+              <span className={styles.tier}>{topPrize.tier_label}</span>
+              <span className={styles.ppOdds}>{topPrize.probability_text ?? '—'}</span>
             </div>
-            <div className={styles.ppInstant}>
-              ✅{' '}
-              <span>
-                <b>Instant perk:</b>{' '}
-                {dailyPrizes[0]?.prize_label || 'every verified order also gets a 10–20% promo code, same day.'}
-              </span>
+            <div className={styles.ppMore}>
+              {moreCount > 0 && `+ ${moreCount} more prize${moreCount > 1 ? 's' : ''} · `}
+              {dailyPrizes[0]?.prize_label
+                ? `✅ instant ${dailyPrizes[0].prize_label} on every verified order`
+                : '✅ instant 10–20% promo code on every verified order'}
             </div>
-          </div>
-
-          <div className={styles.heroCta}>
-            <button className={styles.btnPrimary} onClick={scrollToForm}>
-              Register my order →
-            </button>
           </div>
         </section>
 
@@ -415,9 +403,11 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                       type="tel"
                       inputMode="numeric"
                       autoComplete="tel"
+                      autoFocus
                       placeholder="12-345 6789"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handlePhoneContinue()}
                     />
                   </div>
                   <div className={styles.hint}>We&apos;ll only use this for order updates &amp; promo codes on WhatsApp.</div>
@@ -442,21 +432,25 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                     className={styles.input}
                     type="text"
                     autoComplete="name"
+                    autoFocus
                     placeholder="e.g. Wayne Lim"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && emailRef.current?.focus()}
                   />
                   {errors.name && <div className={styles.err}>{errors.name}</div>}
                 </label>
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>Email</span>
                   <input
+                    ref={emailRef}
                     className={styles.input}
                     type="email"
                     autoComplete="email"
                     placeholder="you@email.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleNameEmailContinue()}
                   />
                   {errors.email && <div className={styles.err}>{errors.email}</div>}
                 </label>
@@ -514,6 +508,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                     placeholder="e.g. SPX1029384756 or #XC10234"
                     value={orderNumber}
                     onChange={(e) => setOrderNumber(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
                   />
                   <div className={styles.hint}>
                     Paid but stock hasn&apos;t arrived yet? That&apos;s fine — just enter the order number from your receipt.
