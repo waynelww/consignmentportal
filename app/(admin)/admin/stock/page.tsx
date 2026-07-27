@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import Link from 'next/link'
-import { ChevronDown, ChevronUp, Check, RotateCcw, Loader2, History, X, MapPin } from 'lucide-react'
+import { ChevronDown, ChevronUp, Check, RotateCcw, Loader2, History, X, MapPin, Search } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn, PRODUCT_CATEGORY_LABELS } from '@/lib/utils'
 import type { Product } from '@/types'
@@ -55,6 +55,7 @@ export default function StockPage() {
   const [totalSKUs, setTotalSKUs] = useState(0)
   const [officeLocationId, setOfficeLocationId] = useState<string | null>(null)
   const [otherLocations, setOtherLocations] = useState<OtherLocationRow[]>([])
+  const [search, setSearch] = useState('')
 
   const [transferModal, setTransferModal] = useState<{ productId: string; delta: number; newQty: number } | null>(null)
   const [pickerLocations, setPickerLocations] = useState<StockLocation[]>([])
@@ -256,6 +257,12 @@ export default function StockPage() {
     return map
   }, [otherLocations])
 
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((r) => r.product.name.toLowerCase().includes(q) || r.product.sku.toLowerCase().includes(q))
+  }, [rows, search])
+
   return (
     <div className="space-y-6">
       {/* Summary cards */}
@@ -277,7 +284,23 @@ export default function StockPage() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
           <h2 className="text-sm font-semibold text-gray-900">Product Distribution &amp; Office Stock</h2>
-          <p className="text-xs text-gray-500 mt-0.5">Click a row to see the per-store breakdown. Adjust office stock with +/− then confirm — every change records where the stock went.</p>
+          <p className="text-xs text-gray-500 mt-0.5 mb-3">Click a row to see the per-store breakdown. Adjust office stock with +/− then confirm — every change records where the stock went.</p>
+          <div className="relative max-w-xs">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name or SKU…"
+              className="w-full h-9 pl-9 pr-8 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                <X size={14} />
+              </button>
+            )}
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -304,7 +327,10 @@ export default function StockPage() {
                       ))}
                     </tr>
                   ))
-                : rows.map((row) => (
+                : filteredRows.length === 0 ? (
+                    <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400">No SKUs match &quot;{search}&quot;</td></tr>
+                  )
+                : filteredRows.map((row) => (
                     <>
                       <tr
                         key={row.product.id}
