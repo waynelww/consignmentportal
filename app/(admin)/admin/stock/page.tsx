@@ -46,6 +46,7 @@ interface OtherLocationRow {
 
 const EXTERNAL_IN = '__external_in__'  // new stock arriving from outside the tracked system
 const EXTERNAL_OUT = '__external_out__' // stock leaving the tracked system (written off, sample, etc.)
+const ADD_NEW = '__add_new__' // opens the inline "add a new location" form
 
 export default function StockPage() {
   const [rows, setRows] = useState<ProductStockRow[]>([])
@@ -61,6 +62,9 @@ export default function StockPage() {
   const [pickerLocations, setPickerLocations] = useState<StockLocation[]>([])
   const [loadingPicker, setLoadingPicker] = useState(false)
   const [selectedLocation, setSelectedLocation] = useState('')
+  const [addingLocation, setAddingLocation] = useState(false)
+  const [newLocationName, setNewLocationName] = useState('')
+  const [addingLocationSaving, setAddingLocationSaving] = useState(false)
   const [transferNote, setTransferNote] = useState('')
   const [transferSaving, setTransferSaving] = useState(false)
 
@@ -234,6 +238,31 @@ export default function StockPage() {
       fetchData() // refresh "Other Locations" too
     } finally {
       setTransferSaving(false)
+    }
+  }
+
+  // Lets the operator define a new destination on the fly instead of
+  // asking for a code change every time. Persists — shows up in every
+  // future transfer modal automatically.
+  async function addNewLocation() {
+    if (!newLocationName.trim()) return
+    setAddingLocationSaving(true)
+    try {
+      const res = await fetch('/api/inventory/locations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newLocationName.trim() }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(body.error ?? 'Failed to add location'); return }
+      const loc = body.location as StockLocation
+      setPickerLocations((prev) => prev.some((p) => p.id === loc.id) ? prev : [...prev, loc])
+      setSelectedLocation(loc.id)
+      setAddingLocation(false)
+      setNewLocationName('')
+      toast.success(`"${loc.name}" added — it'll show up here from now on`)
+    } finally {
+      setAddingLocationSaving(false)
     }
   }
 
@@ -507,23 +536,50 @@ export default function StockPage() {
             <label className="text-xs font-medium text-gray-600 block mb-1.5">{pickerLabel}</label>
             <select
               value={selectedLocation}
-              onChange={(e) => setSelectedLocation(e.target.value)}
+              onChange={(e) => {
+                if (e.target.value === ADD_NEW) { setAddingLocation(true); setSelectedLocation(''); return }
+                setAddingLocation(false)
+                setSelectedLocation(e.target.value)
+              }}
               disabled={loadingPicker || transferSaving}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] disabled:opacity-50 mb-3"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] disabled:opacity-50 mb-2"
             >
               <option value="">{loadingPicker ? 'Loading…' : 'Select…'}</option>
               {transferModal.delta > 0 ? (
                 <>
                   <option value={EXTERNAL_IN}>New stock (factory / vendor)</option>
                   {pickerLocations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  <option value={ADD_NEW}>+ Add new location…</option>
                 </>
               ) : (
                 <>
                   {pickerLocations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  <option value={ADD_NEW}>+ Add new location…</option>
                   <option value={EXTERNAL_OUT}>Written off / damaged / sample</option>
                 </>
               )}
             </select>
+
+            {addingLocation && (
+              <div className="flex items-center gap-2 mb-3 bg-gray-50 border border-gray-200 rounded-lg p-2">
+                <input
+                  type="text"
+                  value={newLocationName}
+                  onChange={(e) => setNewLocationName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && addNewLocation()}
+                  placeholder="e.g. Mid Valley Kiosk"
+                  autoFocus
+                  disabled={addingLocationSaving}
+                  className="flex-1 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] disabled:opacity-50"
+                />
+                <button type="button" onClick={addNewLocation} disabled={addingLocationSaving || !newLocationName.trim()}
+                  className="px-3 py-1.5 bg-[#0A0A0A] text-white rounded-lg text-xs font-semibold hover:bg-gray-800 disabled:opacity-50 shrink-0">
+                  {addingLocationSaving ? <Loader2 size={13} className="animate-spin" /> : 'Add'}
+                </button>
+              </div>
+            )}
+
+            {!addingLocation && <div className="mb-1" />}
 
             <label className="text-xs font-medium text-gray-600 block mb-1.5">Note (optional)</label>
             <textarea
