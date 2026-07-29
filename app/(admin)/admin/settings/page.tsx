@@ -145,15 +145,17 @@ export default function SettingsPage() {
   }
 
   async function deactivateUser(userId: string, name: string) {
-    const confirmed = window.confirm(`Deactivate user "${name}"?`)
+    const confirmed = window.confirm(`Deactivate "${name}"? They will no longer be able to log in.`)
     if (!confirmed) return
-    // In practice this would call an API route that updates auth + profile
-    const { error } = await supabase
-      .from('profiles')
-      .update({ role: 'store_owner' })
-      .eq('id', userId)
-    if (error) toast.error('Failed to deactivate')
-    else { toast.success('User deactivated'); fetchUsers() }
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/deactivate`, { method: 'POST' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(body.error ?? 'Failed to deactivate'); return }
+      toast.success('User deactivated — they can no longer log in')
+      fetchUsers()
+    } catch {
+      toast.error('An error occurred')
+    }
   }
 
   async function saveNotifications() {

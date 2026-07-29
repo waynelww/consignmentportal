@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { insertWithSequenceCode } from '@/lib/sequence-code'
 
 const ApproveSchema = z.object({
   items: z.array(z.object({
@@ -9,16 +10,6 @@ const ApproveSchema = z.object({
   })).min(1),
   admin_notes: z.string().optional(),
 })
-
-async function generateDoNumber(supabase: Awaited<ReturnType<typeof createClient>>) {
-  const year = new Date().getFullYear()
-  const { count } = await supabase
-    .from('delivery_orders')
-    .select('*', { count: 'exact', head: true })
-    .like('do_number', `DO-${year}-%`)
-  const seq = (count || 0) + 1
-  return `DO-${year}-${String(seq).padStart(4, '0')}`
-}
 
 export async function PATCH(
   request: NextRequest,
@@ -94,25 +85,31 @@ export async function PATCH(
       .eq('restock_request_id', requestId)
   }
 
-  // Generate DO number
-  const doNumber = await generateDoNumber(supabase)
-
   const totalPairs = items.reduce((sum, i) => sum + i.quantity_approved, 0)
+  const year = new Date().getFullYear()
 
   // INSERT delivery_order
-  const { data: deliveryOrder, error: doErr } = await supabase
-    .from('delivery_orders')
-    .insert({
-      do_number: doNumber,
-      store_id: restockRequest.store_id,
-      restock_request_id: requestId,
-      do_type: 'restock',
-      status: 'confirmed',
-      total_pairs: totalPairs,
-      created_by: user.id,
-    })
-    .select('id')
-    .single()
+  const { data: deliveryOrder, error: doErr, code: doNumber } = await insertWithSequenceCode<{ id: string }>({
+    supabase,
+    table: 'delivery_orders',
+    column: 'do_number',
+    prefix: `DO-${year}-`,
+    padLength: 4,
+    insertFn: (doNumber) =>
+      supabase
+        .from('delivery_orders')
+        .insert({
+          do_number: doNumber,
+          store_id: restockRequest.store_id,
+          restock_request_id: requestId,
+          do_type: 'restock',
+          status: 'confirmed',
+          total_pairs: totalPairs,
+          created_by: user.id,
+        })
+        .select('id')
+        .single(),
+  })
 
   if (doErr || !deliveryOrder) {
     return Response.json({ error: 'Failed to create delivery order', details: doErr?.message }, { status: 500 })

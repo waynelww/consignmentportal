@@ -1,5 +1,7 @@
 'use client'
 
+export const dynamic = 'force-dynamic'
+
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Plus, X, Pencil, Trash2, Loader2, Search, ArrowUpDown, Truck, Eye, FileText, Package, AlertTriangle, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -22,7 +24,13 @@ export default function DeliveryOrdersPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [dateFrom, setDateFrom]       = useState('')
   const [dateTo, setDateTo]           = useState('')
-  const [storeFilter, setStoreFilter] = useState('')
+  // Read directly from window rather than useSearchParams — this route has
+  // no dynamic segment, so useSearchParams would force a Suspense boundary
+  // just to avoid a static-export prerender error, for a value we only
+  // need once at mount.
+  const [storeFilter, setStoreFilter] = useState(() =>
+    typeof window === 'undefined' ? '' : new URLSearchParams(window.location.search).get('store_id') ?? ''
+  )
   const [statusFilter, setStatusFilter] = useState('')
   const [typeFilter, setTypeFilter]   = useState('')
   const [sortBy, setSortBy]           = useState<SortBy>('date-desc')

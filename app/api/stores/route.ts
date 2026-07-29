@@ -1,20 +1,11 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { insertWithSequenceCode } from '@/lib/sequence-code'
 
 function randomChars(length: number) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-}
-
-async function generateDoNumber(supabase: Awaited<ReturnType<typeof createClient>>) {
-  const year = new Date().getFullYear()
-  const { count } = await supabase
-    .from('delivery_orders')
-    .select('*', { count: 'exact', head: true })
-    .like('do_number', `DO-${year}-%`)
-  const seq = (count || 0) + 1
-  return `DO-${year}-${String(seq).padStart(4, '0')}`
 }
 
 const CreateStoreSchema = z.object({
@@ -77,40 +68,40 @@ export async function POST(request: NextRequest) {
     commission_rate, payment_terms_days, notes, initial_inventory,
   } = parsed.data
 
-  // Generate store_code: count existing stores + 1
-  const { count: storeCount } = await supabase
-    .from('stores')
-    .select('*', { count: 'exact', head: true })
-
-  const storeSeq = (storeCount || 0) + 1
-  const storeCode = `STR-${String(storeSeq).padStart(3, '0')}`
-  const qrCodeRef = `${storeCode}-${randomChars(8)}`
-
-  // INSERT store
-  const { data: newStore, error: storeErr } = await supabase
-    .from('stores')
-    .insert({
-      store_code: storeCode,
-      store_name,
-      pic_name,
-      pic_phone,
-      email,
-      address,
-      city,
-      state,
-      postcode,
-      store_type,
-      bank_name: bank_name ?? null,
-      bank_account_number: bank_account_number ?? null,
-      bank_account_name: bank_account_name ?? null,
-      commission_rate,
-      payment_terms_days: payment_terms_days ?? 7,
-      status: 'active',
-      qr_code_ref: qrCodeRef,
-      notes: notes ?? null,
-    })
-    .select('id')
-    .single()
+  // INSERT store — store_code generated from the max existing code, not a
+  // count, so it can't collide with a code still in use after a deletion.
+  const { data: newStore, error: storeErr, code: storeCode } = await insertWithSequenceCode<{ id: string }>({
+    supabase,
+    table: 'stores',
+    column: 'store_code',
+    prefix: 'STR-',
+    padLength: 3,
+    insertFn: (storeCode) =>
+      supabase
+        .from('stores')
+        .insert({
+          store_code: storeCode,
+          store_name,
+          pic_name,
+          pic_phone,
+          email,
+          address,
+          city,
+          state,
+          postcode,
+          store_type,
+          bank_name: bank_name ?? null,
+          bank_account_number: bank_account_number ?? null,
+          bank_account_name: bank_account_name ?? null,
+          commission_rate,
+          payment_terms_days: payment_terms_days ?? 7,
+          status: 'active',
+          qr_code_ref: `${storeCode}-${randomChars(8)}`,
+          notes: notes ?? null,
+        })
+        .select('id')
+        .single(),
+  })
 
   if (storeErr || !newStore) {
     return Response.json({ error: 'Failed to create store', details: storeErr?.message }, { status: 500 })
@@ -167,23 +158,30 @@ export async function POST(request: NextRequest) {
       .in('id', productIds)
     const costMap = new Map((products ?? []).map((p) => [p.id, p.cost_price]))
 
-    // Generate DO number
-    const doNumber = await generateDoNumber(supabase)
     const totalPairs = initial_inventory.reduce((sum, i) => sum + i.quantity, 0)
+    const year = new Date().getFullYear()
 
-    const { data: deliveryOrder, error: doErr } = await supabase
-      .from('delivery_orders')
-      .insert({
-        do_number: doNumber,
-        store_id: newStore.id,
-        restock_request_id: null,
-        do_type: 'initial',
-        status: 'acknowledged',
-        total_pairs: totalPairs,
-        created_by: user.id,
-      })
-      .select('id')
-      .single()
+    const { data: deliveryOrder, error: doErr } = await insertWithSequenceCode<{ id: string }>({
+      supabase,
+      table: 'delivery_orders',
+      column: 'do_number',
+      prefix: `DO-${year}-`,
+      padLength: 4,
+      insertFn: (doNumber) =>
+        supabase
+          .from('delivery_orders')
+          .insert({
+            do_number: doNumber,
+            store_id: newStore.id,
+            restock_request_id: null,
+            do_type: 'initial',
+            status: 'acknowledged',
+            total_pairs: totalPairs,
+            created_by: user.id,
+          })
+          .select('id')
+          .single(),
+    })
 
     if (doErr || !deliveryOrder) {
       return Response.json({ error: 'Failed to create initial DO', details: doErr?.message }, { status: 500 })

@@ -380,7 +380,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-base font-semibold text-gray-900">Top 10 Stores</h2>
             <Link
-              href="/stores"
+              href="/admin/stores"
               className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1"
             >
               View all <ArrowRight size={12} />
@@ -397,7 +397,7 @@ export default function DashboardPage() {
               {topStores.map((s, i) => (
                 <Link
                   key={s.store_id}
-                  href={`/stores/${s.store_id}`}
+                  href={`/admin/stores/${s.store_id}`}
                   className="flex items-center gap-3 py-1.5 hover:bg-gray-50 rounded-lg px-2 -mx-2 transition-colors"
                 >
                   <span className="text-xs font-bold text-gray-400 w-5">{i + 1}</span>
@@ -430,7 +430,7 @@ export default function DashboardPage() {
               {bottomStores.map((s, i) => (
                 <Link
                   key={s.store_id}
-                  href={`/stores/${s.store_id}`}
+                  href={`/admin/stores/${s.store_id}`}
                   className="flex items-center gap-3 py-1.5 hover:bg-gray-50 rounded-lg px-2 -mx-2 transition-colors"
                 >
                   <span className="text-xs font-bold text-gray-400 w-5">{i + 1}</span>
@@ -503,7 +503,7 @@ export default function DashboardPage() {
                   {kpis.pending_restocks} restock request{kpis.pending_restocks !== 1 ? 's' : ''} awaiting review
                 </span>
                 <Link
-                  href="/restocks"
+                  href="/admin/restocks"
                   className="text-xs bg-amber-600 text-white px-3 py-1.5 rounded-lg hover:bg-amber-700 transition-colors"
                 >
                   Review Now

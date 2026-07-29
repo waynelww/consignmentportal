@@ -1,16 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-
-async function generateDoNumber(supabase: Awaited<ReturnType<typeof createClient>>) {
-  const year = new Date().getFullYear()
-  const { count } = await supabase
-    .from('delivery_orders')
-    .select('*', { count: 'exact', head: true })
-    .like('do_number', `DO-${year}-%`)
-  const seq = (count || 0) + 1
-  return `DO-${year}-${String(seq).padStart(4, '0')}`
-}
+import { insertWithSequenceCode } from '@/lib/sequence-code'
 
 const CreateDoSchema = z.object({
   store_id: z.string().uuid(),
@@ -52,26 +43,33 @@ export async function POST(request: NextRequest) {
   }
 
   const { store_id, restock_request_id, do_type, items, notes } = parsed.data
-
-  const doNumber = await generateDoNumber(supabase)
   const total_pairs = items.reduce((sum, i) => sum + i.quantity, 0)
+  const year = new Date().getFullYear()
 
   // Flow: Create → 'confirmed' (admin still fills courier/tracking on Dispatch).
   // Dispatch then jumps to 'delivered' (Waiting to Receive) in one step.
-  const { data: deliveryOrder, error: doErr } = await supabase
-    .from('delivery_orders')
-    .insert({
-      do_number: doNumber,
-      store_id,
-      restock_request_id: restock_request_id ?? null,
-      do_type,
-      status: 'confirmed',
-      total_pairs,
-      notes: notes ?? null,
-      created_by: user.id,
-    })
-    .select('id')
-    .single()
+  const { data: deliveryOrder, error: doErr, code: doNumber } = await insertWithSequenceCode<{ id: string }>({
+    supabase,
+    table: 'delivery_orders',
+    column: 'do_number',
+    prefix: `DO-${year}-`,
+    padLength: 4,
+    insertFn: (doNumber) =>
+      supabase
+        .from('delivery_orders')
+        .insert({
+          do_number: doNumber,
+          store_id,
+          restock_request_id: restock_request_id ?? null,
+          do_type,
+          status: 'confirmed',
+          total_pairs,
+          notes: notes ?? null,
+          created_by: user.id,
+        })
+        .select('id')
+        .single(),
+  })
 
   if (doErr || !deliveryOrder) {
     return Response.json({ error: 'Failed to create delivery order', details: doErr?.message }, { status: 500 })

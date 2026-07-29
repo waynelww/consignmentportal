@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { insertWithSequenceCode } from '@/lib/sequence-code'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -144,28 +145,31 @@ async function runTool(name: string, input: Record<string, unknown>, supabase: A
     }
 
     case 'create_delivery_order': {
-      // Generate DO number
       const year = new Date().getFullYear()
-      const { count } = await supabase.from('delivery_orders').select('*', { count: 'exact', head: true }).like('do_number', `DO-${year}-%`)
-      const seq = (count || 0) + 1
-      const doNumber = `DO-${year}-${String(seq).padStart(4, '0')}`
-
       const items = input.items as Array<{ product_id: string; quantity: number }>
       const total_pairs = items.reduce((s, i) => s + i.quantity, 0)
 
-      const { data: newDo, error: doErr } = await supabase
-        .from('delivery_orders')
-        .insert({
-          do_number: doNumber,
-          store_id: input.store_id,
-          do_type: input.do_type,
-          status: 'confirmed',
-          total_pairs,
-          notes: input.notes ?? null,
-          created_by: userId,
-        })
-        .select('id, do_number')
-        .single()
+      const { data: newDo, error: doErr } = await insertWithSequenceCode<{ id: string; do_number: string }>({
+        supabase,
+        table: 'delivery_orders',
+        column: 'do_number',
+        prefix: `DO-${year}-`,
+        padLength: 4,
+        insertFn: (doNumber) =>
+          supabase
+            .from('delivery_orders')
+            .insert({
+              do_number: doNumber,
+              store_id: input.store_id,
+              do_type: input.do_type,
+              status: 'confirmed',
+              total_pairs,
+              notes: input.notes ?? null,
+              created_by: userId,
+            })
+            .select('id, do_number')
+            .single(),
+      })
 
       if (doErr || !newDo) return { error: doErr?.message ?? 'Failed to create DO' }
 
@@ -178,7 +182,7 @@ async function runTool(name: string, input: Record<string, unknown>, supabase: A
       )
       if (itemsErr) return { error: itemsErr.message }
 
-      return { success: true, do_number: doNumber, delivery_order_id: newDo.id, total_pairs, status: 'confirmed', message: 'Delivery order created. The store can now see it as pending receiving.' }
+      return { success: true, do_number: newDo.do_number, delivery_order_id: newDo.id, total_pairs, status: 'confirmed', message: 'Delivery order created. The store can now see it as pending receiving.' }
     }
 
     case 'list_delivery_orders': {
