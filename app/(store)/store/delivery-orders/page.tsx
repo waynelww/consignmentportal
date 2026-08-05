@@ -28,11 +28,19 @@ function SignatureModal({ doNumber, saving, onCancel, onSave }: {
   const last = useRef<{ x: number; y: number } | null>(null)
   const [hasInk, setHasInk] = useState(false)
 
-  useEffect(() => {
+  const setupCanvas = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const dpr = window.devicePixelRatio || 1
     const rect = canvas.getBoundingClientRect()
+    // Guard against a 0x0 read if this ever runs before layout settles
+    // (e.g. a modal-open transition) — retry on the next frame instead
+    // of leaving the canvas with no backing store, which would make
+    // every draw call silently do nothing.
+    if (rect.width === 0 || rect.height === 0) {
+      requestAnimationFrame(setupCanvas)
+      return
+    }
     canvas.width = rect.width * dpr
     canvas.height = rect.height * dpr
     const ctx = canvas.getContext('2d')!
@@ -43,21 +51,27 @@ function SignatureModal({ doNumber, saving, onCancel, onSave }: {
     ctx.strokeStyle = '#1a1a2e'
   }, [])
 
-  function pos(e: React.PointerEvent<HTMLCanvasElement>) {
-    const rect = e.currentTarget.getBoundingClientRect()
+  useEffect(() => {
+    setupCanvas()
+    // A laptop/desktop window can be resized while the modal is open —
+    // a mobile viewport never triggers this, which is why it went unnoticed.
+    window.addEventListener('resize', setupCanvas)
+    return () => window.removeEventListener('resize', setupCanvas)
+  }, [setupCanvas])
+
+  function posFromClient(e: { clientX: number; clientY: number }, target: HTMLElement) {
+    const rect = target.getBoundingClientRect()
     return { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }
 
-  function handleDown(e: React.PointerEvent<HTMLCanvasElement>) {
-    e.currentTarget.setPointerCapture(e.pointerId)
+  function startDrawing(target: HTMLCanvasElement, p: { x: number; y: number }) {
     drawing.current = true
-    last.current = pos(e)
+    last.current = p
   }
 
-  function handleMove(e: React.PointerEvent<HTMLCanvasElement>) {
+  function drawTo(target: HTMLCanvasElement, p: { x: number; y: number }) {
     if (!drawing.current || !last.current) return
-    const ctx = e.currentTarget.getContext('2d')!
-    const p = pos(e)
+    const ctx = target.getContext('2d')!
     ctx.beginPath()
     ctx.moveTo(last.current.x, last.current.y)
     ctx.lineTo(p.x, p.y)
@@ -66,9 +80,36 @@ function SignatureModal({ doNumber, saving, onCancel, onSave }: {
     if (!hasInk) setHasInk(true)
   }
 
-  function handleUp() {
+  function stopDrawing() {
     drawing.current = false
     last.current = null
+  }
+
+  // Pointer Events cover mouse, touch, and pen in every evergreen browser,
+  // but setPointerCapture has real-world quirks on some desktop WebKit
+  // builds — if it throws, the exception happens before drawing.current
+  // is ever set to true, so nothing draws and nothing looks wrong to the
+  // user. Wrapping it means a capture failure degrades gracefully instead
+  // of silently killing the whole interaction.
+  function handlePointerDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* degrade gracefully, see comment above */ }
+    startDrawing(e.currentTarget, posFromClient(e, e.currentTarget))
+  }
+  function handlePointerMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    drawTo(e.currentTarget, posFromClient(e, e.currentTarget))
+  }
+
+  // Mouse fallback — only does anything in the (now rare, but nonzero)
+  // case that PointerEvent isn't available at all, so it can never
+  // double-draw alongside the pointer handlers above.
+  const hasPointerEvents = typeof window !== 'undefined' && 'PointerEvent' in window
+  function handleMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (hasPointerEvents) return
+    startDrawing(e.currentTarget, posFromClient(e, e.currentTarget))
+  }
+  function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (hasPointerEvents) return
+    drawTo(e.currentTarget, posFromClient(e, e.currentTarget))
   }
 
   function clear() {
@@ -83,15 +124,19 @@ function SignatureModal({ doNumber, saving, onCancel, onSave }: {
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5">
         <h3 className="text-base font-semibold text-gray-900 mb-1">Sign for {doNumber}</h3>
-        <p className="text-xs text-gray-400 mb-3">Draw your signature below with your finger.</p>
+        <p className="text-xs text-gray-400 mb-3">Draw your signature below — finger, mouse, or trackpad all work.</p>
 
         <canvas
           ref={canvasRef}
-          onPointerDown={handleDown}
-          onPointerMove={handleMove}
-          onPointerUp={handleUp}
-          onPointerCancel={handleUp}
-          className="w-full h-44 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={stopDrawing}
+          onPointerCancel={stopDrawing}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={stopDrawing}
+          onMouseLeave={stopDrawing}
+          className="w-full h-44 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 cursor-crosshair"
           style={{ touchAction: 'none' }}
         />
 
