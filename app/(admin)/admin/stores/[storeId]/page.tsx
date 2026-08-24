@@ -12,6 +12,8 @@ import {
   Save,
   TrendingUp,
   ArrowUpDown,
+  Trash2,
+  Loader2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -148,6 +150,8 @@ export default function StoreDetailPage() {
 
   const [store, setStore] = useState<Store | null>(null)
   const [inventory, setInventory] = useState<StoreInventory[]>([])
+  const [selectedInvIds, setSelectedInvIds] = useState<Set<string>>(new Set())
+  const [bulkDeletingInv, setBulkDeletingInv] = useState(false)
   const [sales, setSales] = useState<Sale[]>([])
   const [dos, setDos] = useState<DeliveryOrder[]>([])
   const [commissions, setCommissions] = useState<CommissionPeriod[]>([])
@@ -373,6 +377,33 @@ export default function StoreDetailPage() {
       .eq('id', inv.id)
     toast.success('Stock adjusted')
     setAdjustModal({ open: false, inventory: null })
+    loadInventory()
+  }
+
+  async function bulkDeleteInventory() {
+    const ids = Array.from(selectedInvIds)
+    if (ids.length === 0) return
+
+    const selectedRows = inventory.filter((i) => ids.includes(i.id))
+    const totalOnHand = selectedRows.reduce((s, i) => s + i.quantity_on_hand, 0)
+    const warning = totalOnHand > 0
+      ? `\n\nWarning: ${totalOnHand} pairs are still recorded on hand across these SKUs — this only removes them from the store's SKU list, it does not adjust stock elsewhere.`
+      : ''
+    const confirmed = window.confirm(
+      `Remove ${ids.length} SKU${ids.length > 1 ? 's' : ''} from this store's inventory list?${warning}`
+    )
+    if (!confirmed) return
+
+    setBulkDeletingInv(true)
+    const { error } = await supabase.from('store_inventory').delete().in('id', ids)
+    setBulkDeletingInv(false)
+
+    if (error) {
+      toast.error('Failed to remove SKUs')
+      return
+    }
+    toast.success(`Removed ${ids.length} SKU${ids.length > 1 ? 's' : ''}`)
+    setSelectedInvIds(new Set())
     loadInventory()
   }
 
@@ -762,11 +793,43 @@ export default function StoreDetailPage() {
                   </div>
                 </div>
 
+                {/* Bulk action bar — appears once at least one SKU is ticked */}
+                {selectedInvIds.size > 0 && (
+                  <div className="flex items-center justify-between bg-[#0A0A0A] text-white rounded-xl px-4 py-2.5">
+                    <span className="text-sm font-medium">{selectedInvIds.size} SKU{selectedInvIds.size > 1 ? 's' : ''} selected</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setSelectedInvIds(new Set())}
+                        className="text-xs px-3 py-1.5 text-gray-300 hover:text-white transition-colors"
+                      >
+                        Clear
+                      </button>
+                      <button
+                        onClick={bulkDeleteInventory}
+                        disabled={bulkDeletingInv}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                      >
+                        {bulkDeletingInv ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                        Remove Selected
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Table */}
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-100 bg-gray-50">
+                        <th className="py-2 px-3 w-8">
+                          <input
+                            type="checkbox"
+                            checked={sortedInv.length > 0 && selectedInvIds.size === sortedInv.length}
+                            ref={(el) => { if (el) el.indeterminate = selectedInvIds.size > 0 && selectedInvIds.size < sortedInv.length }}
+                            onChange={(e) => setSelectedInvIds(e.target.checked ? new Set(sortedInv.map((i) => i.id)) : new Set())}
+                            className="rounded border-gray-300 text-[#0A0A0A] focus:ring-[#FFD700] cursor-pointer"
+                          />
+                        </th>
                         <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Product</th>
                         <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">SKU</th>
                         <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">On Hand</th>
@@ -794,8 +857,21 @@ export default function StoreDetailPage() {
                           status === 'Low' ? 'bg-amber-100 text-amber-700' :
                           'bg-green-100 text-green-700'
                         const daysLeft = velocity > 0 ? Math.floor(qty / velocity) : null
+                        const checked = selectedInvIds.has(inv.id)
                         return (
-                          <tr key={inv.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                          <tr key={inv.id} className={cn('border-b border-gray-50 hover:bg-gray-50/50', checked && 'bg-amber-50/50')}>
+                            <td className="py-2.5 px-3">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => setSelectedInvIds((prev) => {
+                                  const next = new Set(prev)
+                                  next.has(inv.id) ? next.delete(inv.id) : next.add(inv.id)
+                                  return next
+                                })}
+                                className="rounded border-gray-300 text-[#0A0A0A] focus:ring-[#FFD700] cursor-pointer"
+                              />
+                            </td>
                             <td className="py-2.5 px-3 font-medium text-gray-800">
                               {(inv.product as Product)?.name || '—'}
                             </td>
@@ -854,7 +930,7 @@ export default function StoreDetailPage() {
                       })}
                       {inventory.length === 0 && (
                         <tr>
-                          <td colSpan={8} className="py-10 text-center text-gray-400 text-sm">
+                          <td colSpan={9} className="py-10 text-center text-gray-400 text-sm">
                             No inventory records
                           </td>
                         </tr>
