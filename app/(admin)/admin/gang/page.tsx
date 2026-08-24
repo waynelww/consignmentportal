@@ -23,8 +23,25 @@ interface UploadResult {
   perksGranted: number
 }
 
-function parseOrderNumbersFromText(text: string): string[] {
-  return [...new Set(text.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean))]
+interface ParsedOrder {
+  order_number: string
+  items: { product_name: string; quantity: number }[]
+}
+
+function parseOrdersFromText(text: string): ParsedOrder[] {
+  const numbers = [...new Set(text.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean))]
+  return numbers.map((order_number) => ({ order_number, items: [] }))
+}
+
+// Finds a column by exact header match (after stripping to lowercase
+// letters) from a list of acceptable target names, in priority order.
+function pickColumnIndex(headers: string[], exactTargets: string[]): number {
+  const normalized = headers.map((h) => h.toLowerCase().replace(/[^a-z]/g, ''))
+  for (const target of exactTargets) {
+    const idx = normalized.indexOf(target)
+    if (idx !== -1) return idx
+  }
+  return -1
 }
 
 // Shopee/TikTok exports put "Order ID" among several other "order"-ish
@@ -33,21 +50,38 @@ function parseOrderNumbersFromText(text: string): string[] {
 // Prefer an exact match first, then fall back to loosest match, then the
 // first column.
 function pickOrderColumnIndex(headers: string[]): number {
+  const exact = pickColumnIndex(headers, ['orderid', 'orderno', 'ordernumber'])
+  if (exact !== -1) return exact
   const normalized = headers.map((h) => h.toLowerCase().replace(/[^a-z]/g, ''))
-  const exactTargets = ['orderid', 'orderno', 'ordernumber']
-  for (const target of exactTargets) {
-    const idx = normalized.indexOf(target)
-    if (idx !== -1) return idx
-  }
   const loose = normalized.findIndex((h) => h.includes('order'))
   return loose !== -1 ? loose : 0
 }
 
-function extractOrderNumbers(headers: string[], rows: string[][]): string[] {
+// Groups rows by order number (a Shopee export has one row per line item,
+// so the same order can span several rows) and, when Product Name/Quantity
+// columns exist, captures what was bought for the purchase-history stats.
+function extractOrders(headers: string[], rows: string[][]): ParsedOrder[] {
   if (!headers.length) return []
-  const colIndex = pickOrderColumnIndex(headers)
-  const values = rows.map((r) => String(r[colIndex] ?? '').trim())
-  return [...new Set(values.filter(Boolean))]
+  const orderIdx = pickOrderColumnIndex(headers)
+  const productIdx = pickColumnIndex(headers, ['productname'])
+  const qtyIdx = pickColumnIndex(headers, ['quantity', 'qty'])
+
+  const byOrder = new Map<string, ParsedOrder>()
+  for (const row of rows) {
+    const orderNumber = String(row[orderIdx] ?? '').trim()
+    if (!orderNumber) continue
+    let order = byOrder.get(orderNumber)
+    if (!order) {
+      order = { order_number: orderNumber, items: [] }
+      byOrder.set(orderNumber, order)
+    }
+    if (productIdx !== -1) {
+      const productName = String(row[productIdx] ?? '').trim()
+      const qty = qtyIdx !== -1 ? parseInt(String(row[qtyIdx]).replace(/[^0-9]/g, ''), 10) : 1
+      if (productName && qty > 0) order.items.push({ product_name: productName, quantity: qty })
+    }
+  }
+  return [...byOrder.values()]
 }
 
 function parseCSVText(text: string): { headers: string[]; rows: string[][] } {
@@ -62,55 +96,63 @@ function isSpreadsheetFile(file: File): boolean {
 }
 
 // Nothing here is ever uploaded or persisted anywhere — the file is read
-// entirely in the browser, order numbers are pulled out into memory, and
-// the raw bytes are discarded once this resolves.
-async function extractOrderNumbersFromFile(file: File): Promise<string[]> {
+// entirely in the browser, order numbers (and product/quantity, if present)
+// are pulled into memory, and the raw bytes are discarded once this resolves.
+async function extractOrdersFromFile(file: File): Promise<ParsedOrder[]> {
   if (isSpreadsheetFile(file)) {
     const buffer = await file.arrayBuffer()
     const workbook = XLSX.read(buffer, { type: 'array' })
     const sheet = workbook.Sheets[workbook.SheetNames[0]]
     const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' })
     const [headers, ...dataRows] = rows
-    return extractOrderNumbers(headers ?? [], dataRows)
+    return extractOrders(headers ?? [], dataRows)
   }
   const text = await file.text()
   const { headers, rows } = parseCSVText(text)
-  return extractOrderNumbers(headers, rows)
+  return extractOrders(headers, rows)
 }
 
 export default function GangOrdersPage() {
   const [platform, setPlatform] = useState<Platform>('shopee')
   const [pasted, setPasted] = useState('')
-  const [orderNumbers, setOrderNumbers] = useState<string[]>([])
+  const [orders, setOrders] = useState<ParsedOrder[]>([])
   const [fileName, setFileName] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [closingOut, setClosingOut] = useState(false)
   const [result, setResult] = useState<UploadResult | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  const itemCount = orders.reduce((sum, o) => sum + o.items.length, 0)
+
   function handlePasteChange(value: string) {
     setPasted(value)
     setFileName(null)
-    setOrderNumbers(parseOrderNumbersFromText(value))
+    setOrders(parseOrdersFromText(value))
   }
 
   async function handleFile(file: File) {
     try {
-      const numbers = await extractOrderNumbersFromFile(file)
-      if (!numbers.length) {
+      const parsed = await extractOrdersFromFile(file)
+      if (!parsed.length) {
         toast.error("Couldn't find an order-number column in that file — try pasting the numbers instead.")
         return
       }
       setFileName(file.name)
       setPasted('')
-      setOrderNumbers(numbers)
+      setOrders(parsed)
     } catch {
       toast.error("Couldn't read that file — try pasting the numbers instead.")
     }
   }
 
+  function clearOrders() {
+    setOrders([])
+    setPasted('')
+    setFileName(null)
+  }
+
   async function handleUpload() {
-    if (!orderNumbers.length) return
+    if (!orders.length) return
     setUploading(true)
     setResult(null)
     try {
@@ -119,7 +161,11 @@ export default function GangOrdersPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'upload',
-          orderNumbers: orderNumbers.map((n) => ({ order_number: n, platform: platform || undefined })),
+          orderNumbers: orders.map((o) => ({
+            order_number: o.order_number,
+            platform: platform || undefined,
+            items: o.items.length ? o.items : undefined,
+          })),
         }),
       })
       const data = await res.json()
@@ -129,9 +175,7 @@ export default function GangOrdersPage() {
       }
       setResult(data)
       toast.success(`Uploaded ${data.uploaded} order number(s)`)
-      setOrderNumbers([])
-      setPasted('')
-      setFileName(null)
+      clearOrders()
     } catch {
       toast.error('Could not reach the server')
     } finally {
@@ -214,7 +258,7 @@ export default function GangOrdersPage() {
             <Upload size={16} />
             {fileName
               ? `${fileName} — click to replace`
-              : 'Upload a Shopee/TikTok export (.xlsx or .csv — auto-detects the order-number column)'}
+              : 'Upload a Shopee/TikTok export (.xlsx or .csv — auto-detects order/product columns)'}
           </button>
           <input
             ref={fileRef}
@@ -228,20 +272,16 @@ export default function GangOrdersPage() {
           />
         </div>
 
-        {orderNumbers.length > 0 && (
+        {orders.length > 0 && (
           <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
             <div className="flex items-center gap-2 text-sm text-gray-700">
               <FileText size={16} className="text-gray-400" />
-              <span className="font-medium">{orderNumbers.length} order number(s) ready</span>
+              <span className="font-medium">
+                {orders.length} order{orders.length === 1 ? '' : 's'} ready
+                {itemCount > 0 && ` — ${itemCount} product line${itemCount === 1 ? '' : 's'} captured for purchase stats`}
+              </span>
             </div>
-            <button
-              onClick={() => {
-                setOrderNumbers([])
-                setPasted('')
-                setFileName(null)
-              }}
-              className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
-            >
+            <button onClick={clearOrders} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
               <X size={12} /> Clear
             </button>
           </div>
@@ -249,10 +289,10 @@ export default function GangOrdersPage() {
 
         <button
           onClick={handleUpload}
-          disabled={!orderNumbers.length || uploading}
+          disabled={!orders.length || uploading}
           className="w-full px-5 py-2.5 bg-[#0A0A0A] text-[#FFD700] text-sm font-semibold rounded-lg hover:opacity-80 disabled:opacity-40 transition-opacity"
         >
-          {uploading ? 'Uploading…' : `Upload ${orderNumbers.length || ''} Order Number${orderNumbers.length === 1 ? '' : 's'}`.trim()}
+          {uploading ? 'Uploading…' : `Upload ${orders.length || ''} Order${orders.length === 1 ? '' : 's'}`.trim()}
         </button>
       </div>
 

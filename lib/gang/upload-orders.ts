@@ -8,6 +8,15 @@ export interface UploadOrdersResult {
   perksGranted: number
 }
 
+export interface UploadOrderInput {
+  order_number: string
+  platform?: string
+  // What was actually bought — powers a member's lifetime pairs/top-products
+  // stats. Optional since a plain pasted order-number list (no spreadsheet)
+  // can't carry this.
+  items?: { product_name: string; quantity: number }[]
+}
+
 // Records the day's confirmed order numbers and flips matching pending
 // submissions to valid, then grants the Shopify perk for every member with
 // a valid order who doesn't have one yet — covers members matched just now
@@ -16,7 +25,7 @@ export interface UploadOrdersResult {
 // there's exactly one implementation of this reconciliation logic.
 export async function uploadGangOrderNumbers(
   supabase: SupabaseClient,
-  orderNumbers: { order_number: string; platform?: string }[],
+  orderNumbers: UploadOrderInput[],
   batchDate?: string,
 ): Promise<UploadOrdersResult> {
   const date = batchDate ?? new Date().toISOString().slice(0, 10)
@@ -30,6 +39,29 @@ export async function uploadGangOrderNumbers(
   if (upsertErr) throw new Error(upsertErr.message)
 
   const orderNumberList = rows.map((r) => r.order_number)
+
+  // Replace (not append) each order's item rows, so re-uploading the same
+  // day's file twice by mistake doesn't double-count pairs bought.
+  const withItems = orderNumbers.filter((o) => o.items?.length)
+  if (withItems.length) {
+    const { error: delErr } = await supabase
+      .from('gang_order_items')
+      .delete()
+      .in('order_number', withItems.map((o) => o.order_number.trim()))
+    if (delErr) throw new Error(delErr.message)
+
+    const itemRows = withItems.flatMap((o) =>
+      (o.items ?? []).map((item) => ({
+        order_number: o.order_number.trim(),
+        product_name: item.product_name.trim(),
+        quantity: item.quantity,
+      })),
+    )
+    if (itemRows.length) {
+      const { error: itemErr } = await supabase.from('gang_order_items').insert(itemRows)
+      if (itemErr) throw new Error(itemErr.message)
+    }
+  }
   const { data: matched, error: matchErr } = await supabase
     .from('gang_order_submissions')
     .update({ status: 'valid', verified_at: new Date().toISOString() })

@@ -7,7 +7,13 @@ import { uploadGangOrderNumbers, closeOutGangOrders } from '@/lib/gang/upload-or
 const UploadSchema = z.object({
   type: z.literal('upload'),
   orderNumbers: z
-    .array(z.object({ order_number: z.string().min(1), platform: z.string().optional() }))
+    .array(
+      z.object({
+        order_number: z.string().min(1),
+        platform: z.string().optional(),
+        items: z.array(z.object({ product_name: z.string().min(1), quantity: z.number().int().positive() })).optional(),
+      }),
+    )
     .min(1),
   batchDate: z.string().optional(),
 })

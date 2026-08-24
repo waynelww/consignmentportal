@@ -19,6 +19,12 @@ interface RegisterResult {
   }
   prizes: GangPrize[]
   perk: { code: string; min_quantity: number; discount_amount: number } | null
+  stats: MemberStats | null
+}
+
+interface MemberStats {
+  totalPairs: number
+  topProducts: { name: string; pairs: number }[]
 }
 
 const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_GANG_WHATSAPP_NUMBER || '60000000000'
@@ -117,6 +123,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [result, setResult] = useState<RegisterResult | null>(null)
   const [perkCopied, setPerkCopied] = useState(false)
+  const [returningStats, setReturningStats] = useState<MemberStats | null>(null)
 
   const [timer, setTimer] = useState('--:--:--')
   const confettiRef = useRef<HTMLCanvasElement>(null)
@@ -236,9 +243,11 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
       if (data.exists) {
         setReturning(true)
         setName(data.name ?? '')
+        setReturningStats(data.stats ?? null)
         setStep(2)
       } else {
         setReturning(false)
+        setReturningStats(null)
         setStep(1)
       }
     } catch {
@@ -305,6 +314,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
     setErrors({})
     setResult(null)
     setPerkCopied(false)
+    setReturningStats(null)
   }
 
   async function copyPerkCode(code: string) {
@@ -347,20 +357,9 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
         <section className={styles.hero}>
           <div className={styles.floaters} ref={floatersRef} />
           <h1 className={styles.heroTitle}>
-            You already bought the socks — now come get <em>rewarded</em> for it.
+            You bought the socks — now get <em>rewarded</em> for it.
           </h1>
-
-          <div className={styles.perks}>
-            <div className={styles.perk}>
-              <span className={styles.perkIco}>💬</span> Exclusive promo codes sent straight to your WhatsApp
-            </div>
-            <div className={styles.perk}>
-              <span className={styles.perkIco}>🎟️</span> Entry into our monthly Grand Draw, every order counts
-            </div>
-            <div className={styles.perk}>
-              <span className={styles.perkIco}>🚀</span> Early access to new drops before anyone else
-            </div>
-          </div>
+          <p className={styles.heroSub}>WhatsApp promo codes, a monthly Grand Draw, and first dibs on new drops.</p>
 
           <div className={styles.prizepreview}>
             <div className={styles.ppHead}>🎉 This month&apos;s grand draw</div>
@@ -474,8 +473,18 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                 </p>
                 {returning && (
                   <div className={styles.welcomeback}>
-                    👋 Welcome back{name ? `, ${name.split(' ')[0]}` : ''} — recognized your number, no need to
-                    re-enter your details.
+                    <div>
+                      👋 Welcome back{name ? `, ${name.split(' ')[0]}` : ''} — recognized your number, no need to
+                      re-enter your details.
+                    </div>
+                    {!!returningStats?.totalPairs && (
+                      <div className={styles.welcomebackStats}>
+                        🧦 {returningStats.totalPairs} pair{returningStats.totalPairs === 1 ? '' : 's'} so far
+                        {returningStats.topProducts[0] && (
+                          <span className={styles.welcomebackFave}> · Fave: {returningStats.topProducts[0].name}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
                 <label className={styles.field}>
@@ -570,6 +579,24 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                       <div className={styles.idcardX}>X</div>
                     </div>
                   </div>
+
+                  {!!result.stats?.totalPairs && (
+                    <div className={styles.statsstrip}>
+                      <div className={styles.statsstripTotal}>
+                        <span className={styles.statsstripNum}>{result.stats.totalPairs}</span> pair
+                        {result.stats.totalPairs === 1 ? '' : 's'} bought total
+                      </div>
+                      {result.stats.topProducts.length > 0 && (
+                        <div className={styles.statsstripTop}>
+                          {result.stats.topProducts.map((p, i) => (
+                            <span key={i} className={styles.statsstripChip}>
+                              {p.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className={`${styles.statusrow} ${STATUS_COPY[result.submission.status].cls}`}>
                     <div className={styles.statusdot} />

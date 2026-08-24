@@ -1,14 +1,14 @@
 .page {
-  --cream: #F1E9D8;
-  --creamDeep: #E7DBC3;
-  --ink: #241811;
-  --brown: #6E4429;
-  --brownDeep: #4A2C18;
-  --amber: #E7A33B;
-  --stripe: #C1442D;
-  --ok: #4C7A4A;
-  --line: rgba(36, 24, 17, 0.16);
-  --cardShadow: 0 1px 0 rgba(36, 24, 17, 0.06), 0 10px 24px -12px rgba(36, 24, 17, 0.35);
+  --cream: #FFF1F8;
+  --creamDeep: #FFDFF0;
+  --ink: #1B0B2E;
+  --brown: #FF3D81;
+  --brownDeep: #7B2FF7;
+  --amber: #FFC400;
+  --stripe: #FF4D6D;
+  --ok: #00B871;
+  --line: rgba(27, 11, 46, 0.14);
+  --cardShadow: 0 1px 0 rgba(27, 11, 46, 0.06), 0 12px 28px -14px rgba(123, 47, 247, 0.35);
   --fontDisplay: ui-rounded, "SF Pro Rounded", "Segoe UI Rounded", "Nunito", system-ui, sans-serif;
   --fontMono: ui-monospace, "SF Mono", "Menlo", "Cascadia Mono", monospace;
 
@@ -17,17 +17,18 @@
   color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, system-ui, sans-serif;
   background:
-    radial-gradient(ellipse 900px 500px at 50% -10%, color-mix(in srgb, var(--amber) 14%, transparent), transparent),
+    radial-gradient(ellipse 800px 460px at 15% -8%, color-mix(in srgb, var(--brown) 20%, transparent), transparent),
+    radial-gradient(ellipse 700px 420px at 100% 10%, color-mix(in srgb, var(--brownDeep) 16%, transparent), transparent),
     var(--cream);
   overflow-x: hidden;
 }
 
 @media (prefers-color-scheme: dark) {
   .page {
-    --cream: #1B140D; --creamDeep: #241A11; --ink: #F2E9D8;
-    --brown: #C79A6B; --brownDeep: #8C6136; --amber: #F0B75B;
-    --stripe: #E2604A; --ok: #6FAE6C; --line: rgba(242, 233, 216, 0.14);
-    --cardShadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 14px 30px -14px rgba(0, 0, 0, 0.6);
+    --cream: #170B2E; --creamDeep: #20103F; --ink: #FFF7FB;
+    --brown: #FF3D81; --brownDeep: #7B2FF7; --amber: #FFD400;
+    --stripe: #FF4D6D; --ok: #00E28A; --line: rgba(255, 247, 251, 0.16);
+    --cardShadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 14px 32px -14px rgba(255, 61, 129, 0.4);
   }
 }
 
@@ -78,15 +79,9 @@
 .urgencyTimer { margin-left: auto; font-family: var(--fontMono); font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; background: rgba(255, 255, 255, 0.18); padding: 4px 8px; border-radius: 8px; white-space: nowrap; }
 
 .hero { position: relative; padding: 14px 22px 6px; z-index: 1; }
-.heroTitle { font-family: var(--fontDisplay); font-weight: 800; font-size: 22px; line-height: 1.22; margin: 6px 0 14px; text-wrap: balance; letter-spacing: -0.01em; animation: fadeup 0.6s 0.15s both; }
+.heroTitle { font-family: var(--fontDisplay); font-weight: 800; font-size: 22px; line-height: 1.22; margin: 6px 0 8px; text-wrap: balance; letter-spacing: -0.01em; animation: fadeup 0.6s 0.15s both; }
 .heroTitle em { font-style: normal; color: var(--brown); }
-
-.perks { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
-.perk { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; animation: fadeup 0.5s both; }
-.perk:nth-child(1) { animation-delay: 0.22s; }
-.perk:nth-child(2) { animation-delay: 0.3s; }
-.perk:nth-child(3) { animation-delay: 0.38s; }
-.perkIco { width: 30px; height: 30px; border-radius: 9px; background: var(--creamDeep); display: flex; align-items: center; justify-content: center; font-size: 15px; flex: none; box-shadow: 0 1px 0 var(--line); }
+.heroSub { font-size: 13px; font-weight: 600; opacity: 0.8; margin: 0 0 16px; line-height: 1.4; animation: fadeup 0.5s 0.24s both; }
 
 .prizepreview { border-radius: 18px; padding: 16px 16px 14px; margin-bottom: 16px; position: relative; overflow: hidden; background: linear-gradient(160deg, var(--brown), var(--brownDeep)); color: var(--cream); box-shadow: var(--cardShadow); animation: fadeup 0.6s 0.46s both; }
 .prizepreview::after { content: ""; position: absolute; inset: 0; opacity: 0.15; background-image: radial-gradient(circle, #fff 1px, transparent 1.4px); background-size: 14px 14px; }
@@ -110,7 +105,9 @@
 
 .step { animation: slidein 0.42s cubic-bezier(.2, .8, .2, 1); }
 
-.welcomeback { display: flex; align-items: center; gap: 8px; background: color-mix(in srgb, var(--ok) 16%, var(--cream)); border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent); padding: 9px 12px; border-radius: 12px; font-size: 12.5px; font-weight: 700; margin-bottom: 16px; animation: fadeup 0.4s both; }
+.welcomeback { display: flex; flex-direction: column; gap: 6px; background: color-mix(in srgb, var(--ok) 16%, var(--cream)); border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent); padding: 9px 12px; border-radius: 12px; font-size: 12.5px; font-weight: 700; margin-bottom: 16px; animation: fadeup 0.4s both; }
+.welcomebackStats { font-size: 11.5px; font-weight: 600; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.welcomebackFave { font-weight: 500; }
 
 .eyebrow { font-family: var(--fontDisplay); text-transform: uppercase; letter-spacing: 0.16em; font-size: 11px; color: var(--brown); font-weight: 700; margin: 0 0 6px; }
 .stepTitle { font-family: var(--fontDisplay); font-weight: 800; font-size: 24px; line-height: 1.15; margin: 0 0 6px; text-wrap: balance; letter-spacing: -0.01em; }
@@ -134,7 +131,7 @@
 .chipBadge { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex: none; overflow: hidden; }
 
 .btnrow { display: flex; gap: 10px; margin-top: 6px; }
-.btnPrimary { flex: 1; background: var(--brown); color: var(--cream); font-weight: 800; font-size: 15px; padding: 14px 18px; border-radius: 14px; box-shadow: var(--cardShadow); transition: transform 0.12s ease; border: none; font-family: inherit; cursor: pointer; }
+.btnPrimary { flex: 1; background: var(--amber); color: var(--brownDeep); font-weight: 800; font-size: 15px; padding: 14px 18px; border-radius: 14px; box-shadow: var(--cardShadow); transition: transform 0.12s ease; border: none; font-family: inherit; cursor: pointer; }
 .btnPrimary:active { transform: scale(0.97); }
 .btnPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btnGhost { background: transparent; color: var(--brown); font-weight: 700; font-size: 14px; padding: 14px 16px; border-radius: 14px; border: none; font-family: inherit; cursor: pointer; }
@@ -157,6 +154,12 @@
 .idcardFoot { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; position: relative; }
 .idcardSince { font-size: 10.5px; opacity: 0.75; }
 .idcardX { width: 26px; height: 26px; border-radius: 50%; background: rgba(255, 255, 255, 0.14); display: flex; align-items: center; justify-content: center; font-family: var(--fontDisplay); font-weight: 800; font-size: 13px; }
+
+.statsstrip { margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: var(--cream); border: 1.5px solid var(--line); text-align: left; }
+.statsstripTotal { font-size: 13px; font-weight: 700; }
+.statsstripNum { font-family: var(--fontDisplay); font-size: 17px; color: var(--brown); font-variant-numeric: tabular-nums; }
+.statsstripTop { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.statsstripChip { font-size: 11px; font-weight: 600; background: var(--creamDeep); border-radius: 99px; padding: 4px 10px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .statusrow { margin-top: 16px; display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--cream); border: 1.5px solid var(--line); text-align: left; }
 .statusdot { width: 10px; height: 10px; border-radius: 50%; flex: none; }

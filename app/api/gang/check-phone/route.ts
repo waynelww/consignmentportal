@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { checkRateLimit, recordAttempt } from '@/lib/rate-limit'
 import { normalizePhone } from '@/lib/gang/phone'
+import { getMemberStats } from '@/lib/gang/member-stats'
 
 const Schema = z.object({ phone: z.string().min(6) })
 
@@ -37,12 +38,14 @@ export async function POST(request: NextRequest) {
   const supabase = createAdminClient()
   const { data: member, error } = await supabase
     .from('gang_members')
-    .select('name')
+    .select('id, name')
     .eq('phone', phone)
     .maybeSingle()
   if (error) {
     return Response.json({ error: 'Could not look up that number. Try again.' }, { status: 500 })
   }
 
-  return Response.json({ exists: !!member, name: member?.name ?? null })
+  const stats = member ? await getMemberStats(supabase, member.id) : null
+
+  return Response.json({ exists: !!member, name: member?.name ?? null, stats })
 }
