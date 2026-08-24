@@ -88,6 +88,7 @@ export async function GET(request: NextRequest) {
 
   const storeList: StoreRow[] = (stores ?? []) as StoreRow[]
   let skipped = 0
+  let noSales = 0
 
   // Critical path: generate the period + in-app notifications, in parallel batches.
   const generated: CommissionResult[] = []
@@ -117,6 +118,16 @@ export async function GET(request: NextRequest) {
 
     const total_units_sold = (sales ?? []).reduce((s, x) => s + x.quantity, 0)
     const total_revenue = Number((sales ?? []).reduce((s, x) => s + x.total_amount, 0).toFixed(2))
+
+    // No sales at all this month — no invoice to generate, no document,
+    // no "you owe RM0.00" notification. The store's Commissions page
+    // shows a plain "No sales in {Month}" message for this case instead
+    // (computed from the absence of both a period row and any sales row).
+    if (total_units_sold === 0) {
+      noSales++
+      return null
+    }
+
     const { commission_amount, xocks_revenue } = calcCommission(total_revenue, store.commission_rate)
 
     // Insert commission period
@@ -231,17 +242,18 @@ export async function GET(request: NextRequest) {
   const critical_ms = Date.now() - start
   console.log(
     `[cron generate-commissions] critical path done · ` +
-    `generated=${generated.length} skipped=${skipped} stores=${storeList.length} · ${critical_ms}ms`,
+    `generated=${generated.length} skipped=${skipped} no_sales=${noSales} stores=${storeList.length} · ${critical_ms}ms`,
   )
 
   return Response.json({
     success: true,
     generated: generated.length,
     skipped,
+    no_sales: noSales,
     stores_processed: storeList.length,
     critical_path_ms: critical_ms,
     month: prevMonth,
     year: prevYear,
-    note: 'Emails and push notifications are sent in the background after this response.',
+    note: 'Emails and push notifications are sent in the background after this response. Stores with zero sales get no invoice/notification at all.',
   })
 }

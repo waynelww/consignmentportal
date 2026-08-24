@@ -92,6 +92,13 @@ export async function POST(request: NextRequest) {
 
   const total_units_sold = (sales ?? []).reduce((s, x) => s + x.quantity, 0)
   const total_revenue = Number((sales ?? []).reduce((s, x) => s + x.total_amount, 0).toFixed(2))
+
+  // No sales this month — no invoice/document to generate. Don't create a
+  // period row or notify; the caller shows a plain "No sales" message.
+  if (total_units_sold === 0) {
+    return Response.json({ no_sales: true, created: false })
+  }
+
   const { commission_amount, xocks_revenue } = calcCommission(total_revenue, store.commission_rate)
 
   // Create the period

@@ -210,7 +210,9 @@ function NewStorePage() {
             const prior = priorById.get(p.id)
             return {
               product_id: p.id,
-              selected: prior ? prior.selected : p.is_recommended,
+              // Recommendations are a suggestion, not a default — admin
+              // ticks them manually (or uses "Tick all recommended").
+              selected: prior ? prior.selected : false,
               quantity: prior ? prior.quantity : p.suggested_qty,
               product: p,
               is_recommended: p.is_recommended,

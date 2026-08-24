@@ -30,6 +30,7 @@ export default function CommissionsPage() {
   const [currentMonthCommission, setCurrentMonthCommission] = useState(0)
   const [commissionRate, setCommissionRate] = useState(contextStore?.commission_rate ?? 0)
   const [loading, setLoading] = useState(true)
+  const [noSalesMonth, setNoSalesMonth] = useState<{ month: number; year: number } | null>(null)
 
   const load = useCallback(async () => {
     if (!storeId) return
@@ -76,19 +77,24 @@ export default function CommissionsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ month: prevMonth, year: prevYear }),
-      }).then((res) => {
-        if (res.ok) {
-          // Reload to show the newly generated period
-          supabase
-            .from('commission_periods')
-            .select('*, receipt:payment_receipts(*)')
-            .eq('store_id', storeId!)
-            .order('period_year', { ascending: false })
-            .order('period_month', { ascending: false })
-            .then(({ data }) => {
-              if (data) setPeriods(normalizePeriods(data))
-            })
+      }).then(async (res) => {
+        if (!res.ok) return
+        const body = await res.json().catch(() => ({}))
+        if (body.no_sales) {
+          // No invoice was generated — nothing to reload, just show the message.
+          setNoSalesMonth({ month: prevMonth, year: prevYear })
+          return
         }
+        // Reload to show the newly generated period
+        supabase
+          .from('commission_periods')
+          .select('*, receipt:payment_receipts(*)')
+          .eq('store_id', storeId!)
+          .order('period_year', { ascending: false })
+          .order('period_month', { ascending: false })
+          .then(({ data }) => {
+            if (data) setPeriods(normalizePeriods(data))
+          })
       })
     }
 
@@ -158,7 +164,7 @@ export default function CommissionsPage() {
               </div>
             ))}
           </div>
-        ) : periods.length === 0 ? (
+        ) : periods.length === 0 && !noSalesMonth ? (
           <div className="text-center py-10">
             <FileText size={32} className="text-gray-300 mx-auto mb-2" />
             <p className="text-sm text-gray-400">No invoices yet</p>
@@ -166,6 +172,14 @@ export default function CommissionsPage() {
           </div>
         ) : (
           <div className="space-y-3">
+            {noSalesMonth && (
+              <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-4 text-center">
+                <p className="text-sm font-semibold text-gray-500">
+                  NO SALES IN {formatMonthYear(noSalesMonth.month, noSalesMonth.year).toUpperCase()}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">No invoice needed — nothing was sold this month.</p>
+              </div>
+            )}
             {periods.map((period) => {
               const cfg = statusConfig[period.status] ?? { label: period.status, classes: 'bg-gray-100 text-gray-600' }
               return (
