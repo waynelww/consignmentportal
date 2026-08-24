@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import { Upload, FileText, CheckCircle2, X, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
+import * as XLSX from 'xlsx'
 
 type Platform = 'shopee' | 'tiktok' | 'website' | 'instagram' | 'instore' | ''
 
@@ -26,15 +27,55 @@ function parseOrderNumbersFromText(text: string): string[] {
   return [...new Set(text.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean))]
 }
 
-function parseOrderNumbersFromCSV(text: string): string[] {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
-  if (lines.length < 2) return []
-  const splitLine = (line: string) => line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''))
-  const headers = splitLine(lines[0])
-  const col = headers.find((h) => h.toLowerCase().replace(/[^a-z]/g, '').includes('order')) || headers[0]
-  const colIndex = headers.indexOf(col)
-  const values = lines.slice(1).map((l) => splitLine(l)[colIndex]?.trim() ?? '')
+// Shopee/TikTok exports put "Order ID" among several other "order"-ish
+// columns (Order Status, Order Creation Date, Order Paid Time...), so a
+// bare "contains order" match isn't reliable once column order shifts.
+// Prefer an exact match first, then fall back to loosest match, then the
+// first column.
+function pickOrderColumnIndex(headers: string[]): number {
+  const normalized = headers.map((h) => h.toLowerCase().replace(/[^a-z]/g, ''))
+  const exactTargets = ['orderid', 'orderno', 'ordernumber']
+  for (const target of exactTargets) {
+    const idx = normalized.indexOf(target)
+    if (idx !== -1) return idx
+  }
+  const loose = normalized.findIndex((h) => h.includes('order'))
+  return loose !== -1 ? loose : 0
+}
+
+function extractOrderNumbers(headers: string[], rows: string[][]): string[] {
+  if (!headers.length) return []
+  const colIndex = pickOrderColumnIndex(headers)
+  const values = rows.map((r) => String(r[colIndex] ?? '').trim())
   return [...new Set(values.filter(Boolean))]
+}
+
+function parseCSVText(text: string): { headers: string[]; rows: string[][] } {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
+  if (lines.length < 2) return { headers: [], rows: [] }
+  const splitLine = (line: string) => line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''))
+  return { headers: splitLine(lines[0]), rows: lines.slice(1).map(splitLine) }
+}
+
+function isSpreadsheetFile(file: File): boolean {
+  return /\.(xlsx|xls)$/i.test(file.name)
+}
+
+// Nothing here is ever uploaded or persisted anywhere — the file is read
+// entirely in the browser, order numbers are pulled out into memory, and
+// the raw bytes are discarded once this resolves.
+async function extractOrderNumbersFromFile(file: File): Promise<string[]> {
+  if (isSpreadsheetFile(file)) {
+    const buffer = await file.arrayBuffer()
+    const workbook = XLSX.read(buffer, { type: 'array' })
+    const sheet = workbook.Sheets[workbook.SheetNames[0]]
+    const rows: string[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' })
+    const [headers, ...dataRows] = rows
+    return extractOrderNumbers(headers ?? [], dataRows)
+  }
+  const text = await file.text()
+  const { headers, rows } = parseCSVText(text)
+  return extractOrderNumbers(headers, rows)
 }
 
 export default function GangOrdersPage() {
@@ -53,9 +94,9 @@ export default function GangOrdersPage() {
     setOrderNumbers(parseOrderNumbersFromText(value))
   }
 
-  function handleFile(file: File) {
-    file.text().then((text) => {
-      const numbers = parseOrderNumbersFromCSV(text)
+  async function handleFile(file: File) {
+    try {
+      const numbers = await extractOrderNumbersFromFile(file)
       if (!numbers.length) {
         toast.error("Couldn't find an order-number column in that file — try pasting the numbers instead.")
         return
@@ -63,7 +104,9 @@ export default function GangOrdersPage() {
       setFileName(file.name)
       setPasted('')
       setOrderNumbers(numbers)
-    })
+    } catch {
+      toast.error("Couldn't read that file — try pasting the numbers instead.")
+    }
   }
 
   async function handleUpload() {
@@ -169,12 +212,14 @@ export default function GangOrdersPage() {
             className="mt-2 w-full flex items-center justify-center gap-2 border-2 border-dashed border-gray-200 hover:border-gray-300 rounded-lg py-4 text-sm text-gray-500"
           >
             <Upload size={16} />
-            {fileName ? `${fileName} — click to replace` : 'Upload a CSV export (auto-detects the order-number column)'}
+            {fileName
+              ? `${fileName} — click to replace`
+              : 'Upload a Shopee/TikTok export (.xlsx or .csv — auto-detects the order-number column)'}
           </button>
           <input
             ref={fileRef}
             type="file"
-            accept=".csv,.txt"
+            accept=".xlsx,.xls,.csv,.txt"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0]
