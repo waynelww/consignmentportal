@@ -4,7 +4,7 @@
   --ink: #241811;
   --brown: #6E4429;
   --brownDeep: #4A2C18;
-  --amber: #F0A93B;
+  --amber: #F4D75E;
   --stripe: #D6421F;
   --ok: #4C7A4A;
   --line: rgba(36, 24, 17, 0.16);
@@ -26,7 +26,7 @@
 @media (prefers-color-scheme: dark) {
   .page {
     --cream: #1B140D; --creamDeep: #241A11; --ink: #F5EEDE;
-    --brown: #C79A6B; --brownDeep: #8C6136; --amber: #F5B84E;
+    --brown: #C79A6B; --brownDeep: #8C6136; --amber: #F7E074;
     --stripe: #E86A3F; --ok: #6FAE6C; --line: rgba(245, 238, 222, 0.16);
     --cardShadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 14px 32px -14px rgba(0, 0, 0, 0.6);
   }
@@ -63,9 +63,12 @@
 .floater { position: absolute; bottom: -30px; opacity: 0.35; animation: floatup linear infinite; }
 
 .brandbar { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 18px 20px 8px; position: relative; z-index: 2; animation: pop 0.6s cubic-bezier(.2, 1.4, .4, 1) both; }
-.brandlockup { display: flex; align-items: baseline; gap: 6px; }
-.brandXocks { font-family: var(--fontDisplay); font-weight: 800; letter-spacing: 0.1em; font-size: 17px; color: var(--ink); }
-.brandGang { font-family: var(--fontDisplay); font-weight: 800; letter-spacing: 0.12em; font-size: 12px; color: var(--brown); }
+.brandLogoImg { height: 24px; width: auto; display: block; }
+.brandGang { font-family: var(--fontDisplay); font-weight: 800; letter-spacing: 0.1em; font-size: 11px; color: var(--cream); background: var(--brown); padding: 3px 8px; border-radius: 99px; }
+
+@media (prefers-color-scheme: dark) {
+  .brandLogoImg { filter: invert(1); }
+}
 
 .urgency {
   margin: 10px 16px 6px; padding: 10px 14px; border-radius: 14px; position: relative; z-index: 2;

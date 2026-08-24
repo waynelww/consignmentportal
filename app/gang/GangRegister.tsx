@@ -32,17 +32,13 @@ interface SaveStepResult {
   stats: MemberStats | null
 }
 
-// Xocks brand mark — black circle badge with the crossed-baton "X" glyph.
-// Approximated from the brand logo (not the exact vector file); swap this
-// for an <img> if a real SVG/PNG export becomes available.
-function XocksLogoMark() {
+// Real Xocks logo lockup, per the brand guide's documented "on ink"
+// treatment: the black asset inverted to white for dark backgrounds
+// rather than maintaining a separate white file.
+function XocksLogo() {
   return (
-    <svg viewBox="0 0 100 100" width={32} height={32} aria-hidden="true">
-      <circle cx="50" cy="50" r="48" fill="#000" />
-      <rect x="-15" y="42" width="130" height="17" rx="8.5" fill="#fff" transform="rotate(45 50 50)" />
-      <rect x="-15" y="42" width="130" height="17" rx="8.5" fill="#fff" transform="rotate(-45 50 50)" />
-      <circle cx="36" cy="60" r="8" fill="#000" />
-    </svg>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src="/xocks-logo.png" alt="Xocks" className={styles.brandLogoImg} height={28} />
   )
 }
 
@@ -352,11 +348,8 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
       <div className={styles.noise} />
       <div className={styles.stage}>
         <div className={styles.brandbar}>
-          <XocksLogoMark />
-          <div className={styles.brandlockup}>
-            <span className={styles.brandXocks}>XOCKS</span>
-            <span className={styles.brandGang}>GANG</span>
-          </div>
+          <XocksLogo />
+          <span className={styles.brandGang}>GANG</span>
         </div>
 
         <div className={styles.urgency}>
