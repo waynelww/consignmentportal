@@ -1,4 +1,10 @@
-export const dynamic = 'force-dynamic'
+// Prizes rarely change (only when the team edits them via /prizes or
+// /gangperk), so this page is cached and revalidated in the background
+// every 60s rather than hitting Supabase on every single visit — that
+// round-trip was the main cause of slow first-paint on a cold QR scan.
+// The actual registration flow (check-phone/register) is unaffected: those
+// happen via client-side fetches to always-live API routes, not this page.
+export const revalidate = 60
 
 import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'

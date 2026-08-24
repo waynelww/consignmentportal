@@ -27,6 +27,20 @@ interface MemberStats {
   topProducts: { name: string; pairs: number }[]
 }
 
+// Xocks brand mark — black circle badge with the crossed-baton "X" glyph.
+// Approximated from the brand logo (not the exact vector file); swap this
+// for an <img> if a real SVG/PNG export becomes available.
+function XocksLogoMark() {
+  return (
+    <svg viewBox="0 0 100 100" width={32} height={32} aria-hidden="true">
+      <circle cx="50" cy="50" r="48" fill="#000" />
+      <rect x="-15" y="42" width="130" height="17" rx="8.5" fill="#fff" transform="rotate(45 50 50)" />
+      <rect x="-15" y="42" width="130" height="17" rx="8.5" fill="#fff" transform="rotate(-45 50 50)" />
+      <circle cx="36" cy="60" r="8" fill="#000" />
+    </svg>
+  )
+}
+
 const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_GANG_WHATSAPP_NUMBER || '60000000000'
 
 function ShopeeIcon() {
@@ -342,8 +356,11 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
       <div className={styles.noise} />
       <div className={styles.stage}>
         <div className={styles.brandbar}>
-          <div className={styles.brandmark}>X</div>
-          <div className={styles.brandname}>Xocks Gang</div>
+          <XocksLogoMark />
+          <div className={styles.brandlockup}>
+            <span className={styles.brandXocks}>XOCKS</span>
+            <span className={styles.brandGang}>GANG</span>
+          </div>
         </div>
 
         <div className={styles.urgency}>
@@ -662,11 +679,6 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
         </div>
       </div>
 
-      <a className={styles.fab} href={`https://wa.me/${WHATSAPP_NUMBER}`} target="_blank" rel="noopener noreferrer" aria-label="Chat on WhatsApp">
-        <svg viewBox="0 0 32 32" fill="#fff" width={28} height={28}>
-          <path d="M16.02 3C9.4 3 4.02 8.38 4.02 15c0 2.22.6 4.3 1.65 6.1L4 29l8.1-1.63A11.9 11.9 0 0 0 16.02 27C22.64 27 28 21.62 28 15S22.64 3 16.02 3zm0 21.6a9.55 9.55 0 0 1-4.87-1.33l-.35-.2-4.8.97.98-4.67-.23-.36A9.56 9.56 0 1 1 16.02 24.6zm5.5-7.15c-.3-.15-1.77-.87-2.04-.97-.27-.1-.47-.15-.67.15s-.77.97-.94 1.17-.35.22-.65.07a8.02 8.02 0 0 1-2.36-1.46 8.85 8.85 0 0 1-1.63-2.02c-.17-.3 0-.46.13-.6.14-.14.3-.35.45-.53.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.68-1.63-.93-2.24-.24-.58-.5-.5-.68-.51h-.58a1.12 1.12 0 0 0-.8.37 3.4 3.4 0 0 0-1.06 2.53c0 1.5 1.09 2.94 1.24 3.14.15.2 2.15 3.28 5.2 4.6.73.31 1.3.5 1.74.64.73.23 1.4.2 1.92.12.59-.09 1.77-.72 2.02-1.42.25-.7.25-1.3.17-1.42-.07-.13-.27-.2-.57-.35z" />
-        </svg>
-      </a>
     </div>
   )
 }
