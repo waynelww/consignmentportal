@@ -1,14 +1,14 @@
 .page {
-  --cream: #FFF1F8;
-  --creamDeep: #FFDFF0;
-  --ink: #1B0B2E;
-  --brown: #FF3D81;
-  --brownDeep: #7B2FF7;
-  --amber: #FFC400;
-  --stripe: #FF4D6D;
-  --ok: #00B871;
-  --line: rgba(27, 11, 46, 0.14);
-  --cardShadow: 0 1px 0 rgba(27, 11, 46, 0.06), 0 12px 28px -14px rgba(123, 47, 247, 0.35);
+  --cream: #F1E9D8;
+  --creamDeep: #E7DBC3;
+  --ink: #241811;
+  --brown: #6E4429;
+  --brownDeep: #4A2C18;
+  --amber: #F0A93B;
+  --stripe: #D6421F;
+  --ok: #4C7A4A;
+  --line: rgba(36, 24, 17, 0.16);
+  --cardShadow: 0 1px 0 rgba(36, 24, 17, 0.06), 0 12px 28px -14px rgba(74, 44, 24, 0.4);
   --fontDisplay: ui-rounded, "SF Pro Rounded", "Segoe UI Rounded", "Nunito", system-ui, sans-serif;
   --fontMono: ui-monospace, "SF Mono", "Menlo", "Cascadia Mono", monospace;
 
@@ -17,18 +17,18 @@
   color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, system-ui, sans-serif;
   background:
-    radial-gradient(ellipse 800px 460px at 15% -8%, color-mix(in srgb, var(--brown) 20%, transparent), transparent),
-    radial-gradient(ellipse 700px 420px at 100% 10%, color-mix(in srgb, var(--brownDeep) 16%, transparent), transparent),
+    radial-gradient(ellipse 800px 460px at 15% -8%, color-mix(in srgb, var(--amber) 22%, transparent), transparent),
+    radial-gradient(ellipse 700px 420px at 100% 10%, color-mix(in srgb, var(--brown) 14%, transparent), transparent),
     var(--cream);
   overflow-x: hidden;
 }
 
 @media (prefers-color-scheme: dark) {
   .page {
-    --cream: #170B2E; --creamDeep: #20103F; --ink: #FFF7FB;
-    --brown: #FF3D81; --brownDeep: #7B2FF7; --amber: #FFD400;
-    --stripe: #FF4D6D; --ok: #00E28A; --line: rgba(255, 247, 251, 0.16);
-    --cardShadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 14px 32px -14px rgba(255, 61, 129, 0.4);
+    --cream: #1B140D; --creamDeep: #241A11; --ink: #F5EEDE;
+    --brown: #C79A6B; --brownDeep: #8C6136; --amber: #F5B84E;
+    --stripe: #E86A3F; --ok: #6FAE6C; --line: rgba(245, 238, 222, 0.16);
+    --cardShadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 14px 32px -14px rgba(0, 0, 0, 0.6);
   }
 }
 
