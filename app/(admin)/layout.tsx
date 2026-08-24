@@ -25,6 +25,7 @@ import {
   Wallet,
   Download,
   CalendarDays,
+  Users,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -60,6 +61,7 @@ const NAV_ITEMS = [
       { label: 'Commissions', href: '/admin/commissions', icon: DollarSign },
       { label: 'Promos', href: '/admin/promos', icon: Tag },
       { label: 'OEM Calculator', href: '/admin/oem-calculator', icon: Calculator },
+      { label: 'Xocks Gang', href: '/admin/gang', icon: Users },
     ],
   },
   {
@@ -102,6 +104,7 @@ function getPageTitle(pathname: string): string {
     '/admin/exports': 'Data Export',
     '/admin/commissions': 'Commissions',
     '/admin/promos': 'Promos',
+    '/admin/gang': 'Xocks Gang',
     '/admin/reports': 'Reports',
     '/admin/oem-calculator': 'OEM Calculator',
     '/admin/settings': 'Settings',

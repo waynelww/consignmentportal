@@ -1,6 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
-import { verifyBotAuth } from '@/lib/bot-auth'
+import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { uploadGangOrderNumbers, closeOutGangOrders } from '@/lib/gang/upload-orders'
 
@@ -19,12 +19,22 @@ const CloseOutSchema = z.object({
 
 const Schema = z.discriminatedUnion('type', [UploadSchema, CloseOutSchema])
 
-// POST /api/bot/gang-upload-orders
-// Bot-authenticated. See lib/gang/upload-orders.ts for the shared logic
-// (also used by the admin-session equivalent at /api/admin/gang/upload-orders).
+// POST /api/admin/gang/upload-orders
+// Admin-session-authenticated (super_admin/ops_manager) equivalent of the
+// bot's /api/bot/gang-upload-orders, for uploading via the web admin
+// instead of Telegram. Shares the same reconciliation logic — see
+// lib/gang/upload-orders.ts.
 export async function POST(request: NextRequest) {
-  const auth = verifyBotAuth(request)
-  if (!auth.ok) return auth.response
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
+  if (!profile || !['super_admin', 'ops_manager'].includes(profile.role)) {
+    return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   const body = await request.json().catch(() => null)
   const parsed = Schema.safeParse(body)
@@ -32,14 +42,14 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Validation failed', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const supabase = createAdminClient()
+  const admin = createAdminClient()
 
   try {
     if (parsed.data.type === 'upload') {
-      const result = await uploadGangOrderNumbers(supabase, parsed.data.orderNumbers, parsed.data.batchDate)
+      const result = await uploadGangOrderNumbers(admin, parsed.data.orderNumbers, parsed.data.batchDate)
       return Response.json(result)
     }
-    const invalidated = await closeOutGangOrders(supabase, parsed.data.beforeDate)
+    const invalidated = await closeOutGangOrders(admin, parsed.data.beforeDate)
     return Response.json({ invalidated })
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : 'Failed' }, { status: 500 })
