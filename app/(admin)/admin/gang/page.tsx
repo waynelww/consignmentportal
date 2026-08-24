@@ -5,14 +5,12 @@ import { Upload, FileText, CheckCircle2, X, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
 
-type Platform = 'shopee' | 'tiktok' | 'website' | 'instagram' | 'instore' | ''
+type Platform = 'shopee' | 'tiktok' | 'website' | ''
 
 const PLATFORMS: { value: Platform; label: string }[] = [
   { value: 'shopee', label: 'Shopee' },
   { value: 'tiktok', label: 'TikTok Shop' },
   { value: 'website', label: 'Website' },
-  { value: 'instagram', label: 'Instagram' },
-  { value: 'instore', label: 'In-store' },
   { value: '', label: 'Mixed / not sure' },
 ]
 

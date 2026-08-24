@@ -80,9 +80,14 @@
 .hero { position: relative; padding: 14px 22px 6px; z-index: 1; }
 .heroTitle { font-family: var(--fontDisplay); font-weight: 800; font-size: 22px; line-height: 1.22; margin: 6px 0 8px; text-wrap: balance; letter-spacing: -0.01em; animation: fadeup 0.6s 0.15s both; }
 .heroTitle em { font-style: normal; color: var(--brown); }
-.heroSub { font-size: 13px; font-weight: 600; opacity: 0.8; margin: 0 0 16px; line-height: 1.4; animation: fadeup 0.5s 0.24s both; }
+.perksSection { padding: 8px 16px 40px; position: relative; z-index: 1; }
+.perkWidgets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.perkWidget { background: var(--creamDeep); border: 1px solid var(--line); border-radius: 14px; padding: 14px 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; font-size: 12.5px; font-weight: 700; line-height: 1.35; animation: fadeup 0.5s both; }
+.perkWidgets .perkWidget:nth-child(1) { animation-delay: 0.1s; }
+.perkWidgets .perkWidget:nth-child(2) { animation-delay: 0.18s; }
+.perkWidgetIco { width: 32px; height: 32px; border-radius: 10px; background: var(--brown); display: flex; align-items: center; justify-content: center; font-size: 16px; }
 
-.prizepreview { border-radius: 18px; padding: 16px 16px 14px; margin-bottom: 16px; position: relative; overflow: hidden; background: linear-gradient(160deg, var(--brown), var(--brownDeep)); color: var(--cream); box-shadow: var(--cardShadow); animation: fadeup 0.6s 0.46s both; }
+.prizepreview { border-radius: 18px; padding: 16px 16px 14px; position: relative; overflow: hidden; background: linear-gradient(160deg, var(--brown), var(--brownDeep)); color: var(--cream); box-shadow: var(--cardShadow); animation: fadeup 0.6s 0.24s both; }
 .prizepreview::after { content: ""; position: absolute; inset: 0; opacity: 0.15; background-image: radial-gradient(circle, #fff 1px, transparent 1.4px); background-size: 14px 14px; }
 .ppHead { display: flex; align-items: center; gap: 8px; font-family: var(--fontDisplay); font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; position: relative; }
 .ppRow { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; padding: 8px 10px; border-radius: 9px; background: rgba(255, 255, 255, 0.1); animation: fadeup 0.45s 0.56s both; margin-bottom: 8px; position: relative; }
@@ -98,7 +103,7 @@
 .segFillDone { width: 100%; }
 .segFillActive { width: 55%; }
 
-.cardzone { flex: 1; padding: 0 16px 110px; display: flex; flex-direction: column; position: relative; z-index: 1; }
+.cardzone { flex: 1; padding: 0 16px 20px; display: flex; flex-direction: column; position: relative; z-index: 1; }
 .panel { background: var(--creamDeep); border-radius: 22px; border: 1px solid var(--line); box-shadow: var(--cardShadow); padding: 26px 22px 24px; position: relative; overflow: hidden; }
 .panel::after { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background-image: repeating-linear-gradient(90deg, var(--brown) 0 10px, transparent 10px 18px); opacity: 0.5; }
 

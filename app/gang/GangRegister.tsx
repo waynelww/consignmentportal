@@ -4,11 +4,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import styles from './gang.module.css'
 import type { GangPrize } from '@/lib/gang/prizes'
 
-type Platform = 'shopee' | 'tiktok' | 'website' | 'instagram' | 'instore'
+type Platform = 'shopee' | 'tiktok' | 'website'
 type SubmissionStatus = 'pending' | 'valid' | 'invalid'
 
 interface RegisterResult {
-  member: { id: string; name: string; email: string; created_at?: string }
+  member: { id: string; name: string; email: string | null; created_at?: string }
   submission: {
     id: string
     order_number: string
@@ -25,6 +25,11 @@ interface RegisterResult {
 interface MemberStats {
   totalPairs: number
   topProducts: { name: string; pairs: number }[]
+}
+
+interface SaveStepResult {
+  member: { id: string; name: string; email: string | null; created_at?: string }
+  stats: MemberStats | null
 }
 
 // Xocks brand mark — black circle badge with the crossed-baton "X" glyph.
@@ -67,31 +72,11 @@ function WebsiteIcon() {
     </svg>
   )
 }
-function InstagramIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none">
-      <rect x="4" y="4" width="16" height="16" rx="5" stroke="#fff" strokeWidth="1.6" />
-      <circle cx="12" cy="12" r="3.4" stroke="#fff" strokeWidth="1.6" />
-      <circle cx="16.6" cy="7.4" r="1" fill="#fff" />
-    </svg>
-  )
-}
-function InstoreIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none">
-      <path d="M4 9l1-4h14l1 4" stroke="#fff" strokeWidth="1.6" strokeLinejoin="round" />
-      <path d="M4 9a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0" stroke="#fff" strokeWidth="1.5" />
-      <path d="M5 9v10h14V9" stroke="#fff" strokeWidth="1.6" />
-    </svg>
-  )
-}
 
 const PLATFORMS: { value: Platform; label: string; bg: string; icon: ReactNode }[] = [
   { value: 'shopee', label: 'Shopee', bg: '#EE4D2D', icon: <ShopeeIcon /> },
   { value: 'tiktok', label: 'TikTok Shop', bg: '#000', icon: <TikTokIcon /> },
   { value: 'website', label: 'Website', bg: 'var(--brown)', icon: <WebsiteIcon /> },
-  { value: 'instagram', label: 'Instagram', bg: 'linear-gradient(135deg,#F58529,#DD2A7B,#8134AF)', icon: <InstagramIcon /> },
-  { value: 'instore', label: 'In-store', bg: 'var(--brownDeep)', icon: <InstoreIcon /> },
 ]
 
 const STATUS_COPY: Record<SubmissionStatus, { title: string; desc: string; cls: string }> = {
@@ -125,7 +110,7 @@ const DEMO_MONTHLY_PRIZES: GangPrize[] = [
 export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) {
   const [step, setStep] = useState(0)
   const [returning, setReturning] = useState(false)
-  const [checkingPhone, setCheckingPhone] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   const [phone, setPhone] = useState('')
@@ -142,13 +127,11 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
   const [timer, setTimer] = useState('--:--:--')
   const confettiRef = useRef<HTMLCanvasElement>(null)
   const floatersRef = useRef<HTMLDivElement>(null)
-  const emailRef = useRef<HTMLInputElement>(null)
+  const nameRef = useRef<HTMLInputElement>(null)
 
   const monthlyPrizes = initialPrizes.filter((p) => p.cadence === 'monthly')
   const dailyPrizes = initialPrizes.filter((p) => p.cadence === 'daily')
   const displayMonthly = monthlyPrizes.length ? monthlyPrizes : DEMO_MONTHLY_PRIZES
-  const topPrize = displayMonthly[0]
-  const moreCount = displayMonthly.length - 1
 
   useEffect(() => {
     function tick() {
@@ -235,51 +218,66 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
     draw()
   }
 
-  async function handlePhoneContinue() {
+  // Saves whatever's known so far — called after phone+name, and again
+  // after email — so a partial signup is captured even if the customer
+  // never reaches the last step.
+  async function saveStep(fields: { name?: string; email?: string }): Promise<SaveStepResult | null> {
+    const res = await fetch('/api/gang/save-step', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phone.replace(/\D/g, ''), ...fields }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error ?? 'Something went wrong. Try again.')
+    return data
+  }
+
+  async function handlePhoneNameContinue() {
     const digits = phone.replace(/\D/g, '')
-    if (digits.length < 8) {
-      setErrors({ phone: 'Enter a valid phone number to continue.' })
-      return
-    }
-    setErrors({})
-    setCheckingPhone(true)
+    const trimmedName = name.trim()
+    const next: Record<string, string> = {}
+    if (digits.length < 8) next.phone = 'Enter a valid phone number to continue.'
+    if (!trimmedName) next.name = 'We need your name.'
+    setErrors(next)
+    if (Object.keys(next).length) return
+
+    setSaving(true)
     try {
-      const res = await fetch('/api/gang/check-phone', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: digits }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setErrors({ phone: data.error ?? 'Something went wrong. Try again.' })
-        return
-      }
-      if (data.exists) {
+      const data = await saveStep({ name: trimmedName })
+      if (data?.member.email) {
         setReturning(true)
-        setName(data.name ?? '')
-        setReturningStats(data.stats ?? null)
+        setEmail(data.member.email)
+        setReturningStats(data.stats)
         setStep(2)
       } else {
         setReturning(false)
         setReturningStats(null)
         setStep(1)
       }
-    } catch {
-      setErrors({ phone: 'Could not reach the server. Check your connection and try again.' })
+    } catch (err) {
+      setErrors({ phone: err instanceof Error ? err.message : 'Could not reach the server. Try again.' })
     } finally {
-      setCheckingPhone(false)
+      setSaving(false)
     }
   }
 
-  function handleNameEmailContinue() {
-    const trimmedName = name.trim()
-    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-    const next: Record<string, string> = {}
-    if (!trimmedName) next.name = 'We need your name.'
-    if (!emailOk) next.email = 'Enter a valid email.'
-    setErrors(next)
-    if (Object.keys(next).length) return
-    setStep(2)
+  async function handleEmailContinue() {
+    const trimmedEmail = email.trim()
+    const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)
+    if (!emailOk) {
+      setErrors({ email: 'Enter a valid email.' })
+      return
+    }
+    setErrors({})
+    setSaving(true)
+    try {
+      await saveStep({ email: trimmedEmail })
+      setStep(2)
+    } catch (err) {
+      setErrors({ email: err instanceof Error ? err.message : 'Could not reach the server. Try again.' })
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleRegister() {
@@ -296,8 +294,6 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           phone: phone.replace(/\D/g, ''),
-          name: returning ? undefined : name.trim(),
-          email: returning ? undefined : email.trim(),
           platform,
           order_number: orderNumber.trim(),
         }),
@@ -374,23 +370,8 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
         <section className={styles.hero}>
           <div className={styles.floaters} ref={floatersRef} />
           <h1 className={styles.heroTitle}>
-            You bought the socks — now get <em>rewarded</em> for it.
+            Bought your socks? Get <em>rewarded</em>.
           </h1>
-          <p className={styles.heroSub}>WhatsApp promo codes, a monthly Grand Draw, and first dibs on new drops.</p>
-
-          <div className={styles.prizepreview}>
-            <div className={styles.ppHead}>🎉 This month&apos;s grand draw</div>
-            <div className={`${styles.ppRow} ${styles.ppRowTop}`}>
-              <span className={styles.tier}>{topPrize.tier_label}</span>
-              <span className={styles.ppOdds}>{topPrize.probability_text ?? '—'}</span>
-            </div>
-            <div className={styles.ppMore}>
-              {moreCount > 0 && `+ ${moreCount} more prize${moreCount > 1 ? 's' : ''} · `}
-              {dailyPrizes[0]?.prize_label
-                ? `✅ instant ${dailyPrizes[0].prize_label} on every verified order`
-                : '✅ instant 10–20% promo code on every verified order'}
-            </div>
-          </div>
         </section>
 
         <div className={styles.progress} id="gang-progress">
@@ -406,9 +387,9 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
             {step === 0 && (
               <div className={styles.step}>
                 <p className={styles.eyebrow}>Step 1 of 4</p>
-                <h1 className={styles.stepTitle}>What&apos;s your WhatsApp number?</h1>
+                <h1 className={styles.stepTitle}>Let&apos;s get you in</h1>
                 <p className={styles.stepSub}>
-                  This is your Gang member ID — one account per number, and how we&apos;ll send your promos and draw results.
+                  Your WhatsApp number is your Gang member ID — one account per number.
                 </p>
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>Phone number</span>
@@ -423,15 +404,29 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                       placeholder="12-345 6789"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handlePhoneContinue()}
+                      onKeyDown={(e) => e.key === 'Enter' && nameRef.current?.focus()}
                     />
                   </div>
-                  <div className={styles.hint}>We&apos;ll only use this for order updates &amp; promo codes on WhatsApp.</div>
                   {errors.phone && <div className={styles.err}>{errors.phone}</div>}
                 </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Full name</span>
+                  <input
+                    ref={nameRef}
+                    className={styles.input}
+                    type="text"
+                    autoComplete="name"
+                    placeholder="e.g. Wayne Lim"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handlePhoneNameContinue()}
+                  />
+                  <div className={styles.hint}>We&apos;ll only use this for order updates &amp; promo codes on WhatsApp.</div>
+                  {errors.name && <div className={styles.err}>{errors.name}</div>}
+                </label>
                 <div className={styles.btnrow}>
-                  <button className={styles.btnPrimary} onClick={handlePhoneContinue} disabled={checkingPhone}>
-                    {checkingPhone ? 'Checking…' : 'Continue'}
+                  <button className={styles.btnPrimary} onClick={handlePhoneNameContinue} disabled={saving}>
+                    {saving ? 'Saving…' : 'Continue'}
                   </button>
                 </div>
               </div>
@@ -440,33 +435,19 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
             {step === 1 && (
               <div className={styles.step}>
                 <p className={styles.eyebrow}>Step 2 of 4</p>
-                <h1 className={styles.stepTitle}>Nice to meet you 👋</h1>
-                <p className={styles.stepSub}>Tell us who&apos;s joining the gang.</p>
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>Full name</span>
-                  <input
-                    className={styles.input}
-                    type="text"
-                    autoComplete="name"
-                    autoFocus
-                    placeholder="e.g. Wayne Lim"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && emailRef.current?.focus()}
-                  />
-                  {errors.name && <div className={styles.err}>{errors.name}</div>}
-                </label>
+                <h1 className={styles.stepTitle}>Last thing 📧</h1>
+                <p className={styles.stepSub}>Where should your welcome perks land?</p>
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>Email</span>
                   <input
-                    ref={emailRef}
                     className={styles.input}
                     type="email"
                     autoComplete="email"
+                    autoFocus
                     placeholder="you@email.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleNameEmailContinue()}
+                    onKeyDown={(e) => e.key === 'Enter' && handleEmailContinue()}
                   />
                   {errors.email && <div className={styles.err}>{errors.email}</div>}
                 </label>
@@ -474,8 +455,8 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                   <button className={styles.btnGhost} onClick={() => setStep(0)}>
                     Back
                   </button>
-                  <button className={styles.btnPrimary} onClick={handleNameEmailContinue}>
-                    Continue
+                  <button className={styles.btnPrimary} onClick={handleEmailContinue} disabled={saving}>
+                    {saving ? 'Saving…' : 'Continue'}
                   </button>
                 </div>
               </div>
@@ -677,8 +658,35 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
             )}
           </div>
         </div>
-      </div>
 
+        <section className={styles.perksSection}>
+          <div className={styles.perkWidgets}>
+            <div className={styles.perkWidget}>
+              <span className={styles.perkWidgetIco}>💬</span>
+              <span>Exclusive promo codes on WhatsApp</span>
+            </div>
+            <div className={styles.perkWidget}>
+              <span className={styles.perkWidgetIco}>🎟️</span>
+              <span>Monthly Grand Draw entry</span>
+            </div>
+          </div>
+
+          <div className={styles.prizepreview}>
+            <div className={styles.ppHead}>🎉 This month&apos;s grand draw</div>
+            {displayMonthly.map((p, i) => (
+              <div key={p.id} className={`${styles.ppRow} ${i === 0 ? styles.ppRowTop : ''}`}>
+                <span className={styles.tier}>{p.tier_label}</span>
+                <span className={styles.ppOdds}>{p.probability_text ?? '—'}</span>
+              </div>
+            ))}
+            <div className={styles.ppMore}>
+              {dailyPrizes[0]?.prize_label
+                ? `✅ instant ${dailyPrizes[0].prize_label} on every verified order`
+                : '✅ instant 10–20% promo code on every verified order'}
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   )
 }

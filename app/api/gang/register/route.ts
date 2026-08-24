@@ -9,16 +9,14 @@ import { getMemberStats } from '@/lib/gang/member-stats'
 
 const Schema = z.object({
   phone: z.string().min(6),
-  name: z.string().min(1).optional(),
-  email: z.string().email().optional(),
-  platform: z.enum(['shopee', 'tiktok', 'website', 'instagram', 'instore']),
+  platform: z.enum(['shopee', 'tiktok', 'website']),
   order_number: z.string().min(3),
 })
 
 // POST /api/gang/register
-// Public. Upserts the member profile by phone, then records an order
-// submission. New phones must include name+email; returning members can
-// omit them (the client should call check-phone first and skip that step).
+// Public. Records an order submission for an existing member (the profile
+// itself is created earlier via /api/gang/save-step, during the phone+name
+// and email steps — by the time this runs the member should already exist).
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
   const parsed = Schema.safeParse(body)
@@ -42,7 +40,7 @@ export async function POST(request: NextRequest) {
 
   const supabase = createAdminClient()
 
-  const { data: existingMember, error: lookupErr } = await supabase
+  const { data: member, error: lookupErr } = await supabase
     .from('gang_members')
     .select('id, name, email, created_at')
     .eq('phone', phone)
@@ -51,23 +49,9 @@ export async function POST(request: NextRequest) {
     await recordAttempt(request, { endpoint: 'gang-register', succeeded: false })
     return Response.json({ error: 'Could not look up your membership. Try again.' }, { status: 500 })
   }
-
-  let member = existingMember
   if (!member) {
-    if (!parsed.data.name || !parsed.data.email) {
-      await recordAttempt(request, { endpoint: 'gang-register', succeeded: false })
-      return Response.json({ error: 'Name and email are required for a new member.' }, { status: 400 })
-    }
-    const { data: created, error: createErr } = await supabase
-      .from('gang_members')
-      .insert({ phone, name: parsed.data.name, email: parsed.data.email })
-      .select('id, name, email, created_at')
-      .single()
-    if (createErr) {
-      await recordAttempt(request, { endpoint: 'gang-register', succeeded: false })
-      return Response.json({ error: 'Could not create your membership. Try again.' }, { status: 500 })
-    }
-    member = created
+    await recordAttempt(request, { endpoint: 'gang-register', succeeded: false })
+    return Response.json({ error: 'Please complete your details first.' }, { status: 400 })
   }
 
   const orderNumber = parsed.data.order_number.trim()
@@ -100,7 +84,7 @@ export async function POST(request: NextRequest) {
   const { data: submission, error: subErr } = await supabase
     .from('gang_order_submissions')
     .insert({
-      member_id: member!.id,
+      member_id: member.id,
       order_number: orderNumber,
       platform: parsed.data.platform,
       status,
@@ -118,8 +102,8 @@ export async function POST(request: NextRequest) {
 
   // Only the immediate-match path grants the perk here — an order that's
   // still 'pending' gets it later, when the bot's daily upload verifies it.
-  const perk = status === 'valid' ? await grantShopifyPerk(supabase, member!.id) : null
-  const stats = await getMemberStats(supabase, member!.id).catch(() => null)
+  const perk = status === 'valid' ? await grantShopifyPerk(supabase, member.id) : null
+  const stats = await getMemberStats(supabase, member.id).catch(() => null)
 
   await recordAttempt(request, { endpoint: 'gang-register', succeeded: true })
 
