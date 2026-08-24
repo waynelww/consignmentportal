@@ -1,14 +1,14 @@
 .page {
-  --cream: #F1E9D8;
-  --creamDeep: #E7DBC3;
-  --ink: #241811;
-  --brown: #6E4429;
-  --brownDeep: #4A2C18;
+  --cream: #FBF7EF;
+  --creamDeep: #F3EBD7;
+  --ink: #1A1814;
+  --brown: #8A7419;
+  --brownDeep: #5F500F;
   --amber: #F4D75E;
   --stripe: #D6421F;
   --ok: #4C7A4A;
-  --line: rgba(36, 24, 17, 0.16);
-  --cardShadow: 0 1px 0 rgba(36, 24, 17, 0.06), 0 12px 28px -14px rgba(74, 44, 24, 0.4);
+  --line: rgba(26, 24, 20, 0.15);
+  --cardShadow: 0 1px 0 rgba(26, 24, 20, 0.05), 0 12px 28px -14px rgba(95, 80, 15, 0.35);
   --fontDisplay: ui-rounded, "SF Pro Rounded", "Segoe UI Rounded", "Nunito", system-ui, sans-serif;
   --fontMono: ui-monospace, "SF Mono", "Menlo", "Cascadia Mono", monospace;
 
@@ -17,16 +17,16 @@
   color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, system-ui, sans-serif;
   background:
-    radial-gradient(ellipse 800px 460px at 15% -8%, color-mix(in srgb, var(--amber) 22%, transparent), transparent),
-    radial-gradient(ellipse 700px 420px at 100% 10%, color-mix(in srgb, var(--brown) 14%, transparent), transparent),
+    radial-gradient(ellipse 800px 460px at 15% -8%, color-mix(in srgb, var(--amber) 32%, transparent), transparent),
+    radial-gradient(ellipse 700px 420px at 100% 10%, color-mix(in srgb, var(--amber) 18%, transparent), transparent),
     var(--cream);
   overflow-x: hidden;
 }
 
 @media (prefers-color-scheme: dark) {
   .page {
-    --cream: #1B140D; --creamDeep: #241A11; --ink: #F5EEDE;
-    --brown: #C79A6B; --brownDeep: #8C6136; --amber: #F7E074;
+    --cream: #191507; --creamDeep: #221D0C; --ink: #F5EEDE;
+    --brown: #D9C468; --brownDeep: #A8912F; --amber: #F7E074;
     --stripe: #E86A3F; --ok: #6FAE6C; --line: rgba(245, 238, 222, 0.16);
     --cardShadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 14px 32px -14px rgba(0, 0, 0, 0.6);
   }
@@ -63,8 +63,7 @@
 .floater { position: absolute; bottom: -30px; opacity: 0.35; animation: floatup linear infinite; }
 
 .brandbar { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 18px 20px 8px; position: relative; z-index: 2; animation: pop 0.6s cubic-bezier(.2, 1.4, .4, 1) both; }
-.brandLogoImg { height: 24px; width: auto; display: block; }
-.brandGang { font-family: var(--fontDisplay); font-weight: 800; letter-spacing: 0.1em; font-size: 11px; color: var(--cream); background: var(--brown); padding: 3px 8px; border-radius: 99px; }
+.brandLogoImg { height: 26px; width: auto; display: block; }
 
 @media (prefers-color-scheme: dark) {
   .brandLogoImg { filter: invert(1); }
@@ -72,13 +71,13 @@
 
 .urgency {
   margin: 10px 16px 6px; padding: 10px 14px; border-radius: 14px; position: relative; z-index: 2;
-  background: linear-gradient(135deg, var(--stripe), color-mix(in srgb, var(--stripe) 75%, black 8%));
-  color: #fff; display: flex; align-items: center; gap: 10px; box-shadow: var(--cardShadow);
+  background: linear-gradient(135deg, var(--amber), color-mix(in srgb, var(--amber) 82%, var(--brownDeep) 18%));
+  color: var(--brownDeep); display: flex; align-items: center; gap: 10px; box-shadow: var(--cardShadow);
   animation: urgepulse 2.4s ease-in-out infinite, fadeup 0.5s 0.1s both;
 }
-.urgencyDot { width: 8px; height: 8px; border-radius: 50%; background: #fff; flex: none; animation: blink 1.4s ease-in-out infinite; }
-.urgencyText { font-size: 12.5px; line-height: 1.35; font-weight: 600; }
-.urgencyTimer { margin-left: auto; font-family: var(--fontMono); font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; background: rgba(255, 255, 255, 0.18); padding: 4px 8px; border-radius: 8px; white-space: nowrap; }
+.urgencyDot { width: 8px; height: 8px; border-radius: 50%; background: var(--brownDeep); flex: none; animation: blink 1.4s ease-in-out infinite; }
+.urgencyText { font-size: 12.5px; line-height: 1.35; font-weight: 700; }
+.urgencyTimer { margin-left: auto; font-family: var(--fontMono); font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; background: rgba(0, 0, 0, 0.1); padding: 4px 8px; border-radius: 8px; white-space: nowrap; }
 
 .hero { position: relative; padding: 14px 22px 6px; z-index: 1; }
 .heroTitle { font-family: var(--fontDisplay); font-weight: 800; font-size: 22px; line-height: 1.22; margin: 6px 0 8px; text-wrap: balance; letter-spacing: -0.01em; animation: fadeup 0.6s 0.15s both; }
@@ -180,7 +179,7 @@
 .ticketHead { display: flex; align-items: center; gap: 8px; font-family: var(--fontDisplay); font-weight: 800; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--brown); margin-bottom: 8px; }
 .prizepool { display: flex; flex-direction: column; gap: 6px; }
 .pr { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; padding: 7px 10px; border-radius: 9px; background: var(--cream); }
-.prTop .tier { color: var(--stripe); }
+.prTop .tier { color: var(--brown); }
 
 
 .formError { margin: 0 0 16px; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--stripe) 14%, var(--cream)); border: 1px solid color-mix(in srgb, var(--stripe) 40%, transparent); color: var(--stripe); font-size: 12.5px; font-weight: 700; }

@@ -37,6 +37,11 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Static assets in /public (images etc.) are always public.
+  if (/\.(?:png|jpg|jpeg|svg|webp|ico)$/.test(path)) {
+    return NextResponse.next()
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -137,5 +142,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|icon-).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json|icon-|.*\\.(?:png|jpg|jpeg|svg|webp|ico)$).*)'],
 }

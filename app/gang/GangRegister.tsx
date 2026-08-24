@@ -349,13 +349,12 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
       <div className={styles.stage}>
         <div className={styles.brandbar}>
           <XocksLogo />
-          <span className={styles.brandGang}>GANG</span>
         </div>
 
         <div className={styles.urgency}>
           <div className={styles.urgencyDot} />
           <div className={styles.urgencyText}>
-            Register <b>today</b> for a bonus entry into this month&apos;s Grand Draw
+            Register <b>today</b>{' '}for a bonus entry into this month&apos;s Grand Draw
           </div>
           <div className={styles.urgencyTimer}>{timer}</div>
         </div>
