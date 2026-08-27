@@ -49,13 +49,16 @@ export default function ProductsPage() {
     setSyncing(true)
     try {
       const res = await fetch('/api/products/sync-shopify-images', { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) {
-        toast.error(data.error ?? 'Sync failed', { description: data.details, duration: 8000 })
+      // Guard the parse: a timed-out/killed function returns an empty or
+      // non-JSON body, and res.json() on that throws a cryptic error in
+      // Safari ("The string did not match the expected pattern").
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data) {
+        toast.error(data?.error ?? `Sync failed (HTTP ${res.status}) — it may have timed out, try again`, { description: data?.details, duration: 8000 })
         return
       }
       toast.success(
-        `Updated ${data.updated} products · ${data.unchanged} unchanged · ${data.not_found_in_shopify} not found in Shopify`,
+        `Updated ${data.updated ?? 0} products · ${data.unchanged ?? 0} unchanged · ${data.not_found_in_shopify ?? 0} not found in Shopify`,
         { duration: 6000 },
       )
       fetchProducts()
@@ -71,13 +74,15 @@ export default function ProductsPage() {
     setSyncingInventory(true)
     try {
       const res = await fetch('/api/products/sync-shopify-inventory', { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) {
-        toast.error(data.error ?? 'Sync failed', { description: data.details, duration: 8000 })
+      // Same parse guard as the images sync — never let an empty error
+      // body surface as a raw browser exception.
+      const data = await res.json().catch(() => null)
+      if (!res.ok || !data) {
+        toast.error(data?.error ?? `Sync failed (HTTP ${res.status}) — it may have timed out, try again`, { description: data?.details, duration: 8000 })
         return
       }
       toast.success(
-        `Inventory synced: ${data.total_warehouse_pairs.toLocaleString()} total pairs in Shopify · ${data.updated} updated · ${data.unchanged} unchanged · ${data.not_found_in_shopify} not found`,
+        `Inventory synced: ${(data.total_warehouse_pairs ?? 0).toLocaleString()} total pairs in Shopify · ${data.updated ?? 0} updated · ${data.unchanged ?? 0} unchanged · ${data.not_found_in_shopify ?? 0} not found`,
         { duration: 8000 },
       )
       fetchProducts()

@@ -133,13 +133,19 @@ export async function syncShopifyInventory(): Promise<SyncResult | SyncError> {
     }
   }
 
-  let updated = 0
   let unchanged = 0
   let notFound = 0
   const notFoundSkus: string[] = []
   let totalWarehousePairs = 0
   const syncTime = new Date().toISOString()
 
+  // Partition first, write after. The previous version awaited one UPDATE
+  // per product — including timestamp-only touches for unchanged rows —
+  // which meant ~450 sequential round-trips (~45-90s). That sat right at
+  // Vercel's 60s function ceiling, so the admin "Sync" button would get
+  // its function killed mid-run and the browser saw an empty response
+  // body ("The string did not match the expected pattern" in Safari).
+  const toUpdate: { id: string; qty: number }[] = []
   for (const p of products) {
     const sku = (p.sku ?? '').trim().toUpperCase()
     const newQty = skuToQty.get(sku)
@@ -150,24 +156,37 @@ export async function syncShopifyInventory(): Promise<SyncResult | SyncError> {
     }
     totalWarehousePairs += newQty
     if (newQty === p.shopify_inventory_qty) {
-      // Still update timestamp so we know it was checked
-      await adminClient
-        .from('products')
-        .update({ shopify_inventory_synced_at: syncTime })
-        .eq('id', p.id)
       unchanged++
       continue
     }
-    const { error: updErr } = await adminClient
-      .from('products')
-      .update({
-        shopify_inventory_qty: newQty,
-        shopify_inventory_synced_at: syncTime,
-        updated_at: syncTime,
-      })
-      .eq('id', p.id)
-    if (!updErr) updated++
+    toUpdate.push({ id: p.id, qty: newQty })
   }
+
+  // Changed rows only, in parallel chunks — a full-catalog sync now takes
+  // seconds instead of minutes.
+  let updated = 0
+  const CHUNK = 20
+  for (let i = 0; i < toUpdate.length; i += CHUNK) {
+    const results = await Promise.all(
+      toUpdate.slice(i, i + CHUNK).map((u) =>
+        adminClient
+          .from('products')
+          .update({
+            shopify_inventory_qty: u.qty,
+            shopify_inventory_synced_at: syncTime,
+            updated_at: syncTime,
+          })
+          .eq('id', u.id)
+      )
+    )
+    updated += results.filter((r) => !r.error).length
+  }
+
+  // One settings row records "the whole catalog was checked at X" instead
+  // of touching every product's timestamp on every run.
+  await adminClient
+    .from('settings')
+    .upsert({ key: 'shopify_inventory_last_synced', value: syncTime, updated_at: syncTime }, { onConflict: 'key' })
 
   return {
     success: true,
