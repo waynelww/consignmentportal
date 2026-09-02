@@ -198,3 +198,13 @@
 .luckyNo { font-family: var(--fontDisplay); font-weight: 900; font-size: 56px; line-height: 1.1; letter-spacing: 0.04em; color: var(--ink); margin: 6px 0 2px; font-variant-numeric: tabular-nums; }
 .luckyHint { font-size: 12.5px; line-height: 1.5; color: color-mix(in srgb, var(--ink) 72%, transparent); max-width: 320px; margin: 8px auto 0; }
 .luckyHint b { color: var(--brown); }
+
+/* Ticket list — all of a member's tickets for the current month */
+.linkBtn { display: block; width: 100%; margin-top: 12px; background: none; border: 0; color: var(--brown); font-size: 13px; font-weight: 800; text-align: center; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.miniTickets { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.miniTicket { display: flex; justify-content: space-between; align-items: center; border: 1.5px dashed color-mix(in srgb, var(--brown) 55%, transparent); border-radius: 12px; padding: 12px 14px; background: color-mix(in srgb, var(--amber) 10%, var(--creamDeep)); }
+.miniNo { font-family: var(--fontDisplay); font-weight: 900; font-size: 24px; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+.miniMeta { font-size: 11.5px; color: color-mix(in srgb, var(--ink) 60%, transparent); text-align: right; text-transform: capitalize; }
+.ticketExpiry { margin-top: 10px; font-size: 11.5px; text-align: center; color: color-mix(in srgb, var(--ink) 55%, transparent); }
+.ticketChips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 10px; }
+.ticketChip { font-family: var(--fontDisplay); font-weight: 800; font-size: 13px; padding: 5px 11px; border-radius: 999px; border: 1.5px dashed color-mix(in srgb, var(--brown) 50%, transparent); background: color-mix(in srgb, var(--amber) 8%, var(--creamDeep)); font-variant-numeric: tabular-nums; }

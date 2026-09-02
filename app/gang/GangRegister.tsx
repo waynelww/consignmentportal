@@ -29,6 +29,17 @@ function drawMonthLabel(drawMonth: string): string {
   return new Date(y, (m || 1) - 1, 1).toLocaleString('en-GB', { month: 'long' }).toUpperCase()
 }
 
+interface TicketListResult {
+  member: { name: string }
+  draw_month: string
+  tickets: { ticket_no: number; order_number: string; platform: string }[]
+  pending_count: number
+}
+
+function fmtTicketNo(n: number): string {
+  return '#' + String(n).padStart(4, '0')
+}
+
 interface MemberStats {
   totalPairs: number
   topProducts: { name: string; pairs: number }[]
@@ -126,6 +137,9 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
   const [result, setResult] = useState<RegisterResult | null>(null)
   const [perkCopied, setPerkCopied] = useState(false)
   const [returningStats, setReturningStats] = useState<MemberStats | null>(null)
+  const [ticketList, setTicketList] = useState<TicketListResult | null>(null)
+  const [viewingTickets, setViewingTickets] = useState(false)
+  const [loadingTickets, setLoadingTickets] = useState(false)
 
   const [timer, setTimer] = useState('--:--:--')
   const confettiRef = useRef<HTMLCanvasElement>(null)
@@ -283,6 +297,39 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
     }
   }
 
+  async function fetchTickets(): Promise<TicketListResult | null> {
+    const res = await fetch('/api/gang/tickets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: phone.replace(/\D/g, '') }),
+    })
+    const data = await res.json().catch(() => null)
+    if (!res.ok || !data) throw new Error(data?.error ?? 'Could not load your tickets. Try again.')
+    return data
+  }
+
+  // "Already registered? View my tickets" on the phone step — lets a member
+  // pull up all their current-month tickets (e.g. at claim time) without
+  // registering another order.
+  async function handleViewTickets() {
+    const digits = phone.replace(/\D/g, '')
+    if (digits.length < 8) {
+      setErrors({ phone: 'Enter your phone number first, then tap View my tickets.' })
+      return
+    }
+    setErrors({})
+    setLoadingTickets(true)
+    try {
+      const data = await fetchTickets()
+      setTicketList(data)
+      setViewingTickets(true)
+    } catch (err) {
+      setErrors({ phone: err instanceof Error ? err.message : 'Could not load your tickets.' })
+    } finally {
+      setLoadingTickets(false)
+    }
+  }
+
   async function handleRegister() {
     const next: Record<string, string> = {}
     if (!platform) next.platform = 'Pick where you bought from.'
@@ -309,6 +356,9 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
       setResult(data)
       setStep(3)
       launchConfetti()
+      // Load the full ticket list in the background so the success page can
+      // show ALL of this month's tickets (5 orders = 5 tickets).
+      fetchTickets().then(setTicketList).catch(() => {})
     } catch {
       setErrors({ order: 'Could not reach the server. Check your connection and try again.' })
     } finally {
@@ -328,6 +378,21 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
     setResult(null)
     setPerkCopied(false)
     setReturningStats(null)
+    setTicketList(null)
+    setViewingTickets(false)
+  }
+
+  // From the ticket list, jump straight into registering another order —
+  // phone stays filled (and name seeded from their membership, since the
+  // view-tickets path never asked for it) so they land on the order step.
+  function registerFromTicketView() {
+    setViewingTickets(false)
+    setPlatform(null)
+    setOrderNumber('')
+    setErrors({})
+    if (!name.trim() && ticketList?.member.name) setName(ticketList.member.name)
+    setStep(2)
+    setReturning(true)
   }
 
   async function copyPerkCode(code: string) {
@@ -383,7 +448,57 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
 
         <div className={styles.cardzone}>
           <div className={styles.panel}>
-            {step === 0 && (
+            {/* Ticket list — a member's current-month tickets. Old months
+                expire from view automatically: the API only ever returns
+                the current draw month. */}
+            {viewingTickets && ticketList && (
+              <div className={styles.step}>
+                <div style={{ textAlign: 'center' }}>
+                  <p className={`${styles.eyebrow} ${styles.center}`}>
+                    {drawMonthLabel(ticketList.draw_month)} LUCKY DRAW
+                  </p>
+                  <h1 className={`${styles.stepTitle} ${styles.center}`}>
+                    Your Tickets 🎟️
+                  </h1>
+                  <p className={`${styles.stepSub} ${styles.center}`}>
+                    {ticketList.tickets.length
+                      ? <>You hold <b>{ticketList.tickets.length} ticket{ticketList.tickets.length > 1 ? 's' : ''}</b> in this month&apos;s draw — every verified order adds one more.</>
+                      : <>No tickets for this month yet — register a verified order below to get your first one.</>}
+                  </p>
+
+                  <div className={styles.miniTickets}>
+                    {ticketList.tickets.map((t) => (
+                      <div key={t.ticket_no} className={styles.miniTicket}>
+                        <span className={styles.miniNo}>{fmtTicketNo(t.ticket_no)}</span>
+                        <span className={styles.miniMeta}>
+                          {t.platform} · order ···{t.order_number.slice(-4)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {ticketList.pending_count > 0 && (
+                    <p className={styles.ticketExpiry}>
+                      ⏳ {ticketList.pending_count} more order{ticketList.pending_count > 1 ? 's' : ''} pending verification — each becomes a ticket once confirmed.
+                    </p>
+                  )}
+                  <p className={styles.ticketExpiry}>
+                    Tickets are valid for the {drawMonthLabel(ticketList.draw_month).toLowerCase()} draw only — everything resets when a new month starts. Winners announced end of month on WhatsApp; show this screen to claim.
+                  </p>
+
+                  <div className={styles.btnrow} style={{ marginTop: 16 }}>
+                    <button className={styles.btnPrimary} onClick={registerFromTicketView}>
+                      Register another order
+                    </button>
+                  </div>
+                  <button className={styles.linkBtn} onClick={() => setViewingTickets(false)}>
+                    ← Back
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {!viewingTickets && step === 0 && (
               <div className={styles.step}>
                 <p className={styles.eyebrow}>Step 1 of 4</p>
                 <h1 className={styles.stepTitle}>Let&apos;s get you in</h1>
@@ -428,6 +543,9 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                     {saving ? 'Saving…' : 'Continue'}
                   </button>
                 </div>
+                <button className={styles.linkBtn} onClick={handleViewTickets} disabled={loadingTickets}>
+                  {loadingTickets ? 'Loading your tickets…' : '🎟️ Already registered? View my tickets'}
+                </button>
               </div>
             )}
 
@@ -591,6 +709,18 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                         <b>end of {drawMonthLabel(result.ticket.draw_month).toLowerCase()}</b> on WhatsApp.
                         If yours is called, show this ticket to claim your prize.
                       </p>
+                      {ticketList && ticketList.tickets.length > 1 && (
+                        <>
+                          <div className={styles.ticketChips}>
+                            {ticketList.tickets.map((t) => (
+                              <span key={t.ticket_no} className={styles.ticketChip}>{fmtTicketNo(t.ticket_no)}</span>
+                            ))}
+                          </div>
+                          <p className={styles.ticketExpiry}>
+                            All {ticketList.tickets.length} of your tickets this month — every order adds another.
+                          </p>
+                        </>
+                      )}
                     </div>
                   )}
 
@@ -658,8 +788,8 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
         </div>
 
         {/* Marketing prize preview — only while still registering. The
-            success step shows exactly one thing: your ticket number. */}
-        {step !== 3 && (
+            success step and ticket list show exactly one thing: tickets. */}
+        {step !== 3 && !viewingTickets && (
           <section className={styles.perksSection}>
             <div className={styles.perkWidgets}>
               <div className={styles.perkWidget}>
