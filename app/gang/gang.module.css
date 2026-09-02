@@ -191,3 +191,10 @@
 .perkcode { font-family: var(--fontMono); font-weight: 700; font-size: 15px; letter-spacing: 0.04em; flex: 1; font-variant-numeric: tabular-nums; }
 .perkcopy { background: var(--amber); color: var(--brownDeep); font-weight: 800; font-size: 12px; padding: 7px 12px; border-radius: 8px; border: none; font-family: inherit; cursor: pointer; }
 .perkpending { margin-top: 16px; border-radius: 12px; padding: 12px 14px; background: var(--cream); border: 1.5px dashed var(--line); font-size: 12.5px; color: color-mix(in srgb, var(--ink) 65%, transparent); }
+
+/* ── Lucky draw ticket (the one thing the success page is about) ── */
+.luckyTicket { margin-top: 16px; border-radius: 16px; border: 2px dashed color-mix(in srgb, var(--brown) 60%, transparent); padding: 20px 16px; text-align: center; background: color-mix(in srgb, var(--amber) 14%, var(--creamDeep)); }
+.luckyMonth { font-family: var(--fontDisplay); font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--brown); }
+.luckyNo { font-family: var(--fontDisplay); font-weight: 900; font-size: 56px; line-height: 1.1; letter-spacing: 0.04em; color: var(--ink); margin: 6px 0 2px; font-variant-numeric: tabular-nums; }
+.luckyHint { font-size: 12.5px; line-height: 1.5; color: color-mix(in srgb, var(--ink) 72%, transparent); max-width: 320px; margin: 8px auto 0; }
+.luckyHint b { color: var(--brown); }

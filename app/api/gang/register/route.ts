@@ -6,6 +6,7 @@ import { normalizePhone } from '@/lib/gang/phone'
 import { getActivePrizes } from '@/lib/gang/prizes'
 import { grantShopifyPerk } from '@/lib/gang/grant-perk'
 import { getMemberStats } from '@/lib/gang/member-stats'
+import { assignTickets } from '@/lib/gang/tickets'
 
 const Schema = z.object({
   phone: z.string().min(6),
@@ -105,7 +106,15 @@ export async function POST(request: NextRequest) {
   const perk = status === 'valid' ? await grantShopifyPerk(supabase, member.id) : null
   const stats = await getMemberStats(supabase, member.id).catch(() => null)
 
+  // Instantly-verified orders get their lucky-draw ticket right away, so
+  // the success screen can show the number on the spot.
+  let ticket: { ticket_no: number; draw_month: string } | null = null
+  if (status === 'valid') {
+    const [assigned] = await assignTickets(supabase, [submission.id]).catch(() => [])
+    if (assigned) ticket = { ticket_no: assigned.ticket_no, draw_month: assigned.draw_month }
+  }
+
   await recordAttempt(request, { endpoint: 'gang-register', succeeded: true })
 
-  return Response.json({ member, submission, prizes, perk, stats })
+  return Response.json({ member, submission, prizes, perk, stats, ticket })
 }

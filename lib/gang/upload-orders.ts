@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { grantShopifyPerk } from './grant-perk'
+import { assignTickets } from './tickets'
 
 export interface UploadOrdersResult {
   uploaded: number
@@ -69,6 +70,10 @@ export async function uploadGangOrderNumbers(
     .in('order_number', orderNumberList)
     .select('id')
   if (matchErr) throw new Error(matchErr.message)
+
+  // Every freshly verified order gets its lucky-draw ticket number for
+  // this month's draw.
+  await assignTickets(supabase, (matched ?? []).map((m) => m.id))
 
   const { count: stillPending } = await supabase
     .from('gang_order_submissions')

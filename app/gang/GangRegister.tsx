@@ -20,6 +20,13 @@ interface RegisterResult {
   prizes: GangPrize[]
   perk: { code: string; min_quantity: number; discount_amount: number } | null
   stats: MemberStats | null
+  ticket: { ticket_no: number; draw_month: string } | null
+}
+
+// '2026-09' → 'SEPTEMBER'
+function drawMonthLabel(drawMonth: string): string {
+  const [y, m] = drawMonth.split('-').map(Number)
+  return new Date(y, (m || 1) - 1, 1).toLocaleString('en-GB', { month: 'long' }).toUpperCase()
 }
 
 interface MemberStats {
@@ -570,31 +577,48 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                     </div>
                   </div>
 
-                  {!!result.stats?.totalPairs && (
-                    <div className={styles.statsstrip}>
-                      <div className={styles.statsstripTotal}>
-                        <span className={styles.statsstripNum}>{result.stats.totalPairs}</span> pair
-                        {result.stats.totalPairs === 1 ? '' : 's'} bought total
+                  {/* THE one thing this page is about: your lucky draw ticket */}
+                  {result.submission.status === 'valid' && result.ticket && (
+                    <div className={styles.luckyTicket}>
+                      <div className={styles.luckyMonth}>
+                        🎟️ {drawMonthLabel(result.ticket.draw_month)} LUCKY DRAW
                       </div>
-                      {result.stats.topProducts.length > 0 && (
-                        <div className={styles.statsstripTop}>
-                          {result.stats.topProducts.map((p, i) => (
-                            <span key={i} className={styles.statsstripChip}>
-                              {p.name}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      <div className={styles.luckyNo}>
+                        #{String(result.ticket.ticket_no).padStart(4, '0')}
+                      </div>
+                      <p className={styles.luckyHint}>
+                        This is your ticket number — screenshot it. Winning numbers are announced{' '}
+                        <b>end of {drawMonthLabel(result.ticket.draw_month).toLowerCase()}</b> on WhatsApp.
+                        If yours is called, show this ticket to claim your prize.
+                      </p>
                     </div>
                   )}
 
-                  <div className={`${styles.statusrow} ${STATUS_COPY[result.submission.status].cls}`}>
-                    <div className={styles.statusdot} />
-                    <div className={styles.statustext}>
-                      <b>{STATUS_COPY[result.submission.status].title}</b>
-                      <span>{STATUS_COPY[result.submission.status].desc}</span>
+                  {/* Pending — and the safety net for a verified order whose
+                      ticket didn't come back (e.g. mid-deploy): same card,
+                      number on its way, nobody sees an empty slot. */}
+                  {(result.submission.status === 'pending' ||
+                    (result.submission.status === 'valid' && !result.ticket)) && (
+                    <div className={styles.luckyTicket}>
+                      <div className={styles.luckyMonth}>🎟️ YOUR LUCKY DRAW TICKET</div>
+                      <div className={styles.luckyNo}>#····</div>
+                      <p className={styles.luckyHint}>
+                        {result.submission.status === 'valid'
+                          ? <>Your order is verified — your ticket number is being issued and will reach you on <b>WhatsApp</b> shortly.</>
+                          : <>Your ticket number arrives once your order is verified — we check orders <b>every evening at 6PM</b> and ping you on WhatsApp with your number.</>}
+                      </p>
                     </div>
-                  </div>
+                  )}
+
+                  {result.submission.status === 'invalid' && (
+                    <div className={`${styles.statusrow} ${STATUS_COPY.invalid.cls}`}>
+                      <div className={styles.statusdot} />
+                      <div className={styles.statustext}>
+                        <b>{STATUS_COPY.invalid.title}</b>
+                        <span>{STATUS_COPY.invalid.desc}</span>
+                      </div>
+                    </div>
+                  )}
 
                   {result.submission.status === 'valid' && result.perk && (
                     <div className={styles.perkcard}>
@@ -622,24 +646,6 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                     </div>
                   )}
 
-                  <div className={styles.ticket}>
-                    <div className={styles.ticketHead}>🎟️ Your Grand Draw Entry This Month</div>
-                    <div className={styles.prizepool}>
-                      {result.prizes.length
-                        ? result.prizes.map((p, i) => (
-                            <div key={p.id} className={`${styles.pr} ${i === 0 ? styles.prTop : ''}`}>
-                              <span className={styles.tier}>{p.tier_label}</span>
-                              <span className={styles.ppOdds}>{p.probability_text ?? '—'}</span>
-                            </div>
-                          ))
-                        : (
-                          <div className={styles.pr}>
-                            <span className={styles.tier}>Prizes will show here once configured</span>
-                          </div>
-                        )}
-                    </div>
-                  </div>
-
                   <div className={styles.btnrow} style={{ marginTop: 18 }}>
                     <button className={styles.btnPrimary} onClick={resetAll}>
                       Register another order
@@ -651,33 +657,37 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
           </div>
         </div>
 
-        <section className={styles.perksSection}>
-          <div className={styles.perkWidgets}>
-            <div className={styles.perkWidget}>
-              <span className={styles.perkWidgetIco}>💬</span>
-              <span>Exclusive promo codes on WhatsApp</span>
-            </div>
-            <div className={styles.perkWidget}>
-              <span className={styles.perkWidgetIco}>🎟️</span>
-              <span>Monthly Grand Draw entry</span>
-            </div>
-          </div>
-
-          <div className={styles.prizepreview}>
-            <div className={styles.ppHead}>🎉 This month&apos;s grand draw</div>
-            {displayMonthly.map((p, i) => (
-              <div key={p.id} className={`${styles.ppRow} ${i === 0 ? styles.ppRowTop : ''}`}>
-                <span className={styles.tier}>{p.tier_label}</span>
-                <span className={styles.ppOdds}>{p.probability_text ?? '—'}</span>
+        {/* Marketing prize preview — only while still registering. The
+            success step shows exactly one thing: your ticket number. */}
+        {step !== 3 && (
+          <section className={styles.perksSection}>
+            <div className={styles.perkWidgets}>
+              <div className={styles.perkWidget}>
+                <span className={styles.perkWidgetIco}>💬</span>
+                <span>Exclusive promo codes on WhatsApp</span>
               </div>
-            ))}
-            <div className={styles.ppMore}>
-              {dailyPrizes[0]?.prize_label
-                ? `✅ instant ${dailyPrizes[0].prize_label} on every verified order`
-                : '✅ instant 10–20% promo code on every verified order'}
+              <div className={styles.perkWidget}>
+                <span className={styles.perkWidgetIco}>🎟️</span>
+                <span>Monthly Grand Draw entry</span>
+              </div>
             </div>
-          </div>
-        </section>
+
+            <div className={styles.prizepreview}>
+              <div className={styles.ppHead}>🎉 This month&apos;s grand draw</div>
+              {displayMonthly.map((p, i) => (
+                <div key={p.id} className={`${styles.ppRow} ${i === 0 ? styles.ppRowTop : ''}`}>
+                  <span className={styles.tier}>{p.tier_label}</span>
+                  <span className={styles.ppOdds}>{p.probability_text ?? '—'}</span>
+                </div>
+              ))}
+              <div className={styles.ppMore}>
+                {dailyPrizes[0]?.prize_label
+                  ? `✅ instant ${dailyPrizes[0].prize_label} on every verified order`
+                  : '✅ instant 10–20% promo code on every verified order'}
+              </div>
+            </div>
+          </section>
+        )}
       </div>
     </div>
   )

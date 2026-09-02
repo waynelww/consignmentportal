@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   const supabase = createAdminClient()
   let query = supabase
     .from('gang_order_submissions')
-    .select('order_number, platform, status, submitted_date, gang_members:member_id ( phone, name, email )')
+    .select('order_number, platform, status, submitted_date, ticket_no, draw_month, gang_members:member_id ( phone, name, email )')
     .eq('status', status)
 
   if (from) query = query.gte('submitted_date', from)
