@@ -80,6 +80,10 @@ export async function POST(request: NextRequest) {
   // Website order numbers are sequential and guessable, so the typed order
   // must actually belong to this member: its checkout phone or email has
   // to match. Shopee/TikTok ids are long and random — no check needed.
+  // A match against a PAID order is also full verification — Shopify just
+  // confirmed the purchase, so don't make the customer wait for the 6PM
+  // reconciliation to get their ticket.
+  let shopifyVerified = false
   if (parsed.data.platform === 'website') {
     const { getOrderByName } = await import('@/lib/shopify/order-lookup')
     const order = await getOrderByName(orderNumber).catch(() => null)
@@ -94,6 +98,7 @@ export async function POST(request: NextRequest) {
           error: "This order doesn't match your phone or email. Use the same details you checked out with, or WhatsApp us.",
         }, { status: 403 })
       }
+      shopifyVerified = /paid/i.test(order.financialStatus ?? '')
     }
     // Order not found / Shopify down → fall through to 'pending'; the
     // daily reconciliation still guards it.
@@ -109,7 +114,7 @@ export async function POST(request: NextRequest) {
     .limit(1)
     .maybeSingle()
 
-  const status = validMatch ? 'valid' : 'pending'
+  const status = validMatch || shopifyVerified ? 'valid' : 'pending'
 
   const { data: submission, error: subErr } = await supabase
     .from('gang_order_submissions')
@@ -118,7 +123,7 @@ export async function POST(request: NextRequest) {
       order_number: orderNumber,
       platform: parsed.data.platform,
       status,
-      verified_at: validMatch ? new Date().toISOString() : null,
+      verified_at: status === 'valid' ? new Date().toISOString() : null,
     })
     .select('id, order_number, platform, status, submitted_date, verified_at')
     .single()
