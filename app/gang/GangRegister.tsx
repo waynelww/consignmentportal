@@ -8,7 +8,7 @@ type Platform = 'shopee' | 'tiktok' | 'website'
 type SubmissionStatus = 'pending' | 'valid' | 'invalid'
 
 interface RegisterResult {
-  member: { id: string; name: string; email: string | null; created_at?: string }
+  member: { id: string; name: string; email: string | null; created_at?: string; lifetime_code?: string | null }
   submission: {
     id: string
     order_number: string
@@ -432,7 +432,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
         <div className={styles.urgency}>
           <div className={styles.urgencyDot} />
           <div className={styles.urgencyText}>
-            Register <b>today</b>{' '}for a bonus entry into this month&apos;s Grand Draw
+            Register <b>today</b> — bonus draw entry
           </div>
           <div className={styles.urgencyTimer}>{timer}</div>
         </div>
@@ -523,9 +523,6 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
               <div className={styles.step}>
                 <p className={styles.eyebrow}>Step 1 of 4</p>
                 <h1 className={styles.stepTitle}>Let&apos;s get you in</h1>
-                <p className={styles.stepSub}>
-                  Your WhatsApp number is your Gang member ID — one account per number.
-                </p>
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>Phone number</span>
                   <div className={styles.inputwrap}>
@@ -556,7 +553,6 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                     onChange={(e) => setName(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handlePhoneNameContinue()}
                   />
-                  <div className={styles.hint}>We&apos;ll only use this for order updates &amp; promo codes on WhatsApp.</div>
                   {errors.name && <div className={styles.err}>{errors.name}</div>}
                 </label>
                 <div className={styles.btnrow}>
@@ -574,7 +570,6 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
               <div className={styles.step}>
                 <p className={styles.eyebrow}>Step 2 of 4</p>
                 <h1 className={styles.stepTitle}>Last thing 📧</h1>
-                <p className={styles.stepSub}>Where should your welcome perks land?</p>
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>Email</span>
                   <input
@@ -604,14 +599,10 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
               <div className={styles.step}>
                 <p className={styles.eyebrow}>{returning ? 'Step 2 of 3' : 'Step 3 of 4'}</p>
                 <h1 className={styles.stepTitle}>Where&apos;d you grab your socks?</h1>
-                <p className={styles.stepSub}>
-                  Pick the platform, then pop in your order number — our team confirms all orders daily at 6PM.
-                </p>
                 {returning && (
                   <div className={styles.welcomeback}>
                     <div>
-                      👋 Welcome back{name ? `, ${name.split(' ')[0]}` : ''} — recognized your number, no need to
-                      re-enter your details.
+                      👋 Welcome back{name ? `, ${name.split(' ')[0]}` : ''}!
                     </div>
                     {!!returningStats?.totalPairs && (
                       <div className={styles.welcomebackStats}>
@@ -718,22 +709,25 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                       <div className={styles.luckyMonth}>
                         🎟️ {drawMonthLabel(result.ticket.draw_month)} LUCKY DRAW
                       </div>
-                      <div className={styles.luckyNo}>
-                        #{String(result.ticket.ticket_no).padStart(4, '0')}
-                      </div>
+                      {ticketList && ticketList.tickets.length > 1 ? (
+                        <div className={styles.miniTickets}>
+                          {[...ticketList.tickets].reverse().map((t) => (
+                            <div key={t.ticket_no} className={styles.miniTicket}>
+                              <span className={styles.miniNo}>{fmtTicketNo(t.ticket_no)}</span>
+                              <span className={styles.miniMeta}>
+                                {t.ticket_no === result.ticket!.ticket_no ? '✨ new' : t.platform}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className={styles.luckyNo}>
+                          #{String(result.ticket.ticket_no).padStart(4, '0')}
+                        </div>
+                      )}
                       <p className={styles.luckyHint}>
                         Screenshot this. Winners announced <b>end of {drawMonthLabel(result.ticket.draw_month).toLowerCase()}</b> on WhatsApp — show it to claim.
                       </p>
-                      {ticketList && ticketList.tickets.length > 1 && (
-                        <>
-                          <div className={styles.ticketChips}>
-                            {ticketList.tickets.map((t) => (
-                              <span key={t.ticket_no} className={styles.ticketChip}>{fmtTicketNo(t.ticket_no)}</span>
-                            ))}
-                          </div>
-                          <p className={styles.ticketExpiry}>All your tickets this month.</p>
-                        </>
-                      )}
                     </div>
                   )}
 
@@ -795,6 +789,21 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                       </a>
                     </div>
                   )}
+                  {!result.first_timer && result.member.lifetime_code && (
+                    <div className={styles.perkcard}>
+                      <div className={styles.perkhead}>💛 Your lifetime code</div>
+                      <div className={styles.perkdesc}>10% off every order. Forever. Yours alone.</div>
+                      <div className={styles.perkcoderow}>
+                        <span className={styles.perkcode}>{result.member.lifetime_code}</span>
+                        <button className={styles.perkcopy} onClick={() => copyPerkCode(result.member.lifetime_code!)}>
+                          {perkCopied === result.member.lifetime_code ? 'Copied ✓' : 'Copy code'}
+                        </button>
+                      </div>
+                      <a className={styles.redeemLink} href={redeemUrl(result.member.lifetime_code)} target="_blank" rel="noopener noreferrer">
+                        REDEEM HERE →
+                      </a>
+                    </div>
+                  )}
                   {result.submission.status !== 'valid' && (
                     <div className={styles.perkpending}>
                       🧦 Welcome codes unlock once your order&apos;s verified.
@@ -812,21 +821,10 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
           </div>
         </div>
 
-        {/* Marketing prize preview — only while still registering. The
-            success step and ticket list show exactly one thing: tickets. */}
-        {step !== 3 && !viewingTickets && (
+        {/* Prize preview sells the signup — first screen only. After that
+            the customer is already in the flow; keep every screen clean. */}
+        {step === 0 && !viewingTickets && (
           <section className={styles.perksSection}>
-            <div className={styles.perkWidgets}>
-              <div className={styles.perkWidget}>
-                <span className={styles.perkWidgetIco}>💬</span>
-                <span>Exclusive promo codes on WhatsApp</span>
-              </div>
-              <div className={styles.perkWidget}>
-                <span className={styles.perkWidgetIco}>🎟️</span>
-                <span>Monthly Grand Draw entry</span>
-              </div>
-            </div>
-
             <div className={styles.prizepreview}>
               <div className={styles.ppHead}>🎉 This month&apos;s grand draw</div>
               {displayMonthly.map((p, i) => (

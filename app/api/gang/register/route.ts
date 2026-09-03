@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
 
   const { data: member, error: lookupErr } = await supabase
     .from('gang_members')
-    .select('id, name, email, created_at')
+    .select('id, name, email, created_at, lifetime_code')
     .eq('phone', phone)
     .maybeSingle()
   if (lookupErr) {
