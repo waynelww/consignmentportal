@@ -211,3 +211,6 @@
 
 /* Redeem link under each personal code */
 .redeemLink { display: inline-block; margin-top: 10px; font-size: 12.5px; font-weight: 800; letter-spacing: 0.04em; color: var(--amber); text-decoration: underline; text-underline-offset: 3px; }
+
+/* Real Xocks wordmark inside the success badge (not the generic X mark) */
+.gangbadgeLogo { width: 74px; height: auto; display: block; }

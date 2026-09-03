@@ -468,8 +468,8 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                   </h1>
                   <p className={`${styles.stepSub} ${styles.center}`}>
                     {ticketList.tickets.length
-                      ? <>You hold <b>{ticketList.tickets.length} ticket{ticketList.tickets.length > 1 ? 's' : ''}</b> in this month&apos;s draw — every verified order adds one more.</>
-                      : <>No tickets for this month yet — register a verified order below to get your first one.</>}
+                      ? <><b>{ticketList.tickets.length} ticket{ticketList.tickets.length > 1 ? 's' : ''}</b> in this month&apos;s draw.</>
+                      : <>No tickets yet — register an order to get your first.</>}
                   </p>
 
                   <div className={styles.miniTickets}>
@@ -485,7 +485,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
 
                   {ticketList.pending_count > 0 && (
                     <p className={styles.ticketExpiry}>
-                      ⏳ {ticketList.pending_count} more order{ticketList.pending_count > 1 ? 's' : ''} pending verification — each becomes a ticket once confirmed.
+                      ⏳ {ticketList.pending_count} order{ticketList.pending_count > 1 ? 's' : ''} verifying — more tickets coming.
                     </p>
                   )}
 
@@ -499,12 +499,12 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                         </button>
                       </div>
                       <a className={styles.redeemLink} href={redeemUrl(ticketList.member.lifetime_code)} target="_blank" rel="noopener noreferrer">
-                        REDEEM HERE → code auto-applies at checkout
+                        REDEEM HERE →
                       </a>
                     </div>
                   )}
                   <p className={styles.ticketExpiry}>
-                    Tickets are valid for the {drawMonthLabel(ticketList.draw_month).toLowerCase()} draw only — everything resets when a new month starts. Winners announced end of month on WhatsApp; show this screen to claim.
+                    Valid for {drawMonthLabel(ticketList.draw_month).toLowerCase()} only — resets monthly. Winners announced on WhatsApp; show this screen to claim.
                   </p>
 
                   <div className={styles.btnrow} style={{ marginTop: 16 }}>
@@ -683,16 +683,12 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                 <div style={{ textAlign: 'center' }}>
                   <div className={styles.badgewrap}>
                     <div className={styles.gangbadge}>
-                      <svg viewBox="0 0 24 24" fill="none" width={52} height={52}>
-                        <path d="M4 4L20 20M20 4L4 20" stroke="#F1E9D8" strokeWidth="3" strokeLinecap="round" />
-                      </svg>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src="/xocks-logo.png" alt="Xocks" className={styles.gangbadgeLogo} />
                     </div>
                   </div>
                   <p className={`${styles.eyebrow} ${styles.center}`}>You&apos;re in</p>
                   <h1 className={`${styles.stepTitle} ${styles.center}`}>Welcome to the Gang 🧦</h1>
-                  <p className={`${styles.stepSub} ${styles.center}`}>
-                    Your member card is live — perks &amp; promo codes land on WhatsApp.
-                  </p>
 
                   <div className={styles.idcard}>
                     <div className={styles.idcardTop}>
@@ -726,9 +722,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                         #{String(result.ticket.ticket_no).padStart(4, '0')}
                       </div>
                       <p className={styles.luckyHint}>
-                        This is your ticket number — screenshot it. Winning numbers are announced{' '}
-                        <b>end of {drawMonthLabel(result.ticket.draw_month).toLowerCase()}</b> on WhatsApp.
-                        If yours is called, show this ticket to claim your prize.
+                        Screenshot this. Winners announced <b>end of {drawMonthLabel(result.ticket.draw_month).toLowerCase()}</b> on WhatsApp — show it to claim.
                       </p>
                       {ticketList && ticketList.tickets.length > 1 && (
                         <>
@@ -737,9 +731,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                               <span key={t.ticket_no} className={styles.ticketChip}>{fmtTicketNo(t.ticket_no)}</span>
                             ))}
                           </div>
-                          <p className={styles.ticketExpiry}>
-                            All {ticketList.tickets.length} of your tickets this month — every order adds another.
-                          </p>
+                          <p className={styles.ticketExpiry}>All your tickets this month.</p>
                         </>
                       )}
                     </div>
@@ -755,8 +747,8 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                       <div className={styles.luckyNo}>#····</div>
                       <p className={styles.luckyHint}>
                         {result.submission.status === 'valid'
-                          ? <>Your order is verified — your ticket number is being issued and will reach you on <b>WhatsApp</b> shortly.</>
-                          : <>Your ticket number arrives once your order is verified — we check orders <b>every evening at 6PM</b> and ping you on WhatsApp with your number.</>}
+                          ? <>Verified — your number lands on <b>WhatsApp</b> shortly.</>
+                          : <>Verifying your order — your number lands on <b>WhatsApp by 6PM</b> tonight.</>}
                       </p>
                     </div>
                   )}
@@ -776,9 +768,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                   {result.first_timer?.freepair_code && (
                     <div className={styles.perkcard}>
                       <div className={styles.perkhead}>🎁 Free pair — welcome gift</div>
-                      <div className={styles.perkdesc}>
-                        RM13.99 off any purchase on xocks.co — one-time use, just for you.
-                      </div>
+                      <div className={styles.perkdesc}>RM13.99 off any purchase — one-time use.</div>
                       <div className={styles.perkcoderow}>
                         <span className={styles.perkcode}>{result.first_timer.freepair_code}</span>
                         <button className={styles.perkcopy} onClick={() => copyPerkCode(result.first_timer!.freepair_code!)}>
@@ -786,16 +776,14 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                         </button>
                       </div>
                       <a className={styles.redeemLink} href={redeemUrl(result.first_timer.freepair_code)} target="_blank" rel="noopener noreferrer">
-                        REDEEM HERE → code auto-applies at checkout
+                        REDEEM HERE →
                       </a>
                     </div>
                   )}
                   {result.first_timer?.lifetime_code && (
                     <div className={styles.perkcard}>
                       <div className={styles.perkhead}>💛 Your lifetime code</div>
-                      <div className={styles.perkdesc}>
-                        10% off every order, forever. This code is yours alone — no expiry, use it every time.
-                      </div>
+                      <div className={styles.perkdesc}>10% off every order. Forever. Yours alone.</div>
                       <div className={styles.perkcoderow}>
                         <span className={styles.perkcode}>{result.first_timer.lifetime_code}</span>
                         <button className={styles.perkcopy} onClick={() => copyPerkCode(result.first_timer!.lifetime_code!)}>
@@ -803,13 +791,13 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                         </button>
                       </div>
                       <a className={styles.redeemLink} href={redeemUrl(result.first_timer.lifetime_code)} target="_blank" rel="noopener noreferrer">
-                        REDEEM HERE → code auto-applies at checkout
+                        REDEEM HERE →
                       </a>
                     </div>
                   )}
                   {result.submission.status !== 'valid' && (
                     <div className={styles.perkpending}>
-                      🧦 First order with us? Once it&apos;s verified you&apos;ll also unlock your welcome codes on WhatsApp.
+                      🧦 Welcome codes unlock once your order&apos;s verified.
                     </div>
                   )}
 
