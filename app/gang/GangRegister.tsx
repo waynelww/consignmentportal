@@ -62,6 +62,12 @@ function XocksLogo() {
 
 const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_GANG_WHATSAPP_NUMBER || '60000000000'
 
+// Shopify's discount deep-link: opens the store with the code already
+// applied to the cart — "redeem" means one tap, not copy-paste-remember.
+function redeemUrl(code: string): string {
+  return `https://www.xocks.co/discount/${encodeURIComponent(code)}`
+}
+
 function ShopeeIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none">
@@ -492,6 +498,9 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                           {perkCopied === ticketList.member.lifetime_code ? 'Copied ✓' : 'Copy code'}
                         </button>
                       </div>
+                      <a className={styles.redeemLink} href={redeemUrl(ticketList.member.lifetime_code)} target="_blank" rel="noopener noreferrer">
+                        REDEEM HERE → code auto-applies at checkout
+                      </a>
                     </div>
                   )}
                   <p className={styles.ticketExpiry}>
@@ -776,6 +785,9 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                           {perkCopied === result.first_timer.freepair_code ? 'Copied ✓' : 'Copy code'}
                         </button>
                       </div>
+                      <a className={styles.redeemLink} href={redeemUrl(result.first_timer.freepair_code)} target="_blank" rel="noopener noreferrer">
+                        REDEEM HERE → code auto-applies at checkout
+                      </a>
                     </div>
                   )}
                   {result.first_timer?.lifetime_code && (
@@ -790,6 +802,9 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                           {perkCopied === result.first_timer.lifetime_code ? 'Copied ✓' : 'Copy code'}
                         </button>
                       </div>
+                      <a className={styles.redeemLink} href={redeemUrl(result.first_timer.lifetime_code)} target="_blank" rel="noopener noreferrer">
+                        REDEEM HERE → code auto-applies at checkout
+                      </a>
                     </div>
                   )}
                   {result.submission.status !== 'valid' && (

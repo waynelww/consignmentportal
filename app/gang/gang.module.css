@@ -208,3 +208,6 @@
 .ticketExpiry { margin-top: 10px; font-size: 11.5px; text-align: center; color: color-mix(in srgb, var(--ink) 55%, transparent); }
 .ticketChips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 10px; }
 .ticketChip { font-family: var(--fontDisplay); font-weight: 800; font-size: 13px; padding: 5px 11px; border-radius: 999px; border: 1.5px dashed color-mix(in srgb, var(--brown) 50%, transparent); background: color-mix(in srgb, var(--amber) 8%, var(--creamDeep)); font-variant-numeric: tabular-nums; }
+
+/* Redeem link under each personal code */
+.redeemLink { display: inline-block; margin-top: 10px; font-size: 12.5px; font-weight: 800; letter-spacing: 0.04em; color: var(--amber); text-decoration: underline; text-underline-offset: 3px; }
