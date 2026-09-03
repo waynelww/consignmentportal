@@ -55,12 +55,13 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Please complete your details first.' }, { status: 400 })
   }
 
-  const orderNumber = parsed.data.order_number.trim()
+  const orderNumber = parsed.data.order_number.trim().replace(/^#/, '')
 
   const { data: duplicate, error: dupErr } = await supabase
     .from('gang_order_submissions')
-    .select('id')
-    .eq('order_number', orderNumber)
+    .select('id, member_id')
+    .in('order_number', [orderNumber, `#${orderNumber}`])
+    .limit(1)
     .maybeSingle()
   if (dupErr) {
     await recordAttempt(request, { endpoint: 'gang-register', succeeded: false })
@@ -68,7 +69,34 @@ export async function POST(request: NextRequest) {
   }
   if (duplicate) {
     await recordAttempt(request, { endpoint: 'gang-register', succeeded: false })
-    return Response.json({ error: 'This order number has already been registered.' }, { status: 409 })
+    // Website orders auto-enroll on payment — so their own order is often
+    // already in. Point them at their tickets instead of a dead end.
+    const msg = duplicate.member_id === member.id
+      ? "This order is already in! Tap '🎟️ Already registered? View my tickets' on the first step."
+      : 'This order number has already been registered.'
+    return Response.json({ error: msg }, { status: 409 })
+  }
+
+  // Website order numbers are sequential and guessable, so the typed order
+  // must actually belong to this member: its checkout phone or email has
+  // to match. Shopee/TikTok ids are long and random — no check needed.
+  if (parsed.data.platform === 'website') {
+    const { getOrderByName } = await import('@/lib/shopify/order-lookup')
+    const order = await getOrderByName(orderNumber).catch(() => null)
+    if (order) {
+      const orderPhone = order.phone ? normalizePhone(order.phone) : null
+      const phoneMatches = orderPhone !== null && orderPhone === phone
+      const emailMatches =
+        !!order.email && !!member.email && order.email.toLowerCase() === member.email.toLowerCase()
+      if (!phoneMatches && !emailMatches) {
+        await recordAttempt(request, { endpoint: 'gang-register', succeeded: false })
+        return Response.json({
+          error: "This order doesn't match your phone or email. Use the same details you checked out with, or WhatsApp us.",
+        }, { status: 403 })
+      }
+    }
+    // Order not found / Shopify down → fall through to 'pending'; the
+    // daily reconciliation still guards it.
   }
 
   // A lookup error here just means the immediate-match convenience is
@@ -77,7 +105,8 @@ export async function POST(request: NextRequest) {
   const { data: validMatch } = await supabase
     .from('gang_valid_orders')
     .select('order_number')
-    .eq('order_number', orderNumber)
+    .in('order_number', [orderNumber, `#${orderNumber}`])
+    .limit(1)
     .maybeSingle()
 
   const status = validMatch ? 'valid' : 'pending'
