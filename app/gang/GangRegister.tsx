@@ -122,8 +122,8 @@ function maskPhone(phone: string) {
 }
 
 const DEMO_MONTHLY_PRIZES: GangPrize[] = [
-  { id: 'demo-1', tier_label: '🏆 Free Socks for a Year', probability_text: '1 / 10,000', cadence: 'monthly', prize_label: '' },
-  { id: 'demo-2', tier_label: '🎁 Mystery "Hidden" Gift', probability_text: 'rolling', cadence: 'monthly', prize_label: '' },
+  { id: 'demo-1', tier_label: '🏆 FREE 12 Months Custom Socks', probability_text: '12 pairs total', cadence: 'monthly', prize_label: '' },
+  { id: 'demo-2', tier_label: '🎁 Mystery Gift', probability_text: 'rolling', cadence: 'monthly', prize_label: '' },
   { id: 'demo-3', tier_label: '🎫 Buy 1 Free 1 Voucher', probability_text: 'rolling', cadence: 'monthly', prize_label: '' },
 ]
 
@@ -836,7 +836,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
               <div className={styles.ppMore}>
                 {dailyPrizes[0]?.prize_label
                   ? `✅ instant ${dailyPrizes[0].prize_label} on every verified order`
-                  : '✅ instant 10–20% promo code on every verified order'}
+                  : '🎟️ every verified order = 1 draw ticket'}
               </div>
             </div>
           </section>
