@@ -9,7 +9,7 @@ interface ShopifyGraphQLResponse<T> {
   errors?: { message: string }[]
 }
 
-async function shopifyGraphQL<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+export async function shopifyGraphQL<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   const domain = process.env.SHOPIFY_STORE_DOMAIN
   const token = process.env.SHOPIFY_ADMIN_TOKEN
   if (!domain || !token) {

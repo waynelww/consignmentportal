@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { grantShopifyPerk } from './grant-perk'
 import { assignTickets } from './tickets'
+import { grantFirstTimerCodes } from './first-timer'
 
 export interface UploadOrdersResult {
   uploaded: number
@@ -63,12 +63,21 @@ export async function uploadGangOrderNumbers(
       if (itemErr) throw new Error(itemErr.message)
     }
   }
+  // Snapshot BEFORE flipping: members who already had a valid order are
+  // returning customers — their reward is a new lucky-draw ticket, never
+  // a second set of first-timer codes.
+  const { data: preValid } = await supabase
+    .from('gang_order_submissions')
+    .select('member_id')
+    .eq('status', 'valid')
+  const alreadyValidMembers = new Set((preValid ?? []).map((r) => r.member_id))
+
   const { data: matched, error: matchErr } = await supabase
     .from('gang_order_submissions')
     .update({ status: 'valid', verified_at: new Date().toISOString() })
     .eq('status', 'pending')
     .in('order_number', orderNumberList)
-    .select('id')
+    .select('id, member_id')
   if (matchErr) throw new Error(matchErr.message)
 
   // Every freshly verified order gets its lucky-draw ticket number for
@@ -80,21 +89,16 @@ export async function uploadGangOrderNumbers(
     .select('id', { count: 'exact', head: true })
     .eq('status', 'pending')
 
-  const { data: allValid } = await supabase.from('gang_order_submissions').select('member_id').eq('status', 'valid')
-  const candidateMemberIds = [...new Set((allValid ?? []).map((r) => r.member_id))]
+  // First-timers (their first-ever verified order is in this batch) get
+  // their two personal codes: one-time RM13.99 free pair + lifetime 10%.
+  const firstTimerIds = [...new Set(
+    (matched ?? []).map((m) => m.member_id).filter((id) => !alreadyValidMembers.has(id)),
+  )]
 
   let perksGranted = 0
-  if (candidateMemberIds.length) {
-    const { data: ungranted } = await supabase
-      .from('gang_members')
-      .select('id')
-      .in('id', candidateMemberIds)
-      .is('perk_granted_at', null)
-
-    for (const m of ungranted ?? []) {
-      const perk = await grantShopifyPerk(supabase, m.id)
-      if (perk) perksGranted++
-    }
+  for (const memberId of firstTimerIds) {
+    const codes = await grantFirstTimerCodes(supabase, memberId)
+    if (codes?.lifetime_code || codes?.freepair_code) perksGranted++
   }
 
   return { uploaded: rows.length, matched: matched?.length ?? 0, stillPending: stillPending ?? 0, perksGranted }

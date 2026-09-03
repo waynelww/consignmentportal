@@ -18,9 +18,9 @@ interface RegisterResult {
     verified_at: string | null
   }
   prizes: GangPrize[]
-  perk: { code: string; min_quantity: number; discount_amount: number } | null
   stats: MemberStats | null
   ticket: { ticket_no: number; draw_month: string } | null
+  first_timer: { freepair_code: string | null; lifetime_code: string | null } | null
 }
 
 // '2026-09' → 'SEPTEMBER'
@@ -30,7 +30,7 @@ function drawMonthLabel(drawMonth: string): string {
 }
 
 interface TicketListResult {
-  member: { name: string }
+  member: { name: string; lifetime_code: string | null }
   draw_month: string
   tickets: { ticket_no: number; order_number: string; platform: string }[]
   pending_count: number
@@ -135,7 +135,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
 
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [result, setResult] = useState<RegisterResult | null>(null)
-  const [perkCopied, setPerkCopied] = useState(false)
+  const [perkCopied, setPerkCopied] = useState<string | null>(null)
   const [returningStats, setReturningStats] = useState<MemberStats | null>(null)
   const [ticketList, setTicketList] = useState<TicketListResult | null>(null)
   const [viewingTickets, setViewingTickets] = useState(false)
@@ -376,7 +376,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
     setOrderNumber('')
     setErrors({})
     setResult(null)
-    setPerkCopied(false)
+    setPerkCopied(null)
     setReturningStats(null)
     setTicketList(null)
     setViewingTickets(false)
@@ -398,8 +398,8 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
   async function copyPerkCode(code: string) {
     try {
       await navigator.clipboard.writeText(code)
-      setPerkCopied(true)
-      setTimeout(() => setPerkCopied(false), 2000)
+      setPerkCopied(code)
+      setTimeout(() => setPerkCopied(null), 2000)
     } catch {
       // Clipboard API unavailable — the code is still visible to copy by hand.
     }
@@ -481,6 +481,18 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                     <p className={styles.ticketExpiry}>
                       ⏳ {ticketList.pending_count} more order{ticketList.pending_count > 1 ? 's' : ''} pending verification — each becomes a ticket once confirmed.
                     </p>
+                  )}
+
+                  {ticketList.member.lifetime_code && (
+                    <div className={styles.perkcard} style={{ textAlign: 'left' }}>
+                      <div className={styles.perkhead}>💛 Your lifetime code — 10% off every order</div>
+                      <div className={styles.perkcoderow}>
+                        <span className={styles.perkcode}>{ticketList.member.lifetime_code}</span>
+                        <button className={styles.perkcopy} onClick={() => copyPerkCode(ticketList.member.lifetime_code!)}>
+                          {perkCopied === ticketList.member.lifetime_code ? 'Copied ✓' : 'Copy code'}
+                        </button>
+                      </div>
+                    </div>
                   )}
                   <p className={styles.ticketExpiry}>
                     Tickets are valid for the {drawMonthLabel(ticketList.draw_month).toLowerCase()} draw only — everything resets when a new month starts. Winners announced end of month on WhatsApp; show this screen to claim.
@@ -750,29 +762,39 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                     </div>
                   )}
 
-                  {result.submission.status === 'valid' && result.perk && (
+                  {/* First-timer welcome codes — issued once, on the first
+                      verified order only. Returning members see tickets. */}
+                  {result.first_timer?.freepair_code && (
                     <div className={styles.perkcard}>
-                      <div className={styles.perkhead}>🧦 Your standing checkout perk</div>
+                      <div className={styles.perkhead}>🎁 Free pair — welcome gift</div>
                       <div className={styles.perkdesc}>
-                        Get RM{result.perk.discount_amount.toFixed(2)} off any order once you've got{' '}
-                        {result.perk.min_quantity}+ pairs in your cart — use it every time you shop.
+                        RM13.99 off any purchase on xocks.co — one-time use, just for you.
                       </div>
                       <div className={styles.perkcoderow}>
-                        <span className={styles.perkcode}>{result.perk.code}</span>
-                        <button className={styles.perkcopy} onClick={() => copyPerkCode(result.perk!.code)}>
-                          {perkCopied ? 'Copied ✓' : 'Copy code'}
+                        <span className={styles.perkcode}>{result.first_timer.freepair_code}</span>
+                        <button className={styles.perkcopy} onClick={() => copyPerkCode(result.first_timer!.freepair_code!)}>
+                          {perkCopied === result.first_timer.freepair_code ? 'Copied ✓' : 'Copy code'}
                         </button>
                       </div>
                     </div>
                   )}
-                  {result.submission.status === 'valid' && !result.perk && (
-                    <div className={styles.perkpending}>
-                      🧦 Your standing checkout perk is being set up — check back shortly.
+                  {result.first_timer?.lifetime_code && (
+                    <div className={styles.perkcard}>
+                      <div className={styles.perkhead}>💛 Your lifetime code</div>
+                      <div className={styles.perkdesc}>
+                        10% off every order, forever. This code is yours alone — no expiry, use it every time.
+                      </div>
+                      <div className={styles.perkcoderow}>
+                        <span className={styles.perkcode}>{result.first_timer.lifetime_code}</span>
+                        <button className={styles.perkcopy} onClick={() => copyPerkCode(result.first_timer!.lifetime_code!)}>
+                          {perkCopied === result.first_timer.lifetime_code ? 'Copied ✓' : 'Copy code'}
+                        </button>
+                      </div>
                     </div>
                   )}
                   {result.submission.status !== 'valid' && (
                     <div className={styles.perkpending}>
-                      🧦 Once your order's verified, you'll unlock a personal checkout discount code too.
+                      🧦 First order with us? Once it&apos;s verified you&apos;ll also unlock your welcome codes on WhatsApp.
                     </div>
                   )}
 

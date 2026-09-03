@@ -4,9 +4,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { checkRateLimit, recordAttempt } from '@/lib/rate-limit'
 import { normalizePhone } from '@/lib/gang/phone'
 import { getActivePrizes } from '@/lib/gang/prizes'
-import { grantShopifyPerk } from '@/lib/gang/grant-perk'
 import { getMemberStats } from '@/lib/gang/member-stats'
 import { assignTickets } from '@/lib/gang/tickets'
+import { grantFirstTimerCodes, countValidSubmissions } from '@/lib/gang/first-timer'
 
 const Schema = z.object({
   phone: z.string().min(6),
@@ -101,9 +101,17 @@ export async function POST(request: NextRequest) {
 
   const prizes = await getActivePrizes(supabase).catch(() => [])
 
-  // Only the immediate-match path grants the perk here — an order that's
-  // still 'pending' gets it later, when the bot's daily upload verifies it.
-  const perk = status === 'valid' ? await grantShopifyPerk(supabase, member.id) : null
+  // First-ever verified order → issue the two personal codes (one-time
+  // free pair + lifetime 10%). A returning member's later orders never
+  // re-trigger this — their reward is the extra lucky-draw ticket.
+  // Pending orders are handled by the bot's daily verification instead.
+  let firstTimer = null
+  if (status === 'valid') {
+    const validCount = await countValidSubmissions(supabase, member.id)
+    if (validCount === 1) {
+      firstTimer = await grantFirstTimerCodes(supabase, member.id)
+    }
+  }
   const stats = await getMemberStats(supabase, member.id).catch(() => null)
 
   // Instantly-verified orders get their lucky-draw ticket right away, so
@@ -116,5 +124,5 @@ export async function POST(request: NextRequest) {
 
   await recordAttempt(request, { endpoint: 'gang-register', succeeded: true })
 
-  return Response.json({ member, submission, prizes, perk, stats, ticket })
+  return Response.json({ member, submission, prizes, stats, ticket, first_timer: firstTimer })
 }

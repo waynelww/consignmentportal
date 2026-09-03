@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 
   const { data: member, error: memberErr } = await supabase
     .from('gang_members')
-    .select('id, name')
+    .select('id, name, lifetime_code')
     .eq('phone', phone)
     .maybeSingle()
 
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
   await recordAttempt(request, { endpoint: 'gang-tickets', succeeded: true })
 
   return Response.json({
-    member: { name: member.name },
+    member: { name: member.name, lifetime_code: member.lifetime_code ?? null },
     draw_month: drawMonth,
     tickets: tickets ?? [],
     pending_count: pendingCount ?? 0,
