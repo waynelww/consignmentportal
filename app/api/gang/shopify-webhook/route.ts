@@ -28,6 +28,15 @@ export async function POST(request: NextRequest) {
   const order = await getOrderById(payload.id).catch(() => null)
   if (!order) return Response.json({ ok: true, skipped: 'order not found on Shopify' })
 
+  // Online-store orders only. POS sales (Central Market / IOI walk-ins)
+  // and manually created / draft orders (wholesale, OEM invoices) must
+  // NOT auto-enroll — a wholesale buyer getting a personal lifetime 10%
+  // code would be a genuine leak. Those customers can still join via the
+  // QR card like everyone else.
+  if (order.sourceName !== 'web') {
+    return Response.json({ ok: true, skipped: `source ${order.sourceName ?? 'unknown'} not auto-enrolled` })
+  }
+
   const phone = order.phone ? normalizePhone(order.phone) : null
   if (!phone) {
     // No phone at checkout — nothing to key the membership on. The customer

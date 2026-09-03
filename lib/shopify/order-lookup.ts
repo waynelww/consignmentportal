@@ -6,11 +6,13 @@ export interface ShopifyOrderContact {
   email: string | null
   customerName: string | null
   financialStatus: string | null
+  sourceName: string | null // 'web' = online store; 'pos', 'shopify_draft_order', etc.
 }
 
 const ORDER_FIELDS = `
   name
   displayFinancialStatus
+  sourceName
   email
   phone
   billingAddress { phone name }
@@ -31,6 +33,7 @@ function extract(node: Record<string, any>): ShopifyOrderContact {
     email: node.email ?? node.customer?.email ?? null,
     customerName: node.customer?.displayName ?? node.shippingAddress?.name ?? node.billingAddress?.name ?? null,
     financialStatus: node.displayFinancialStatus ?? null,
+    sourceName: node.sourceName ?? null,
   }
 }
 
