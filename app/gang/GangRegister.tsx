@@ -60,7 +60,6 @@ function XocksLogo() {
   )
 }
 
-const WHATSAPP_NUMBER = process.env.NEXT_PUBLIC_GANG_WHATSAPP_NUMBER || '60000000000'
 
 // Shopify's discount deep-link: opens the store with the code already
 // applied to the cart — "redeem" means one tap, not copy-paste-remember.
@@ -112,7 +111,7 @@ const STATUS_COPY: Record<SubmissionStatus, { title: string; desc: string; cls: 
   },
   invalid: {
     title: 'Order number not found',
-    desc: "We couldn't match this order yet. Tap the WhatsApp button below and our team will sort it out.",
+    desc: "We couldn't match this order yet. Email us at info@xocks.co and our team will sort it out.",
     cls: styles.statusInvalid,
   },
 }
@@ -661,8 +660,8 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                 </div>
                 <div className={styles.helplink}>
                   Order number missing or not on your receipt?{' '}
-                  <a href={`https://wa.me/${WHATSAPP_NUMBER}`} target="_blank" rel="noopener noreferrer">
-                    Chat us on WhatsApp
+                  <a href="mailto:info@xocks.co">
+                    Email us — info@xocks.co
                   </a>
                 </div>
               </div>
