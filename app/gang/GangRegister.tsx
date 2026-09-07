@@ -46,7 +46,7 @@ interface MemberStats {
 }
 
 interface SaveStepResult {
-  member: { id: string; name: string; email: string | null; created_at?: string }
+  member: { id: string; name: string; email: string | null; birthday: string | null; created_at?: string }
   stats: MemberStats | null
 }
 
@@ -135,6 +135,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [birthday, setBirthday] = useState('')
   const [platform, setPlatform] = useState<Platform | null>(null)
   const [orderNumber, setOrderNumber] = useState('')
 
@@ -243,7 +244,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
   // Saves whatever's known so far — called after phone+name, and again
   // after email — so a partial signup is captured even if the customer
   // never reaches the last step.
-  async function saveStep(fields: { name?: string; email?: string }): Promise<SaveStepResult | null> {
+  async function saveStep(fields: { name?: string; email?: string; birthday?: string }): Promise<SaveStepResult | null> {
     const res = await fetch('/api/gang/save-step', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -266,14 +267,17 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
     setSaving(true)
     try {
       const data = await saveStep({ name: trimmedName })
-      if (data?.member.email) {
+      if (data?.member.email && data.member.birthday) {
         setReturning(true)
         setEmail(data.member.email)
+        setBirthday(data.member.birthday)
         setReturningStats(data.stats)
         setStep(2)
       } else {
         setReturning(false)
-        setReturningStats(null)
+        if (data?.member.email) setEmail(data.member.email)
+        if (data?.member.birthday) setBirthday(data.member.birthday)
+        setReturningStats(data?.stats ?? null)
         setStep(1)
       }
     } catch (err) {
@@ -286,14 +290,14 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
   async function handleEmailContinue() {
     const trimmedEmail = email.trim()
     const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)
-    if (!emailOk) {
-      setErrors({ email: 'Enter a valid email.' })
-      return
-    }
-    setErrors({})
+    const next: Record<string, string> = {}
+    if (!emailOk) next.email = 'Enter a valid email.'
+    if (!birthday) next.birthday = 'Pick your birthday.'
+    setErrors(next)
+    if (Object.keys(next).length) return
     setSaving(true)
     try {
-      await saveStep({ email: trimmedEmail })
+      await saveStep({ email: trimmedEmail, birthday })
       setStep(2)
     } catch (err) {
       setErrors({ email: err instanceof Error ? err.message : 'Could not reach the server. Try again.' })
@@ -568,7 +572,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
             {step === 1 && (
               <div className={styles.step}>
                 <p className={styles.eyebrow}>Step 2 of 4</p>
-                <h1 className={styles.stepTitle}>Last thing 📧</h1>
+                <h1 className={styles.stepTitle}>Almost there 📧</h1>
                 <label className={styles.field}>
                   <span className={styles.fieldLabel}>Email</span>
                   <input
@@ -582,6 +586,19 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                     onKeyDown={(e) => e.key === 'Enter' && handleEmailContinue()}
                   />
                   {errors.email && <div className={styles.err}>{errors.email}</div>}
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>Birthday</span>
+                  <input
+                    className={styles.input}
+                    type="date"
+                    autoComplete="bday"
+                    max={new Date().toISOString().slice(0, 10)}
+                    value={birthday}
+                    onChange={(e) => setBirthday(e.target.value)}
+                  />
+                  <div className={styles.hint}>We&apos;ll send you a birthday surprise 🎂</div>
+                  {errors.birthday && <div className={styles.err}>{errors.birthday}</div>}
                 </label>
                 <div className={styles.btnrow}>
                   <button className={styles.btnGhost} onClick={() => setStep(0)}>
@@ -820,9 +837,9 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
           </div>
         </div>
 
-        {/* Prize preview sells the signup — first screen only. After that
-            the customer is already in the flow; keep every screen clean. */}
-        {step === 0 && !viewingTickets && (
+        {/* Prize preview sells the signup — shown on every step so the
+            reward stays visible for the whole flow. */}
+        {!viewingTickets && (
           <section className={styles.perksSection}>
             <div className={styles.prizepreview}>
               <div className={styles.ppHead}>🎉 This month&apos;s grand draw</div>

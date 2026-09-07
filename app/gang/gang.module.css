@@ -6,6 +6,7 @@
   --brownDeep: #5F500F;
   --amber: #F4D75E;
   --onAmber: #1A1814;
+  --tierTop: #FFE06A;
   --stripe: #D6421F;
   --ok: #4C7A4A;
   --line: rgba(26, 24, 20, 0.15);
@@ -27,7 +28,7 @@
 @media (prefers-color-scheme: dark) {
   .page {
     --cream: #191507; --creamDeep: #221D0C; --ink: #F5EEDE;
-    --brown: #D9C468; --brownDeep: #A8912F; --amber: #F7E074;
+    --brown: #D9C468; --brownDeep: #A8912F; --amber: #F7E074; --tierTop: #8E1F5B;
     --stripe: #E86A3F; --ok: #6FAE6C; --line: rgba(245, 238, 222, 0.16);
     --cardShadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 14px 32px -14px rgba(0, 0, 0, 0.6);
   }
@@ -94,7 +95,7 @@
 .prizepreview::after { content: ""; position: absolute; inset: 0; opacity: 0.15; background-image: radial-gradient(circle, #fff 1px, transparent 1.4px); background-size: 14px 14px; }
 .ppHead { display: flex; align-items: center; gap: 8px; font-family: var(--fontDisplay); font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; position: relative; }
 .ppRow { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; padding: 8px 10px; border-radius: 9px; background: rgba(255, 255, 255, 0.1); animation: fadeup 0.45s 0.56s both; margin-bottom: 8px; position: relative; }
-.ppRowTop .tier { color: var(--amber); }
+.ppRowTop .tier { color: var(--tierTop); font-size: 13.5px; text-shadow: 0 0 14px color-mix(in srgb, var(--tierTop) 45%, transparent); }
 .tier { font-weight: 800; }
 .ppOdds { font-family: var(--fontMono); font-size: 11px; opacity: 0.75; }
 .ppMore { font-size: 11.5px; opacity: 0.85; position: relative; animation: fadeup 0.45s 0.66s both; }

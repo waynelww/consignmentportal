@@ -9,6 +9,7 @@ const Schema = z.object({
   phone: z.string().min(6),
   name: z.string().min(1).optional(),
   email: z.string().email().optional(),
+  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 })
 
 // POST /api/gang/save-step
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
 
   const { data: existing, error: lookupErr } = await supabase
     .from('gang_members')
-    .select('id, name, email, created_at')
+    .select('id, name, email, birthday, created_at')
     .eq('phone', phone)
     .maybeSingle()
   if (lookupErr) {
@@ -59,8 +60,13 @@ export async function POST(request: NextRequest) {
     }
     const { data: created, error: createErr } = await supabase
       .from('gang_members')
-      .insert({ phone, name: parsed.data.name, email: parsed.data.email ?? null })
-      .select('id, name, email, created_at')
+      .insert({
+        phone,
+        name: parsed.data.name,
+        email: parsed.data.email ?? null,
+        birthday: parsed.data.birthday ?? null,
+      })
+      .select('id, name, email, birthday, created_at')
       .single()
     if (createErr) {
       await recordAttempt(request, { endpoint: 'gang-save-step', succeeded: false })
@@ -71,12 +77,13 @@ export async function POST(request: NextRequest) {
     const updates: Record<string, string> = {}
     if (parsed.data.name) updates.name = parsed.data.name
     if (parsed.data.email) updates.email = parsed.data.email
+    if (parsed.data.birthday) updates.birthday = parsed.data.birthday
     if (Object.keys(updates).length) {
       const { data: updated, error: updateErr } = await supabase
         .from('gang_members')
         .update(updates)
         .eq('id', member.id)
-        .select('id, name, email, created_at')
+        .select('id, name, email, birthday, created_at')
         .single()
       if (updateErr) {
         await recordAttempt(request, { endpoint: 'gang-save-step', succeeded: false })
