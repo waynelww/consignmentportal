@@ -5,6 +5,7 @@
   --brown: #8A7419;
   --brownDeep: #5F500F;
   --amber: #F4D75E;
+  --onAmber: #1A1814;
   --stripe: #D6421F;
   --ok: #4C7A4A;
   --line: rgba(26, 24, 20, 0.15);
@@ -72,10 +73,10 @@
 .urgency {
   margin: 10px 16px 6px; padding: 10px 14px; border-radius: 14px; position: relative; z-index: 2;
   background: linear-gradient(135deg, var(--amber), color-mix(in srgb, var(--amber) 82%, var(--brownDeep) 18%));
-  color: var(--brownDeep); display: flex; align-items: center; gap: 10px; box-shadow: var(--cardShadow);
+  color: var(--onAmber); display: flex; align-items: center; gap: 10px; box-shadow: var(--cardShadow);
   animation: urgepulse 2.4s ease-in-out infinite, fadeup 0.5s 0.1s both;
 }
-.urgencyDot { width: 8px; height: 8px; border-radius: 50%; background: var(--brownDeep); flex: none; animation: blink 1.4s ease-in-out infinite; }
+.urgencyDot { width: 8px; height: 8px; border-radius: 50%; background: var(--onAmber); flex: none; animation: blink 1.4s ease-in-out infinite; }
 .urgencyText { font-size: 12.5px; line-height: 1.35; font-weight: 700; }
 .urgencyTimer { margin-left: auto; font-family: var(--fontMono); font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; background: rgba(0, 0, 0, 0.1); padding: 4px 8px; border-radius: 8px; white-space: nowrap; }
 
@@ -137,7 +138,7 @@
 .chipBadge { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex: none; overflow: hidden; }
 
 .btnrow { display: flex; gap: 10px; margin-top: 6px; }
-.btnPrimary { flex: 1; background: var(--amber); color: var(--brownDeep); font-weight: 800; font-size: 15px; padding: 14px 18px; border-radius: 14px; box-shadow: var(--cardShadow); transition: transform 0.12s ease; border: none; font-family: inherit; cursor: pointer; }
+.btnPrimary { flex: 1; background: var(--amber); color: var(--onAmber); font-weight: 800; font-size: 15px; padding: 14px 18px; border-radius: 14px; box-shadow: var(--cardShadow); transition: transform 0.12s ease; border: none; font-family: inherit; cursor: pointer; }
 .btnPrimary:active { transform: scale(0.97); }
 .btnPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btnGhost { background: transparent; color: var(--brown); font-weight: 700; font-size: 14px; padding: 14px 16px; border-radius: 14px; border: none; font-family: inherit; cursor: pointer; }
@@ -154,7 +155,7 @@
 .idcard::after { content: ""; position: absolute; inset: 0; opacity: 0.15; background-image: radial-gradient(circle, #fff 1px, transparent 1.4px); background-size: 14px 14px; }
 .idcardTop { display: flex; justify-content: space-between; align-items: flex-start; position: relative; }
 .idcardLabel { font-family: var(--fontDisplay); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.75; font-weight: 700; }
-.idcardTier { font-family: var(--fontDisplay); font-size: 11px; font-weight: 800; background: var(--amber); color: var(--brownDeep); padding: 3px 9px; border-radius: 99px; }
+.idcardTier { font-family: var(--fontDisplay); font-size: 11px; font-weight: 800; background: var(--amber); color: var(--onAmber); padding: 3px 9px; border-radius: 99px; }
 .idcardName { font-family: var(--fontDisplay); font-size: 21px; font-weight: 800; margin: 14px 0 2px; position: relative; }
 .idcardId { font-family: var(--fontMono); font-size: 13px; letter-spacing: 0.05em; opacity: 0.85; position: relative; font-variant-numeric: tabular-nums; }
 .idcardFoot { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; position: relative; }
@@ -189,7 +190,7 @@
 .perkdesc { font-size: 12.5px; opacity: 0.9; margin-bottom: 12px; }
 .perkcoderow { display: flex; align-items: center; gap: 10px; background: rgba(255, 255, 255, 0.12); border-radius: 10px; padding: 10px 12px; }
 .perkcode { font-family: var(--fontMono); font-weight: 700; font-size: 15px; letter-spacing: 0.04em; flex: 1; font-variant-numeric: tabular-nums; }
-.perkcopy { background: var(--amber); color: var(--brownDeep); font-weight: 800; font-size: 12px; padding: 7px 12px; border-radius: 8px; border: none; font-family: inherit; cursor: pointer; }
+.perkcopy { background: var(--amber); color: var(--onAmber); font-weight: 800; font-size: 12px; padding: 7px 12px; border-radius: 8px; border: none; font-family: inherit; cursor: pointer; }
 .perkpending { margin-top: 16px; border-radius: 12px; padding: 12px 14px; background: var(--cream); border: 1.5px dashed var(--line); font-size: 12.5px; color: color-mix(in srgb, var(--ink) 65%, transparent); }
 
 /* ── Lucky draw ticket (the one thing the success page is about) ── */
