@@ -101,7 +101,7 @@ const PLATFORMS: { value: Platform; label: string; bg: string; icon: ReactNode }
 const STATUS_COPY: Record<SubmissionStatus, { title: string; desc: string; cls: string }> = {
   pending: {
     title: 'Order pending verification',
-    desc: "We match order numbers against the day's sales every evening at 6PM — you'll get a WhatsApp ping once it's confirmed.",
+    desc: 'We match order numbers against sales daily — come back and check again in 24 hours.',
     cls: styles.statusPending,
   },
   valid: {
@@ -740,8 +740,8 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                       <div className={styles.luckyNo}>#····</div>
                       <p className={styles.luckyHint}>
                         {result.submission.status === 'valid'
-                          ? <>Verified — your number lands on <b>WhatsApp</b> shortly.</>
-                          : <>Verifying your order — your number lands on <b>WhatsApp by 6PM</b> tonight.</>}
+                          ? <>Verified — check back here <b>within 24 hours</b> to see your ticket number.</>
+                          : <>Verifying your order — check back here in <b>24 hours</b> to see your ticket number.</>}
                       </p>
                     </div>
                   )}

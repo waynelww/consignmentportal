@@ -104,7 +104,7 @@
 .segSkip { flex: 0; margin: 0; opacity: 0; pointer-events: none; }
 .segFill { display: block; height: 100%; width: 0%; background: var(--brown); border-radius: 99px; transition: width 0.5s cubic-bezier(.65, 0, .35, 1); }
 .segFillDone { width: 100%; }
-.segFillActive { width: 55%; }
+.segFillActive { width: 100%; background: var(--amber); }
 
 .cardzone { flex: 1; padding: 0 16px 20px; display: flex; flex-direction: column; position: relative; z-index: 1; }
 .panel { background: var(--creamDeep); border-radius: 22px; border: 1px solid var(--line); box-shadow: var(--cardShadow); padding: 26px 22px 24px; position: relative; overflow: hidden; }
