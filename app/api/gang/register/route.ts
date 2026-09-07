@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
   const prizes = await getActivePrizes(supabase).catch(() => [])
 
   // First-ever verified order → issue the two personal codes (one-time
-  // free pair + lifetime 10%). A returning member's later orders never
+  // free pair + lifetime 15%). A returning member's later orders never
   // re-trigger this — their reward is the extra lucky-draw ticket.
   // Pending orders are handled by the bot's daily verification instead.
   let firstTimer = null

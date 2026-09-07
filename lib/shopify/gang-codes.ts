@@ -2,7 +2,7 @@ import { shopifyGraphQL } from './gang-perk'
 
 // First-timer Gang discount codes on Shopify:
 //  - Free pair: RM13.99 off any purchase, single use, once per customer.
-//  - Lifetime : 10% off every order, no expiry, unlimited uses.
+//  - Lifetime : 15% off every order, no expiry, unlimited uses.
 // Both are restricted to the member's Shopify customer record (same
 // pattern as the original standing perk), so the codes are personal.
 
@@ -48,7 +48,7 @@ export async function createFreePairDiscount(customerId: string, code: string): 
 
 export async function createLifetimeDiscount(customerId: string, code: string): Promise<string> {
   return createDiscount({
-    title: `Gang Lifetime 10% — ${code}`,
+    title: `Gang Lifetime 15% — ${code}`,
     code,
     startsAt: new Date().toISOString(),
     appliesOncePerCustomer: false,
@@ -57,7 +57,7 @@ export async function createLifetimeDiscount(customerId: string, code: string): 
     context: { customers: { add: [customerId] } },
     customerGets: {
       items: { all: true },
-      value: { percentage: 0.10 },
+      value: { percentage: 0.15 },
     },
   })
 }

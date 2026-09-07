@@ -15,13 +15,13 @@ function randomSafe(length: number): string {
   return Array.from({ length }, () => SAFE_CHARS[Math.floor(Math.random() * SAFE_CHARS.length)]).join('')
 }
 
-// "Wayne Lim" -> "WAYNE10" + 3 safe chars => WAYNE10UFG
+// "Wayne Lim" -> "WAYNE15" + 3 safe chars => WAYNE15UFG
 function lifetimeCodeFor(name: string): string {
   const first = (name.trim().split(/\s+/)[0] ?? '')
     .toUpperCase()
     .replace(/[^A-Z]/g, '')
     .slice(0, 10)
-  return `${first || 'GANG'}10${randomSafe(3)}`
+  return `${first || 'GANG'}15${randomSafe(3)}`
 }
 
 function freePairCodeFor(): string {
@@ -30,7 +30,7 @@ function freePairCodeFor(): string {
 
 /**
  * Issues a first-timer's two personal Shopify codes — the one-time
- * RM13.99-off "free pair" and the name-based lifetime 10% — and stores
+ * RM13.99-off "free pair" and the name-based lifetime 15% — and stores
  * them on the member row. Idempotent per code: each is only generated if
  * its column is still null, so a partial failure retries just the missing
  * one on the next verification pass. The caller decides WHO is a first

@@ -120,6 +120,14 @@ function maskPhone(phone: string) {
   return '•••• ' + phone.slice(-4)
 }
 
+// Lifetime codes embed their discount right after the name ("WAYNE15ABC",
+// early members "WAYNE10ABC") — read it back out so everyone sees the
+// percentage their own code actually gives.
+function lifetimePercent(code: string): number {
+  const m = code.match(/^[A-Z]+(1[05])/)
+  return m ? Number(m[1]) : 15
+}
+
 const DEMO_MONTHLY_PRIZES: GangPrize[] = [
   { id: 'demo-1', tier_label: '🏆 FREE 12 Months Custom Socks', probability_text: '12 pairs total', cadence: 'monthly', prize_label: '' },
   { id: 'demo-2', tier_label: '🎁 Mystery Gift', probability_text: 'rolling', cadence: 'monthly', prize_label: '' },
@@ -494,7 +502,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
 
                   {ticketList.member.lifetime_code && (
                     <div className={styles.perkcard} style={{ textAlign: 'left' }}>
-                      <div className={styles.perkhead}>💛 Your lifetime code — 10% off every order</div>
+                      <div className={styles.perkhead}>💛 Your lifetime code — {lifetimePercent(ticketList.member.lifetime_code)}% off every order</div>
                       <div className={styles.perkcoderow}>
                         <span className={styles.perkcode}>{ticketList.member.lifetime_code}</span>
                         <button className={styles.perkcopy} onClick={() => copyPerkCode(ticketList.member.lifetime_code!)}>
@@ -793,7 +801,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                   {result.first_timer?.lifetime_code && (
                     <div className={styles.perkcard}>
                       <div className={styles.perkhead}>💛 Your lifetime code</div>
-                      <div className={styles.perkdesc}>10% off every order. Forever. Yours alone.</div>
+                      <div className={styles.perkdesc}>{lifetimePercent(result.first_timer.lifetime_code)}% off every order. Forever. Yours alone.</div>
                       <div className={styles.perkcoderow}>
                         <span className={styles.perkcode}>{result.first_timer.lifetime_code}</span>
                         <button className={styles.perkcopy} onClick={() => copyPerkCode(result.first_timer!.lifetime_code!)}>
@@ -808,7 +816,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                   {!result.first_timer && result.member.lifetime_code && (
                     <div className={styles.perkcard}>
                       <div className={styles.perkhead}>💛 Your lifetime code</div>
-                      <div className={styles.perkdesc}>10% off every order. Forever. Yours alone.</div>
+                      <div className={styles.perkdesc}>{lifetimePercent(result.member.lifetime_code)}% off every order. Forever. Yours alone.</div>
                       <div className={styles.perkcoderow}>
                         <span className={styles.perkcode}>{result.member.lifetime_code}</span>
                         <button className={styles.perkcopy} onClick={() => copyPerkCode(result.member.lifetime_code!)}>
