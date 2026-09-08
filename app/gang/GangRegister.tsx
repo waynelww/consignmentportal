@@ -710,7 +710,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                         <div className={styles.idcardName}>{result.member.name}</div>
                         <div className={styles.idcardId}>{maskPhone(phone.replace(/\D/g, ''))}</div>
                       </div>
-                      <div className={styles.idcardTier}>FOUNDING</div>
+                      <div className={styles.idcardTier}>JOINED</div>
                     </div>
                     <div className={styles.idcardFoot}>
                       <div className={styles.idcardSince}>
