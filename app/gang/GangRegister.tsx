@@ -383,20 +383,18 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
     }
   }
 
-  function resetAll() {
-    setStep(0)
-    setReturning(false)
-    setPhone('')
-    setName('')
-    setEmail('')
+  // From the success screen — same person registering their next order:
+  // keep phone/name/email, clear just the order fields, land straight on
+  // the order step instead of restarting from the phone page.
+  function registerAnother() {
     setPlatform(null)
     setOrderNumber('')
     setErrors({})
     setResult(null)
     setPerkCopied(null)
-    setReturningStats(null)
-    setTicketList(null)
     setViewingTickets(false)
+    setReturning(true)
+    setStep(2)
   }
 
   // From the ticket list, jump straight into registering another order —
@@ -835,7 +833,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                   )}
 
                   <div className={styles.btnrow} style={{ marginTop: 18 }}>
-                    <button className={styles.btnPrimary} onClick={resetAll}>
+                    <button className={styles.btnPrimary} onClick={registerAnother}>
                       Register another order
                     </button>
                   </div>
