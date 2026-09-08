@@ -675,7 +675,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                     onKeyDown={(e) => e.key === 'Enter' && handleRegister()}
                   />
                   <div className={styles.hint}>
-                    Paid but stock hasn&apos;t arrived yet? That&apos;s fine — just enter the order number from your receipt.
+                    Just fill in the order number from the platform you purchased on.
                   </div>
                   {errors.order && <div className={styles.err}>{errors.order}</div>}
                 </label>
@@ -688,10 +688,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                   </button>
                 </div>
                 <div className={styles.helplink}>
-                  Order number missing or not on your receipt?{' '}
-                  <a href="mailto:info@xocks.co">
-                    Email us — info@xocks.co
-                  </a>
+                  Can&apos;t find it? <a href="mailto:info@xocks.co">Email info@xocks.co</a>
                 </div>
               </div>
             )}
