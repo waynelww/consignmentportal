@@ -785,7 +785,7 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
                       verified order only. Returning members see tickets. */}
                   {result.first_timer?.freepair_code && (
                     <div className={styles.perkcard}>
-                      <div className={styles.perkhead}>🎁 Free pair — welcome gift</div>
+                      <div className={styles.perkhead}>🧦 Join our Gang — free pair on us</div>
                       <div className={styles.perkdesc}>RM13.99 off any purchase — one-time use.</div>
                       <div className={styles.perkcoderow}>
                         <span className={styles.perkcode}>{result.first_timer.freepair_code}</span>

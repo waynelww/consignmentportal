@@ -25,7 +25,7 @@ function lifetimeCodeFor(name: string): string {
 }
 
 function freePairCodeFor(): string {
-  return `FREEPAIR-${randomSafe(6)}`
+  return `JOINGANG-${randomSafe(6)}`
 }
 
 /**

@@ -32,7 +32,7 @@ async function createDiscount(basicCodeDiscount: Record<string, unknown>): Promi
 
 export async function createFreePairDiscount(customerId: string, code: string): Promise<string> {
   return createDiscount({
-    title: `Gang Free Pair — ${code}`,
+    title: `Join Our Gang — Free Pair ${code}`,
     code,
     startsAt: new Date().toISOString(),
     appliesOncePerCustomer: true,
