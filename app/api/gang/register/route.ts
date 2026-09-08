@@ -70,11 +70,15 @@ export async function POST(request: NextRequest) {
   if (duplicate) {
     await recordAttempt(request, { endpoint: 'gang-register', succeeded: false })
     // Website orders auto-enroll on payment — so their own order is often
-    // already in. Point them at their tickets instead of a dead end.
-    const msg = duplicate.member_id === member.id
-      ? "This order is already in! Tap '🎟️ Already registered? View my tickets' on the first step."
-      : 'This order number has already been registered.'
-    return Response.json({ error: msg }, { status: 409 })
+    // already in. own_order tells the page to open their tickets view
+    // directly instead of dead-ending them on an error.
+    if (duplicate.member_id === member.id) {
+      return Response.json(
+        { error: 'This order is already in — opening your tickets.', own_order: true },
+        { status: 409 },
+      )
+    }
+    return Response.json({ error: 'This order number has already been registered.' }, { status: 409 })
   }
 
   // Website order numbers are sequential and guessable, so the typed order

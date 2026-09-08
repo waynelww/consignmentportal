@@ -367,6 +367,20 @@ export function GangRegister({ initialPrizes }: { initialPrizes: GangPrize[] }) 
       })
       const data = await res.json()
       if (!res.ok) {
+        // Their own order is already registered (website orders auto-enroll
+        // on payment) — log them straight into their tickets view instead
+        // of bouncing them back to the first step.
+        if (data.own_order) {
+          try {
+            const tickets = await fetchTickets()
+            setTicketList(tickets)
+            setViewingTickets(true)
+            setErrors({})
+            return
+          } catch {
+            // fall through to the plain error below
+          }
+        }
         setErrors({ order: data.error ?? 'Could not register your order. Try again.' })
         return
       }
