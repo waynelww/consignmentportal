@@ -37,6 +37,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Beat The Speed event leaderboard — public display (/speed) + access-code
+  // gated game-master console (/speed/admin). The code is checked inside
+  // /api/speed/admin itself, so no session machinery here either.
+  if (path.startsWith('/speed')) {
+    return NextResponse.next()
+  }
+
   // Static assets in /public (images etc.) are always public.
   if (/\.(?:png|jpg|jpeg|svg|webp|ico)$/.test(path)) {
     return NextResponse.next()
@@ -66,7 +73,12 @@ export async function proxy(request: NextRequest) {
   // Cron/bot endpoints authenticate with CRON_SECRET / BOT_API_KEY, and the
   // public Gang API carries no session cookie either — skip the session
   // machinery entirely for all three.
-  if (path.startsWith('/api/cron') || path.startsWith('/api/bot') || path.startsWith('/api/gang')) {
+  if (
+    path.startsWith('/api/cron') ||
+    path.startsWith('/api/bot') ||
+    path.startsWith('/api/gang') ||
+    path.startsWith('/api/speed')
+  ) {
     return supabaseResponse
   }
 
