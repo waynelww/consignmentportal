@@ -148,10 +148,13 @@
 .tv { overflow: hidden; height: 100vh; }
 .tv .tvBtn { display: none; }
 .tv .tvExit { display: block; }
-.tv .wrap { max-width: 1700px; transform-origin: top center; padding-bottom: 0; }
+/* TV mode always lays out at a fixed desktop width — even on a phone
+   mirroring to a TV — then fitTV() scales the whole thing to the screen.
+   That keeps the two boards side by side regardless of device. */
+.tv .wrap { width: 1600px; max-width: none; margin: 0; transform-origin: top left; padding-bottom: 0; }
 .tv .header { padding: 16px 0 0; }
 .tv .slogan { margin-bottom: 16px; }
-.tv .boards { margin-top: 26px; gap: 34px; }
+.tv .boards { margin-top: 26px; gap: 34px; grid-template-columns: 1fr 1fr; }
 .tv .rank { font-size: 38px; }
 .tv .name { font-size: 32px; }
 .tv .ph { font-size: 19px; }

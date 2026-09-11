@@ -106,7 +106,11 @@ export function SpeedBoard({ initialEntries }: { initialEntries: BoardEntry[] })
     const w = wrap.offsetWidth
     const h = wrap.scrollHeight
     const s = Math.min(window.innerWidth / w, window.innerHeight / h)
-    wrap.style.transform = `scale(${s})`
+    // Origin is top-left (the fixed-width wrap overflows small screens),
+    // so center the scaled layout ourselves.
+    const tx = Math.max(0, (window.innerWidth - w * s) / 2)
+    const ty = Math.max(0, (window.innerHeight - h * s) / 2)
+    wrap.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`
   }, [tv])
 
   useEffect(() => {
