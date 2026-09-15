@@ -17,6 +17,7 @@ import { after } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { sendCommissionStatementEmail } from '@/lib/email/send-email'
 import { sendPushToStore } from '@/lib/push/send-push'
+import { assignInvoiceNo } from '@/lib/invoice-number'
 
 export const maxDuration = 300 // 5 min — well above what we need, gives headroom
 
@@ -81,10 +82,12 @@ export async function GET(request: NextRequest) {
   const lastDay = new Date(prevYear, prevMonth, 0).getDate()
   const endDate = `${prevYear}-${pad(prevMonth)}-${pad(lastDay)}`
 
+  // Oldest stores first so invoice numbers follow store seniority
   const { data: stores } = await svc
     .from('stores')
     .select('id, store_name, store_code, email, commission_rate')
     .eq('status', 'active')
+    .order('created_at', { ascending: true })
 
   const storeList: StoreRow[] = (stores ?? []) as StoreRow[]
   let skipped = 0
@@ -147,6 +150,8 @@ export async function GET(request: NextRequest) {
       .single()
 
     if (periodErr || !period) return null
+
+    await assignInvoiceNo(svc, period.id)
 
     const commissionStr = `RM ${commission_amount.toFixed(2)}`
     const transferStr = `RM ${xocks_revenue.toFixed(2)}`

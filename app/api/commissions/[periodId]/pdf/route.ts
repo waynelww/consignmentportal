@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { generateStatementPdf } from '@/lib/pdf/generate-statement'
+import { assignInvoiceNo, formatInvoiceNo } from '@/lib/invoice-number'
 
 const BUCKET = 'commission-pdfs'
 
@@ -75,7 +76,14 @@ export async function GET(
   const monthAbbr = MONTH_ABBRS[(period.period_month as number) - 1]
   const year2 = String(period.period_year).slice(-2)
   const safeStoreName = store.store_name.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '')
-  const filename = `${monthAbbr}${year2}-${safeStoreName}-${store.store_code}.pdf`
+
+  // Periods created before invoice numbering (or whose assignment failed)
+  // pick their number up here, on first download.
+  let invoiceNoInt = period.invoice_no as number | null
+  if (!invoiceNoInt) invoiceNoInt = await assignInvoiceNo(svc, periodId)
+  const invoiceNo = formatInvoiceNo(invoiceNoInt)
+
+  const filename = `${invoiceNo ? invoiceNo + '-' : ''}${monthAbbr}${year2}-${safeStoreName}-${store.store_code}.pdf`
   const disposition = inline ? 'inline' : 'attachment'
 
   // ── If already stored, serve from storage ────────────────────────────────────
@@ -176,6 +184,7 @@ export async function GET(
     storeName: store.store_name,
     storeCode: store.store_code,
     picName: store.pic_name,
+    invoiceNo: invoiceNo ?? undefined,
     storeAddress: addressParts.length > 0 ? addressParts.join(', ') : undefined,
     periodMonth: period.period_month,
     periodYear: period.period_year,

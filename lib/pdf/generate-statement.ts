@@ -48,6 +48,7 @@ export async function generateStatementPdf(params: {
   storeCode: string
   picName: string
   storeAddress?: string
+  invoiceNo?: string                // e.g. "XCSM-001"
   periodMonth: number
   periodYear: number
   generatedDate: string
@@ -114,6 +115,10 @@ export async function generateStatementPdf(params: {
     font: boldFont,
     color: rgb(0.2, 0.2, 0.2),
   })
+
+  if (params.invoiceNo) {
+    drawRight(page, `INVOICE NO: ${params.invoiceNo}`, PAGE_WIDTH - MARGIN, y, 9, boldFont, rgb(0.1, 0.1, 0.1))
+  }
 
   y -= 13
 
@@ -371,7 +376,7 @@ export async function generateStatementPdf(params: {
   y -= 32
 
   // ── Payment Terms Remark ─────────────────────────────────────────────────────
-  const remarkBoxH = 54
+  const remarkBoxH = 80
 
   page.drawRectangle({
     x: MARGIN,
@@ -402,10 +407,27 @@ export async function generateStatementPdf(params: {
     { x: MARGIN + 8, y: remarkHeaderY - 26, size: 8, font: regularFont, color: rgb(0.5, 0.1, 0) }
   )
 
-  const payRef = `Payment Reference: ${params.storeCode} – ${MONTH_NAMES[params.periodMonth - 1]} ${params.periodYear}`
-  page.drawText(payRef, {
+  page.drawText('Bank Transfer Details:', {
     x: MARGIN + 8,
-    y: remarkHeaderY - 38,
+    y: remarkHeaderY - 40,
+    size: 8,
+    font: boldFont,
+    color: rgb(0.2, 0.15, 0),
+  })
+  page.drawText('WAYNE GROUP HOLDING SDN BHD  ·  CIMB BANK  ·  8605806682', {
+    x: MARGIN + 105,
+    y: remarkHeaderY - 40,
+    size: 8,
+    font: boldFont,
+    color: rgb(0.1, 0.1, 0.1),
+  })
+
+  const payRefLabel = params.invoiceNo
+    ? `Payment Reference: ${params.invoiceNo} / ${params.storeCode} – ${MONTH_NAMES[params.periodMonth - 1]} ${params.periodYear}`
+    : `Payment Reference: ${params.storeCode} – ${MONTH_NAMES[params.periodMonth - 1]} ${params.periodYear}`
+  page.drawText(payRefLabel, {
+    x: MARGIN + 8,
+    y: remarkHeaderY - 54,
     size: 7.5,
     font: boldFont,
     color: rgb(0.2, 0.2, 0.2),

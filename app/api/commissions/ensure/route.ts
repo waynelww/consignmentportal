@@ -7,6 +7,7 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { assignInvoiceNo } from '@/lib/invoice-number'
 
 const Schema = z.object({
   month: z.number().int().min(1).max(12),
@@ -118,6 +119,8 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (error || !period) return Response.json({ error: 'Failed to create period', details: error?.message }, { status: 500 })
+
+  await assignInvoiceNo(svc, period.id)
 
   // Notify the store
   await svc.from('notifications').insert({
