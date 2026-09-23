@@ -26,6 +26,7 @@ import {
   Download,
   CalendarDays,
   Users,
+  Target,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -57,6 +58,7 @@ const NAV_ITEMS = [
       { label: 'Predictions', href: '/admin/predictions', icon: Sparkles },
       { label: 'Delivery Orders', href: '/admin/delivery-orders', icon: Truck },
       { label: 'Events', href: '/admin/events', icon: CalendarDays },
+      { label: 'Event Targets', href: '/admin/events/targets', icon: Target },
       { label: 'Payments', href: '/admin/payments', icon: Wallet },
       { label: 'Commissions', href: '/admin/commissions', icon: DollarSign },
       { label: 'Promos', href: '/admin/promos', icon: Tag },
@@ -99,6 +101,7 @@ function getPageTitle(pathname: string): string {
     '/admin/restocks': 'Restock Queue',
     '/admin/predictions': 'Restock Predictions',
     '/admin/delivery-orders': 'Delivery Orders',
+    '/admin/events/targets': 'Event Targets',
     '/admin/events': 'Events',
     '/admin/payments': 'Payments',
     '/admin/exports': 'Data Export',
