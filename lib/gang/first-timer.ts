@@ -30,7 +30,7 @@ function freePairCodeFor(): string {
 
 /**
  * Issues a first-timer's two personal Shopify codes — the one-time
- * RM13.99-off "free pair" and the name-based lifetime 15% — and stores
+ * RM14-off "free pair" and the name-based lifetime 15% — and stores
  * them on the member row. Idempotent per code: each is only generated if
  * its column is still null, so a partial failure retries just the missing
  * one on the next verification pass. The caller decides WHO is a first

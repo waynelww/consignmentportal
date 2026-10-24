@@ -1,7 +1,7 @@
 import { shopifyGraphQL } from './gang-perk'
 
 // First-timer Gang discount codes on Shopify:
-//  - Free pair: RM13.99 off any purchase, single use, once per customer.
+//  - Free pair: RM14 off any purchase, single use, once per customer.
 //  - Lifetime : 15% off every order, no expiry, unlimited uses.
 // Both are restricted to the member's Shopify customer record (same
 // pattern as the original standing perk), so the codes are personal.
@@ -41,7 +41,7 @@ export async function createFreePairDiscount(customerId: string, code: string): 
     context: { customers: { add: [customerId] } },
     customerGets: {
       items: { all: true },
-      value: { discountAmount: { amount: '13.99', appliesOnEachItem: false } },
+      value: { discountAmount: { amount: '14.00', appliesOnEachItem: false } },
     },
   })
 }

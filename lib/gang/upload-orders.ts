@@ -90,7 +90,7 @@ export async function uploadGangOrderNumbers(
     .eq('status', 'pending')
 
   // First-timers (their first-ever verified order is in this batch) get
-  // their two personal codes: one-time RM13.99 free pair + lifetime 10%.
+  // their two personal codes: one-time RM14 free pair + lifetime 10%.
   const firstTimerIds = [...new Set(
     (matched ?? []).map((m) => m.member_id).filter((id) => !alreadyValidMembers.has(id)),
   )]
