@@ -73,6 +73,82 @@ env vars. Key names: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
 11. **Verify on the deployed site, not just locally** — several past bugs
     only appeared under Vercel's limits.
 
+## WhatsApp (Cloud API)
+
+Store blasts and CS tracking run on Meta's WhatsApp Cloud API directly (no
+BSP) — one-time Meta setup is in `docs/WHATSAPP_SETUP.md`. The moving parts:
+
+- **Admin page** `/admin/whatsapp`: template blasts to active stores' PIC
+  phones (preview → send in batches of 25 per invocation, resumable), test
+  send, per-recipient delivery/read status, CS first-response times.
+- **Webhook** `/api/wa/webhook`: Meta posts inbound messages + status
+  events; signature-checked (`WHATSAPP_APP_SECRET`), always returns 200 to
+  processing failures (like the Gang webhook, retry-storm avoidance).
+- **Tables** `wa_contacts` / `wa_messages` / `wa_blasts` — one message log
+  for both directions keyed by `conversation_key` (normalized phone, via
+  `normalizePhone`), designed so the Phase 2 AI auto-replier can read whole
+  threads. Raw inbound payloads kept in `wa_messages.payload`.
+- **Tier awareness**: Meta caps unique recipients per rolling 24h
+  (250/1,000/2,000…). `WHATSAPP_TIER_LIMIT` env var mirrors the current
+  tier — bump it in Vercel when Meta upgrades the tier, or blasts will cap
+  too early. Opt-outs (STOP/UNSUBSCRIBE/BERHENTI inbound) are honoured
+  automatically.
+- **Coexistence caveat**: CS replies typed in the WhatsApp Business app are
+  invisible to the Cloud API (and the response-time metric) until app-echo
+  webhooks are added; keep opening the Business app at least every ~13 days
+  or API sending stops.
+- Env keys: `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_WABA_ID`,
+  `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSAPP_TIER_LIMIT`.
+- Cost: marketing template ≈ RM0.35/msg (the launch dialog shows the total);
+  utility ≈ RM0.056; inbound/service free for the first 1,000 convos/month.
+
+## Performance dashboard & Shopify orders sync
+
+`/admin/performance` shows revenue across channels (website via synced
+Shopify orders, marketplaces via manual CSV upload on the same page).
+A GitHub Action (`sync-shopify-orders.yml`) calls
+`/api/cron/sync-shopify-orders` every 2 hours; tables come from
+`supabase/migrations/20261026_performance_channels.sql` — like every
+migration, it must be pasted into the Supabase SQL editor before the
+feature (or the cron) works.
+
+## Automation inventory (GitHub Actions + webhooks)
+
+- `monthly-invoices.yml` — 1st + 2nd of month, generates commission invoices.
+- `nightly-backup.yml` — nightly database backup.
+- `sync-shopify-orders.yml` — every 2h, pulls Shopify orders for the
+  performance dashboard.
+- Shopify `ORDERS_PAID` webhook → `/api/gang/shopify-webhook` (Gang
+  auto-enrollment).
+- Meta webhook → `/api/wa/webhook` (WhatsApp inbound + statuses).
+- Gang verification bot: endpoints under `/api/bot/` gated by `BOT_API_KEY`
+  — the daily upload of valid orders flips pending Gang submissions to
+  valid, assigns tickets and grants first-timer codes (the "6PM" pass).
+
+## Gang extras
+
+- `gang_members.birthday` column exists; two Klaviyo birthday email
+  templates are built (XzUjST day-of, U8i5qc day-after) but the Klaviyo
+  *flow* that sends them still needs to be created in the Klaviyo UI.
+- Speed challenge module (`/api/speed/*`, migration
+  `20260910_speed_challenge.sql`): its admin endpoint needs the
+  `SPEED_ADMIN_CODE` env var (set in Vercel; add to `.env.local` if
+  working on it locally).
+
+## Running in claude.ai/code (cloud)
+
+The cloud environment starts from a fresh clone — anything not in GitHub
+does not exist there. Setup script:
+
+```bash
+npm install
+npx next build
+npx tsc --noEmit -p tsconfig.json || true
+```
+
+Paste every `.env.local` variable into the cloud environment's secrets.
+Node 22 is the known-good version.
+
 ## Monthly rhythm
 
 - **1st, 09:00 MYT** — GitHub Action calls `/api/cron/generate-commissions`:
