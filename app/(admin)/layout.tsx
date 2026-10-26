@@ -27,6 +27,7 @@ import {
   CalendarDays,
   Users,
   Target,
+  TrendingUp,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -69,6 +70,7 @@ const NAV_ITEMS = [
   {
     section: 'Analytics',
     items: [
+      { label: 'Performance', href: '/admin/performance', icon: TrendingUp },
       { label: 'Reports', href: '/admin/reports', icon: BarChart2 },
       { label: 'Data Export', href: '/admin/exports', icon: Download },
     ],
@@ -108,6 +110,7 @@ function getPageTitle(pathname: string): string {
     '/admin/commissions': 'Commissions',
     '/admin/promos': 'Promos',
     '/admin/gang': 'Xocks Gang',
+    '/admin/performance': 'Performance',
     '/admin/reports': 'Reports',
     '/admin/oem-calculator': 'OEM Calculator',
     '/admin/settings': 'Settings',
