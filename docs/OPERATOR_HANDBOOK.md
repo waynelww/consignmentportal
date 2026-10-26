@@ -1,0 +1,111 @@
+# XCMS Operator Handbook
+
+Read this first. It is written for the person (and their Claude) taking over
+day-to-day operation of XCMS — everything here was learned the hard way while
+building the system.
+
+## What XCMS is
+
+Xocks Consignment Management System for the Xocks sock brand (Malaysia).
+Live at **https://consignmentportal.vercel.app**. One Next.js app serving:
+
+- **Consignment core** — stores, products, stock, sales, monthly commission
+  invoices (`XCSM-###` numbering), payments and receipt review.
+- **Operations** — restock queue + predictions, delivery orders, booth events
+  (inventory checkout/return) and the Event Target Calculator.
+- **Xocks Gang CRM** — public page at `/gang`: customers register orders,
+  get monthly lucky-draw tickets, first-timers get two personal Shopify
+  discount codes. Website orders auto-enroll via a Shopify webhook.
+- **OEM calculator**, reports, exports, admin settings.
+
+## Stack and where things run
+
+| Piece | Where | Access needed |
+|---|---|---|
+| Code | GitHub `waynelww/consignmentportal` | repo collaborator |
+| Hosting | Vercel (Hobby) — auto-deploys every push to `main` | push access = deploy ability |
+| Database | Supabase project `mhdyurnrmpjxsjbhbxrp` | dashboard invite |
+| Shop | Shopify store `3127c9.myshopify.com` (xocks.co) | staff account if dashboard work needed |
+| Email marketing | Klaviyo | account invite if flows/templates needed |
+| Transactional email | Resend | key in env |
+| Monthly crons | GitHub Actions (`.github/workflows/`) | comes with repo access |
+
+Secrets live in `.env.local` (never committed — get it from Wayne through a
+password manager or AirDrop, never chat/email) and mirrored in Vercel project
+env vars. Key names: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+`SHOPIFY_STORE_DOMAIN`, `SHOPIFY_ADMIN_TOKEN`, `CRON_SECRET`, `RESEND_API_KEY`.
+
+## Hard-won rules — do not relearn these
+
+1. **No psql / no direct DDL.** Schema changes are written as SQL files in
+   `supabase/migrations/` and pasted into the Supabase dashboard SQL editor
+   by hand. Data reads/writes can use the REST API with the service key.
+2. **`npx next build` does NOT catch TypeScript errors** (build config
+   ignores them). Always also run `npx tsc --noEmit -p tsconfig.json`.
+   A handful of pre-existing implicit-`any` errors are known and ignorable.
+3. **This Next.js version differs from training data.** Read
+   `node_modules/next/dist/docs/` before writing framework code (AGENTS.md).
+4. **Vercel Hobby has a 60s function ceiling.** A killed function returns an
+   empty body, which Safari surfaces as "The string did not match the
+   expected pattern". Long jobs must batch/parallelise (see
+   `lib/shopify/sync-inventory.ts`) and clients must guard `res.json()`.
+5. **Vercel Hobby caps at 2 cron jobs** — that's why monthly invoices and
+   backups run from GitHub Actions instead (`CRON_SECRET`-protected
+   endpoints, retried, idempotent).
+6. **Money semantics:** `commission_amount` = the store's cut;
+   `xocks_revenue` = what the store must transfer to Xocks
+   (revenue − commission). Stores pay by the 7th. Never confuse the two.
+7. **Invoice numbers (`XCSM-###`)** are permanent: assigned MAX+1 under a
+   unique index (never COUNT — deletions must not reissue), backfilled
+   001–042, generation-time numbers start at 100. Paid invoices' stored
+   PDFs are immutable; pending ones may be regenerated.
+8. **Sequential-code pattern:** anything needing gap-free-ish sequences
+   (ticket numbers, invoice numbers, DO numbers) uses MAX+1 + retry on
+   Postgres error 23505. Generic helper: `lib/sequence-code.ts`.
+9. **Gang discount codes** avoid the characters O/I/L/0
+   (`lib/gang/first-timer.ts`), are customer-restricted on Shopify, and the
+   Shopify custom app token needs `write_discounts` + `write_customers`
+   (already granted — app "Performance Tracker Integration").
+10. **Gang webhook** (`/api/gang/shopify-webhook`): treats the payload only
+    as "look up order X" — all facts re-fetched from Shopify; only
+    `sourceName === 'web'` orders auto-enroll (POS/wholesale must not);
+    always returns 200 to avoid Shopify retry storms.
+11. **Verify on the deployed site, not just locally** — several past bugs
+    only appeared under Vercel's limits.
+
+## Monthly rhythm
+
+- **1st, 09:00 MYT** — GitHub Action calls `/api/cron/generate-commissions`:
+  creates invoices for last month (skip-if-exists, zero-sales stores get
+  nothing), assigns invoice numbers, notifies stores (in-app + email + push).
+  A sweep retry runs on the 2nd.
+- **By the 7th** — stores transfer `xocks_revenue` (bank details are on the
+  invoice: WAYNE GROUP HOLDING SDN BHD · CIMB BANK · 8605806682) and upload
+  receipts; admin reviews in Payments.
+- **Gang draw** — tickets are scoped to the current Malaysia-time month
+  (`draw_month`); winners drawn manually, announced on WhatsApp end of month.
+
+## Code map (the non-obvious parts)
+
+- `lib/gang/` — tickets (`draw_month`, MAX+1), first-timer codes, phone
+  normaliser (all phone matching flows through `normalizePhone`).
+- `lib/shopify/` — GraphQL client (`gang-perk.ts` exports `shopifyGraphQL`),
+  order lookup, discount creation, inventory sync.
+- `lib/invoice-number.ts` — XCSM numbering.
+- `lib/pdf/generate-statement.ts` — the commission invoice PDF (pdf-lib).
+- `lib/events/target-calc.ts` — Event Target Calculator maths (single source
+  of truth; pinned by `scripts/test-event-target-calc.ts`, run with
+  `npx tsx`).
+- `app/api/cron/` — endpoints driven by GitHub Actions, gated by
+  `Authorization: Bearer CRON_SECRET` or `?key=CRON_SECRET`.
+- Roles (`profiles.role`): `super_admin` (Wayne) > `ops_manager` (staff) >
+  `store_owner`. Admin API routes check these server-side.
+
+## Working on it with Claude Code
+
+Clone the repo, drop `.env.local` in the root, and open Claude Code there —
+`CLAUDE.md` / `AGENTS.md` / this handbook carry the context. Standard loop:
+edit → `npx next build` + `npx tsc --noEmit` → commit (small, descriptive)
+→ push to `main` → Vercel deploys → verify on the live site. For schema
+changes, write the migration file AND paste it into the Supabase SQL editor
+— nothing applies it automatically.
