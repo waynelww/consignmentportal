@@ -1,0 +1,48 @@
+name: Sync Shopify orders
+
+# Keeps shopify_orders (performance dashboard) current. Runs every 2 hours;
+# the endpoint syncs incrementally by updated_at watermark and is idempotent,
+# so missed or doubled runs are harmless. Each call stays under Vercel's 60s
+# ceiling and reports done:false when more pages remain — the loop below
+# drains up to 5 slices per run.
+#
+# Requires repo secret: CRON_SECRET (same value as the Vercel env var).
+
+on:
+  schedule:
+    # Every 2 hours at :10 (GitHub cron is best-effort; watermark self-heals)
+    - cron: '10 */2 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Call sync-shopify-orders endpoint (loop until done)
+        run: |
+          set -u
+          URL="https://consignmentportal.vercel.app/api/cron/sync-shopify-orders"
+          for slice in 1 2 3 4 5; do
+            echo "Slice ${slice}…"
+            code=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              --max-time 90 "$URL" || echo "000")
+            echo "HTTP ${code}"
+            cat /tmp/resp.json || true
+            echo ""
+            if [ "$code" != "200" ]; then
+              if [ "$slice" = "5" ]; then
+                echo "✗ Sync failed — check Vercel logs for /api/cron/sync-shopify-orders."
+                exit 1
+              fi
+              sleep 60
+              continue
+            fi
+            if jq -e '.done == true' /tmp/resp.json > /dev/null; then
+              echo "✓ Sync complete."
+              exit 0
+            fi
+          done
+          echo "⚠ 5 slices ran and more remain (likely backfill) — next scheduled run continues."
+          exit 0
