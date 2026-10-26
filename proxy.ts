@@ -70,14 +70,16 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  // Cron/bot endpoints authenticate with CRON_SECRET / BOT_API_KEY, and the
-  // public Gang API carries no session cookie either — skip the session
-  // machinery entirely for all three.
+  // Cron/bot endpoints authenticate with CRON_SECRET / BOT_API_KEY, the
+  // public Gang API carries no session cookie, and the WhatsApp webhook is
+  // called by Meta (verify-token + signature checked in the handler) — skip
+  // the session machinery entirely for all of them.
   if (
     path.startsWith('/api/cron') ||
     path.startsWith('/api/bot') ||
     path.startsWith('/api/gang') ||
-    path.startsWith('/api/speed')
+    path.startsWith('/api/speed') ||
+    path.startsWith('/api/wa/webhook')
   ) {
     return supabaseResponse
   }

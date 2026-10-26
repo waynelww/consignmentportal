@@ -28,6 +28,7 @@ import {
   Users,
   Target,
   TrendingUp,
+  MessageCircle,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -65,6 +66,7 @@ const NAV_ITEMS = [
       { label: 'Promos', href: '/admin/promos', icon: Tag },
       { label: 'OEM Calculator', href: '/admin/oem-calculator', icon: Calculator },
       { label: 'Xocks Gang', href: '/admin/gang', icon: Users },
+      { label: 'WhatsApp', href: '/admin/whatsapp', icon: MessageCircle },
     ],
   },
   {
@@ -110,6 +112,7 @@ function getPageTitle(pathname: string): string {
     '/admin/commissions': 'Commissions',
     '/admin/promos': 'Promos',
     '/admin/gang': 'Xocks Gang',
+    '/admin/whatsapp': 'WhatsApp',
     '/admin/performance': 'Performance',
     '/admin/reports': 'Reports',
     '/admin/oem-calculator': 'OEM Calculator',
