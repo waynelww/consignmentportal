@@ -31,6 +31,14 @@ Single-store deep dive: 30/60/90-day sales trend, top SKUs, inventory health, re
 
 Every SKU currently at or below threshold across all active stores. Grouped by urgency (critical / high / medium).
 
+### `GET /api/bot/restock-calc`
+
+Restock Calculator (Wayne's method) for every active store: pairs/month over the last 3 complete months, target, trigger, status (`restock_now` / `stock_ok` / `not_enough_history`) and per-SKU send quantities. Read-only — nothing is saved. Maths: `lib/restock/wayne-calc.ts`.
+
+Query params:
+- `end_month` (YYYY-MM) — last month of the 3-month period; defaults to the last complete month (Malaysia time)
+- `store_code` — optional, one store (e.g. `STR-015`)
+
 ### `GET /api/bot/store-patterns`
 
 Surfaces which SKUs sell in which store types, which states prefer what. Used for cross-store pattern questions.
