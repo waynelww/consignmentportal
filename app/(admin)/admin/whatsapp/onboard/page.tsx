@@ -82,9 +82,11 @@ export default function WaOnboardPage() {
         override_default_response_type: true,
         extras: {
           // The coexistence flow — onboard a number that stays on the
-          // WhatsApp Business app.
+          // WhatsApp Business app. (sessionInfoVersion was retired by Meta
+          // in Oct 2026; sending it can drop the flow back to the standard
+          // take-over path.)
+          setup: {},
           featureType: 'whatsapp_business_app_onboarding',
-          sessionInfoVersion: '3',
         },
       },
     )
