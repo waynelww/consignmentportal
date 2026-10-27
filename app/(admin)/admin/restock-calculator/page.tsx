@@ -89,8 +89,10 @@ export default function RestockCalculatorPage() {
   const [run, setRun] = useState<CalcRun | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // Detail (one store) — saved on open
-  const [detail, setDetail] = useState<{ calcId: string; result: WayneResult; linkedRequest: string | null } | null>(null)
+  // Detail (one store). Nothing is saved until "Save calculation" or
+  // "Create restock request"; calcId is set once this view has been saved.
+  const [detail, setDetail] = useState<{ calcId: string | null; result: WayneResult; linkedRequest: string | null } | null>(null)
+  const [savedSends, setSavedSends] = useState<Record<string, number> | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [sends, setSends] = useState<Record<string, number>>({})
   const [history, setHistory] = useState<SavedCalc[]>([])
@@ -126,15 +128,12 @@ export default function RestockCalculatorPage() {
     if (!sid) { setDetail(null); setHistory([]); return }
     setDetailLoading(true)
     try {
-      const res = await fetch('/api/restock/calculator', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ store_id: sid, end_month: end }),
-      })
+      const res = await fetch(`/api/restock/calculator?end_month=${end}&store_id=${sid}`)
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) { toast.error(data.error || 'Calculation failed'); setDetail(null); return }
-      const result = data.result as WayneResult
-      setDetail({ calcId: data.calculation.id, result, linkedRequest: null })
+      const result = (data.stores?.[0] ?? null) as WayneResult | null
+      if (!res.ok || !result) { toast.error(data.error || 'Calculation failed'); setDetail(null); return }
+      setDetail({ calcId: null, result, linkedRequest: null })
+      setSavedSends(null)
       setSends(Object.fromEntries(result.skus.map((s) => [s.product_id, s.send])))
       loadHistory(sid)
     } catch {
@@ -162,6 +161,11 @@ export default function RestockCalculatorPage() {
     () => (detail?.result.skus ?? []).some((s) => (sends[s.product_id] ?? 0) !== s.send),
     [detail, sends],
   )
+  // unsaved = never saved, or Send numbers changed since the last save
+  const unsaved = useMemo(
+    () => !detail?.calcId || !savedSends || (detail?.result.skus ?? []).some((s) => (sends[s.product_id] ?? 0) !== (savedSends[s.product_id] ?? 0)),
+    [detail, sends, savedSends],
+  )
 
   function clearAll() {
     setEndMonth(defaultEnd)
@@ -169,28 +173,43 @@ export default function RestockCalculatorPage() {
     setFilter('all')
     setDetail(null)
     setSends({})
+    setSavedSends(null)
     setHistory([])
     setShowSettings(false)
     setConfirm(null)
     toast.success('Calculator cleared')
   }
 
-  async function saveEdits(): Promise<boolean> {
-    if (!detail) return false
-    const res = await fetch(`/api/restock/calculator/${detail.calcId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ edited_sends: sends }),
-    })
+  // Saves the current view (with the current Send numbers) and returns its
+  // id. First save inserts a new record; later saves of the same view only
+  // update its edited Send numbers.
+  async function saveCalculation(): Promise<string | null> {
+    if (!detail) return null
+    if (detail.calcId && !unsaved) return detail.calcId
+    const res = detail.calcId
+      ? await fetch(`/api/restock/calculator/${detail.calcId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ edited_sends: sends }),
+        })
+      : await fetch('/api/restock/calculator', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ store_id: detail.result.store_id, end_month: detail.result.period.end_month, edited_sends: sends }),
+        })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) { toast.error(data.error || 'Failed to save edits'); return false }
-    return true
+    if (!res.ok) { toast.error(data.error || 'Failed to save calculation'); return null }
+    const id = data.calculation.id as string
+    setDetail((d) => (d ? { ...d, calcId: id } : d))
+    setSavedSends({ ...sends })
+    loadHistory(detail.result.store_id)
+    return id
   }
 
-  async function handleSaveEdits() {
+  async function handleSave() {
     setBusy(true)
     try {
-      if (await saveEdits()) { toast.success('Send numbers saved'); loadHistory(storeId) }
+      if (await saveCalculation()) toast.success('Calculation saved')
     } finally { setBusy(false) }
   }
 
@@ -204,25 +223,27 @@ export default function RestockCalculatorPage() {
     if (items.length === 0) { toast.error('Nothing to send'); setConfirm(null); return }
     setBusy(true)
     try {
-      if (!(await saveEdits())) return
+      // Always saved first, so the request is linked to a recorded calculation
+      const calcId = await saveCalculation()
+      if (!calcId) return
       const res = await fetch('/api/restock/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           store_id: detail.result.store_id,
           items,
-          notes: `Restock Calculator ${periodLabel(detail.result.period.end_month)} (calc ${detail.calcId.slice(0, 8)})`,
+          notes: `Restock Calculator ${periodLabel(detail.result.period.end_month)} (calc ${calcId.slice(0, 8)})`,
         }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { toast.error(data.error || 'Failed to create restock request'); return }
-      const link = await fetch(`/api/restock/calculator/${detail.calcId}`, {
+      const link = await fetch(`/api/restock/calculator/${calcId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ restock_request_id: data.request_id }),
       })
       if (!link.ok) toast.error('Request created, but linking it to this calculation failed')
-      setDetail({ ...detail, linkedRequest: data.request_id })
+      setDetail((d) => (d ? { ...d, calcId, linkedRequest: data.request_id } : d))
       toast.success('Restock request created — approve it in the Restock Queue to raise the DO')
       loadHistory(storeId)
     } finally {
@@ -243,6 +264,10 @@ export default function RestockCalculatorPage() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { toast.error(data.error || 'Failed to void'); return }
       toast.success('Calculation voided')
+      if (detail?.calcId === voidTarget.id) {
+        setDetail((d) => (d ? { ...d, calcId: null, linkedRequest: null } : d))
+        setSavedSends(null)
+      }
       setVoidTarget(null)
       setVoidReason('')
       loadHistory(storeId)
@@ -420,7 +445,10 @@ export default function RestockCalculatorPage() {
                     <StatusPill status={r.status} />
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    {r.store_code} · {periodLabel(r.period.end_month)} · saved as calc {detail!.calcId.slice(0, 8)}
+                    {r.store_code} · {periodLabel(r.period.end_month)} ·{' '}
+                    {detail?.calcId
+                      ? <>saved as calc {detail.calcId.slice(0, 8)}{unsaved && ' (unsaved changes)'}</>
+                      : 'not saved'}
                   </p>
                 </div>
                 <button onClick={() => setStoreId('')} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
@@ -443,6 +471,11 @@ export default function RestockCalculatorPage() {
                       ? `First sale was ${formatMYDate(r.first_sale_date)}, after ${monthLabel(r.period.months[0])}.`
                       : 'No sales recorded yet.'} No calculation is made until the store has a full 3 months.
                   </p>
+                  <div className="flex justify-end mt-3">
+                    <button onClick={handleSave} disabled={busy || !unsaved} className={SECONDARY}>
+                      {unsaved ? 'Save calculation' : 'Saved'}
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <>
@@ -560,7 +593,9 @@ export default function RestockCalculatorPage() {
                       </Link>
                     ) : (
                       <>
-                        <button onClick={handleSaveEdits} disabled={busy || !edited} className={SECONDARY}>Save Send numbers</button>
+                        <button onClick={handleSave} disabled={busy || !unsaved} className={SECONDARY}>
+                          {unsaved ? 'Save calculation' : 'Saved'}
+                        </button>
                         <button onClick={() => setConfirm('request')} disabled={busy || finalTotal === 0} className={PRIMARY}>
                           <Truck size={15} /> Create restock request
                         </button>
@@ -615,7 +650,7 @@ export default function RestockCalculatorPage() {
       )}
 
       {!storeId && !loading && (
-        <p className="flex items-center gap-1.5 text-xs text-gray-500"><Calculator size={13} /> Click a store (or pick one above) to see the per-SKU breakdown. Opening a store saves the calculation to history.</p>
+        <p className="flex items-center gap-1.5 text-xs text-gray-500"><Calculator size={13} /> Click a store (or pick one above) to see the per-SKU breakdown. Nothing is saved until you click Save calculation or Create restock request.</p>
       )}
 
       {/* Confirm modal (clear / create request) */}
@@ -628,7 +663,7 @@ export default function RestockCalculatorPage() {
             <p className="text-sm text-gray-600 mb-6">
               {confirm === 'clear'
                 ? 'This resets the store, period, filters and any unsaved Send numbers on this page. Saved calculations stay in history.'
-                : `Creates a pending restock request for ${r?.store_name} with ${finalTotal} pairs. Approve it in the Restock Queue to create the delivery order.`}
+                : `Saves this calculation and creates a linked pending restock request for ${r?.store_name} with ${finalTotal} pairs. Approve it in the Restock Queue to create the delivery order.`}
             </p>
             <div className="flex gap-3">
               <button onClick={() => setConfirm(null)} disabled={busy} className={cn(SECONDARY, 'flex-1')}>Cancel</button>

@@ -4,9 +4,11 @@ import { requireRestockCalcAccess, runWayneCalc, toCalcRow } from '@/lib/restock
 import { isValidMonth } from '@/lib/restock/wayne-calc'
 
 // Restock Calculator (Wayne's method). super_admin + ops_manager only.
-// GET  ?end_month=YYYY-MM[&store_id=]  → overview for active stores (not saved)
-// POST { store_id, end_month }         → recalculates server-side and saves
-//                                        the result to restock_calculations
+// GET  ?end_month=YYYY-MM[&store_id=]  → calculate for active stores (never saved)
+// POST { store_id, end_month, edited_sends? }
+//      → recalculates server-side and saves the result (plus any edited Send
+//        numbers) to restock_calculations. Only called by "Save calculation"
+//        and by "Create restock request".
 export async function GET(request: NextRequest) {
   const access = await requireRestockCalcAccess()
   if ('error' in access) return access.error
@@ -29,6 +31,7 @@ export async function GET(request: NextRequest) {
 const SaveSchema = z.object({
   store_id: z.string().uuid(),
   end_month: z.string().refine(isValidMonth, 'end_month must be YYYY-MM'),
+  edited_sends: z.record(z.string().uuid(), z.number().int().min(0).max(100000)).optional(),
 })
 
 export async function POST(request: NextRequest) {
@@ -56,9 +59,29 @@ export async function POST(request: NextRequest) {
   const result = run.stores[0]
   if (!result) return Response.json({ error: 'Store not found or not active' }, { status: 404 })
 
+  const row = toCalcRow(result, run.settings, { id: user.id, name: profile.full_name })
+  if (parsed.data.edited_sends) {
+    const known = new Map(result.skus.map((s) => [s.product_id, s.send]))
+    const overrides: Record<string, number> = {}
+    for (const [pid, qty] of Object.entries(parsed.data.edited_sends)) {
+      if (!known.has(pid)) {
+        return Response.json({ error: 'Store data changed since the page loaded — reload the store and try again' }, { status: 409 })
+      }
+      if (known.get(pid) !== qty) overrides[pid] = qty // keep only real edits
+    }
+    if (Object.keys(overrides).length) {
+      Object.assign(row, {
+        edited_sends: overrides,
+        final_total: result.skus.reduce((a, s) => a + (overrides[s.product_id] ?? s.send), 0),
+        edited_by: user.id,
+        edited_at: new Date().toISOString(),
+      })
+    }
+  }
+
   const { data: saved, error } = await supabase
     .from('restock_calculations')
-    .insert(toCalcRow(result, run.settings, { id: user.id, name: profile.full_name }))
+    .insert(row)
     .select('*')
     .single()
   if (error || !saved) {

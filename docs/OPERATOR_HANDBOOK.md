@@ -131,7 +131,9 @@ trigger 63). Separate from `/admin/predictions`, which is unchanged.
   editable from the page.
 - History check is month-level: a store needs a sale in (or before) the
   first month of the period, otherwise "Not enough history".
-- Opening a store saves a row in `restock_calculations` (who, when,
+- Nothing is saved on open or period change. "Save calculation" (or
+  "Create restock request", which saves first and links the two) writes a
+  row in `restock_calculations` (who, when,
   settings, per-SKU results, edited Send numbers, linked restock request).
   Rows are append-only (DB trigger): never deleted, only voided with a
   reason. "Create restock request" goes through the normal Restock Queue.
