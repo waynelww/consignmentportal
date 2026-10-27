@@ -119,25 +119,38 @@ feature (or the cron) works.
 
 ## Restock Calculator (Wayne's method)
 
-`/admin/restock-calculator` (super_admin + ops_manager). Maths lives only in
-`lib/restock/wayne-calc.ts`; test with `npx tsx scripts/test-wayne-calc.ts`
-(pins Hyperground STR-015 Jul–Sep 2026 = 31.7 pairs/month, target 127,
-trigger 63). Separate from `/admin/predictions`, which is unchanged.
+`/admin/restock-calculator` (super_admin + ops_manager), one store at a
+time. Maths lives only in `lib/restock/wayne-calc.ts`; test with
+`npx tsx scripts/test-wayne-calc.ts` (pins live data for Hyperground STR-015
+and ONE NINE NINE STR-019 as of 27 Oct 2026). Separate from
+`/admin/predictions`, which is unchanged.
 
+- Period = 2 or 3 months (user's choice, remembered per user in the
+  browser) counted back from the store's **last recorded sale**: end = last
+  sale, start = end − N months + 1 day (last sale 26 Oct, 3 months →
+  27 Jul – 26 Oct). Pairs/month = pairs in the period ÷ months covered. The
+  period is split into N one-month blocks ending on the last sale for the
+  per-month figures and the consistency check.
+- Short history: if the first sale is after that start, the period starts
+  at the first sale and months covered = (last − first sale days) ÷ 30.4
+  (min 1), with a warning. Under 1 month of sales → "start with 30–50
+  pairs", no calculation. Because the period ends on the last sale, the
+  "last sale more than 7 days ago" warning matters: unentered sales are
+  simply not counted.
 - Pairs = sales RM ÷ price per pair; a product counts as Special Patches
   when its `selling_price` ≥ the `restock_calc_special_min_selling_price`
   setting (RM19), otherwise Plain. Prices, multipliers, the consistency %
   and stale-sale days are `restock_calc_*` rows in `public.settings`,
   editable from the page.
-- History check is month-level: a store needs a sale in (or before) the
-  first month of the period, otherwise "Not enough history".
-- Nothing is saved on open or period change. "Save calculation" (or
-  "Create restock request", which saves first and links the two) writes a
-  row in `restock_calculations` (who, when,
-  settings, per-SKU results, edited Send numbers, linked restock request).
-  Rows are append-only (DB trigger): never deleted, only voided with a
-  reason. "Create restock request" goes through the normal Restock Queue.
-- Read-only bot endpoint: `/api/bot/restock-calc`.
+- Nothing is saved on selecting a store or changing 2/3 months. "Save
+  calculation" (or "Create restock request", which saves first and links
+  the two) writes a row in `restock_calculations`: `period_start` /
+  `period_end` = actual dates used, `end_month` = month of the last sale,
+  and `settings.period` holds months chosen, months covered and the
+  short-history flag (no schema change). Rows are append-only (DB
+  trigger): never deleted, only voided with a reason. "Create restock
+  request" goes through the normal Restock Queue.
+- Read-only bot endpoint: `/api/bot/restock-calc?months=2|3&store_code=`.
 
 ## Automation inventory (GitHub Actions + webhooks)
 

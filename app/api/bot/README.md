@@ -33,10 +33,10 @@ Every SKU currently at or below threshold across all active stores. Grouped by u
 
 ### `GET /api/bot/restock-calc`
 
-Restock Calculator (Wayne's method) for every active store: pairs/month over the last 3 complete months, target, trigger, status (`restock_now` / `stock_ok` / `not_enough_history`) and per-SKU send quantities. Read-only — nothing is saved. Maths: `lib/restock/wayne-calc.ts`.
+Restock Calculator (Wayne's method) for every active store: each store's period is the 2 or 3 months ending on its last recorded sale (shorter if the store has less history, flagged `period.short_history`). Returns pairs/month, target, trigger, status (`restock_now` / `stock_ok` / `not_enough_history` = under 1 month of sales), one-month blocks, per-SKU send quantities and a readable `period_label`. Read-only — nothing is saved. Maths: `lib/restock/wayne-calc.ts`.
 
 Query params:
-- `end_month` (YYYY-MM) — last month of the 3-month period; defaults to the last complete month (Malaysia time)
+- `months` — `2` or `3` (default `3`)
 - `store_code` — optional, one store (e.g. `STR-015`)
 
 ### `GET /api/bot/store-patterns`

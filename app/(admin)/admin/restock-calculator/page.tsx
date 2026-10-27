@@ -6,26 +6,27 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Calculator, History, Info, Loader2, RotateCcw, Settings2, Truck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/client'
 import { cn, formatMYDate } from '@/lib/utils'
 import {
-  addMonths, defaultEndMonth, malaysiaToday, periodFor, WAYNE_SETTING_KEYS,
-  type WayneResult, type WayneSettings, type StoreStatus,
+  DEFAULT_PERIOD_MONTHS, PERIOD_MONTH_OPTIONS, WAYNE_SETTING_KEYS,
+  describePeriod, formatDateRange, isPeriodMonths, parseWayneSettings,
+  type PeriodMonths, type WayneResult, type WayneSettings, type StoreStatus,
 } from '@/lib/restock/wayne-calc'
 
-// Restock Calculator — Wayne's consignment restock method. All maths runs
-// server-side via lib/restock/wayne-calc.ts; this page only displays it.
+// Restock Calculator — Wayne's consignment restock method, one store at a
+// time. All maths runs server-side via lib/restock/wayne-calc.ts; this page
+// only displays it. Nothing is saved until "Save calculation" or "Create
+// restock request".
 
-interface CalcRun {
-  today: string
-  end_month: string
-  settings: WayneSettings
-  stores: WayneResult[]
-}
+interface StoreOption { id: string; store_code: string; store_name: string }
 
 interface SavedCalc {
   id: string
   store_id: string
-  end_month: string
+  period_start: string
+  period_end: string
+  settings: { period?: { months_chosen?: number; months_covered?: number | null; short_history?: boolean } } | null
   status: StoreStatus
   pairs_per_month: number | null
   target_stock: number | null
@@ -37,15 +38,6 @@ interface SavedCalc {
   calculated_at: string
   voided_at: string | null
   void_reason: string | null
-}
-
-type StatusFilter = 'all' | StoreStatus
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const monthLabel = (m: string) => `${MONTHS[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`
-const periodLabel = (end: string) => {
-  const p = periodFor(end).months
-  return `${monthLabel(p[0])} – ${monthLabel(p[2])}`
 }
 
 const INPUT = 'px-3 py-2 text-sm bg-white border border-[#E5E7EB] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]'
@@ -78,19 +70,26 @@ const SETTING_LABELS: Record<keyof WayneSettings, string> = {
   stale_sale_days: 'Warn if last sale older than (days)',
 }
 
+// Last 2/3-month choice, remembered per user in this browser
+const monthsKey = (userId: string) => `xcms.restockCalc.months.${userId}`
+function readMonths(userId: string): PeriodMonths | null {
+  try {
+    const v = Number(window.localStorage.getItem(monthsKey(userId)))
+    return isPeriodMonths(v) ? v : null
+  } catch { return null }
+}
+function writeMonths(userId: string, m: PeriodMonths) {
+  try { window.localStorage.setItem(monthsKey(userId), String(m)) } catch { /* storage unavailable */ }
+}
+
 export default function RestockCalculatorPage() {
-  const today = useMemo(() => malaysiaToday(), [])
-  const defaultEnd = useMemo(() => defaultEndMonth(today), [today])
-  const endOptions = useMemo(() => Array.from({ length: 12 }, (_, i) => addMonths(defaultEnd, -i)), [defaultEnd])
-
-  const [endMonth, setEndMonth] = useState(defaultEnd)
+  const [stores, setStores] = useState<StoreOption[]>([])
+  const [settings, setSettings] = useState<WayneSettings | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
   const [storeId, setStoreId] = useState('')
-  const [filter, setFilter] = useState<StatusFilter>('all')
-  const [run, setRun] = useState<CalcRun | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [months, setMonths] = useState<PeriodMonths>(DEFAULT_PERIOD_MONTHS)
 
-  // Detail (one store). Nothing is saved until "Save calculation" or
-  // "Create restock request"; calcId is set once this view has been saved.
+  // The selected store's calculation; calcId is set once this view is saved.
   const [detail, setDetail] = useState<{ calcId: string | null; result: WayneResult; linkedRequest: string | null } | null>(null)
   const [savedSends, setSavedSends] = useState<Record<string, number> | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -104,19 +103,29 @@ export default function RestockCalculatorPage() {
   const [showSettings, setShowSettings] = useState(false)
   const [settingsDraft, setSettingsDraft] = useState<Record<string, string>>({})
 
-  const loadOverview = useCallback(async (end: string) => {
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/restock/calculator?end_month=${end}`)
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { toast.error(data.error || 'Failed to load calculator'); setRun(null); return }
-      setRun(data as CalcRun)
-    } catch {
-      toast.error('Failed to load calculator')
-    } finally {
-      setLoading(false)
-    }
+  const loadSettings = useCallback(async () => {
+    const res = await fetch('/api/settings')
+    const data = await res.json().catch(() => [])
+    if (res.ok && Array.isArray(data)) setSettings(parseWayneSettings(data))
   }, [])
+
+  useEffect(() => {
+    fetch('/api/restock/calculator')
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) { toast.error(data.error || 'Failed to load stores'); return }
+        setStores(data.stores ?? [])
+      })
+      .catch(() => toast.error('Failed to load stores'))
+    loadSettings()
+    createClient().auth.getUser().then((res: { data: { user: { id: string } | null } }) => {
+      const id = res.data.user?.id
+      if (!id) return
+      setUserId(id)
+      const saved = readMonths(id)
+      if (saved) setMonths(saved)
+    })
+  }, [loadSettings])
 
   const loadHistory = useCallback(async (sid: string) => {
     const res = await fetch(`/api/restock/calculator/history?store_id=${sid}&limit=20`)
@@ -124,17 +133,19 @@ export default function RestockCalculatorPage() {
     if (res.ok) setHistory(data.calculations ?? [])
   }, [])
 
-  const openStore = useCallback(async (sid: string, end: string) => {
+  // Calculate (never saves) whenever the store or the 2/3-month choice changes
+  const openStore = useCallback(async (sid: string, m: PeriodMonths) => {
     if (!sid) { setDetail(null); setHistory([]); return }
     setDetailLoading(true)
     try {
-      const res = await fetch(`/api/restock/calculator?end_month=${end}&store_id=${sid}`)
+      const res = await fetch(`/api/restock/calculator?store_id=${sid}&months=${m}`)
       const data = await res.json().catch(() => ({}))
-      const result = (data.stores?.[0] ?? null) as WayneResult | null
+      const result = (data.result ?? null) as WayneResult | null
       if (!res.ok || !result) { toast.error(data.error || 'Calculation failed'); setDetail(null); return }
       setDetail({ calcId: null, result, linkedRequest: null })
       setSavedSends(null)
       setSends(Object.fromEntries(result.skus.map((s) => [s.product_id, s.send])))
+      if (data.settings) setSettings(data.settings as WayneSettings)
       loadHistory(sid)
     } catch {
       toast.error('Calculation failed')
@@ -143,15 +154,12 @@ export default function RestockCalculatorPage() {
     }
   }, [loadHistory])
 
-  useEffect(() => { loadOverview(endMonth) }, [endMonth, loadOverview])
-  useEffect(() => { openStore(storeId, endMonth) }, [storeId, endMonth, openStore])
+  useEffect(() => { openStore(storeId, months) }, [storeId, months, openStore])
 
-  const rows = useMemo(() => (run?.stores ?? []).filter((s) => filter === 'all' || s.status === filter), [run, filter])
-  const counts = useMemo(() => {
-    const c = { all: 0, restock_now: 0, stock_ok: 0, not_enough_history: 0 }
-    for (const s of run?.stores ?? []) { c.all++; c[s.status]++ }
-    return c
-  }, [run])
+  function chooseMonths(m: PeriodMonths) {
+    setMonths(m)
+    if (userId) writeMonths(userId, m)
+  }
 
   const finalTotal = useMemo(
     () => (detail?.result.skus ?? []).reduce((a, s) => a + (sends[s.product_id] ?? 0), 0),
@@ -168,9 +176,7 @@ export default function RestockCalculatorPage() {
   )
 
   function clearAll() {
-    setEndMonth(defaultEnd)
     setStoreId('')
-    setFilter('all')
     setDetail(null)
     setSends({})
     setSavedSends(null)
@@ -195,7 +201,7 @@ export default function RestockCalculatorPage() {
       : await fetch('/api/restock/calculator', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ store_id: detail.result.store_id, end_month: detail.result.period.end_month, edited_sends: sends }),
+          body: JSON.stringify({ store_id: detail.result.store_id, months: detail.result.period.months_chosen, edited_sends: sends }),
         })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) { toast.error(data.error || 'Failed to save calculation'); return null }
@@ -226,13 +232,14 @@ export default function RestockCalculatorPage() {
       // Always saved first, so the request is linked to a recorded calculation
       const calcId = await saveCalculation()
       if (!calcId) return
+      const p = detail.result.period
       const res = await fetch('/api/restock/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           store_id: detail.result.store_id,
           items,
-          notes: `Restock Calculator ${periodLabel(detail.result.period.end_month)} (calc ${calcId.slice(0, 8)})`,
+          notes: `Restock Calculator ${p.start && p.end ? formatDateRange(p.start, p.end) : ''} (calc ${calcId.slice(0, 8)})`,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -275,8 +282,8 @@ export default function RestockCalculatorPage() {
   }
 
   function openSettings() {
-    if (!run) return
-    setSettingsDraft(Object.fromEntries(Object.entries(run.settings).map(([k, v]) => [k, String(v)])))
+    if (!settings) return
+    setSettingsDraft(Object.fromEntries(Object.entries(settings).map(([k, v]) => [k, String(v)])))
     setShowSettings(true)
   }
 
@@ -296,12 +303,13 @@ export default function RestockCalculatorPage() {
       if (!res.ok) { toast.error(data.error || 'Failed to save settings'); return }
       toast.success('Settings saved')
       setShowSettings(false)
-      await loadOverview(endMonth)
-      if (storeId) openStore(storeId, endMonth)
+      await loadSettings()
+      if (storeId) openStore(storeId, months)
     } finally { setBusy(false) }
   }
 
   const r = detail?.result
+  const periodText = r ? describePeriod(r.period) : null
 
   return (
     <div className="-m-6 p-6 min-h-full bg-[#F8F8F8] space-y-5">
@@ -310,19 +318,25 @@ export default function RestockCalculatorPage() {
         <div className="flex flex-wrap gap-3 items-end">
           <div>
             <label className="text-xs text-gray-500 block mb-1">Store</label>
-            <select value={storeId} onChange={(e) => setStoreId(e.target.value)} className={cn(INPUT, 'min-w-[220px]')}>
-              <option value="">All stores (overview)</option>
-              {(run?.stores ?? []).map((s) => <option key={s.store_id} value={s.store_id}>{s.store_name}</option>)}
+            <select value={storeId} onChange={(e) => setStoreId(e.target.value)} className={cn(INPUT, 'min-w-[240px]')}>
+              <option value="">Select a store…</option>
+              {stores.map((s) => <option key={s.id} value={s.id}>{s.store_name}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-xs text-gray-500 block mb-1">Period (3 complete months)</label>
-            <select value={endMonth} onChange={(e) => setEndMonth(e.target.value)} className={INPUT}>
-              {endOptions.map((m) => <option key={m} value={m}>{periodLabel(m)}</option>)}
-            </select>
+            <label className="text-xs text-gray-500 block mb-1">Period (ending on last recorded sale)</label>
+            <div className="flex gap-2">
+              {PERIOD_MONTH_OPTIONS.map((m) => (
+                <button key={m} onClick={() => chooseMonths(m)}
+                  className={cn('px-3 py-2 rounded-lg text-sm font-medium border transition-colors',
+                    months === m ? 'bg-[#FFD700] text-black border-[#FFD700] hover:bg-[#F0CB00]' : 'bg-white text-gray-600 border-[#E5E7EB] hover:bg-gray-50')}>
+                  {m} months
+                </button>
+              ))}
+            </div>
           </div>
           <div className="flex gap-2 ml-auto">
-            <button onClick={openSettings} disabled={!run} className={SECONDARY}>
+            <button onClick={openSettings} disabled={!settings} className={SECONDARY}>
               <Settings2 size={15} /> Settings
             </button>
             <button onClick={() => setConfirm('clear')} className={SECONDARY}>
@@ -330,10 +344,10 @@ export default function RestockCalculatorPage() {
             </button>
           </div>
         </div>
-        {run && (
+        {settings && (
           <p className="text-xs text-gray-500 mt-3">
-            Pairs = sales ÷ RM{run.settings.price_plain} (Plain) or RM{run.settings.price_special} (Special Patches, selling price ≥ RM{run.settings.special_min_selling_price}).
-            Target = pairs/month × {run.settings.target_multiplier}, trigger = × {run.settings.trigger_multiplier}.
+            Pairs = sales ÷ RM{settings.price_plain} (Plain) or RM{settings.price_special} (Special Patches, selling price ≥ RM{settings.special_min_selling_price}).
+            Pairs/month = pairs in the period ÷ months covered. Target = pairs/month × {settings.target_multiplier}, trigger = × {settings.trigger_multiplier}.
           </p>
         )}
       </div>
@@ -363,73 +377,13 @@ export default function RestockCalculatorPage() {
         </div>
       )}
 
-      {/* Overview */}
-      <div className={cn(CARD, 'overflow-hidden')}>
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-[#E5E7EB]">
-          <h2 className="font-semibold text-gray-900 mr-2">All stores · {periodLabel(endMonth)}</h2>
-          {([
-            ['all', 'All'], ['restock_now', 'Restock now'], ['stock_ok', 'Stock OK'], ['not_enough_history', 'Not enough history'],
-          ] as [StatusFilter, string][]).map(([k, label]) => (
-            <button key={k} onClick={() => setFilter(k)}
-              className={cn('px-3 py-1 rounded-full text-xs font-medium border transition-colors',
-                filter === k ? 'bg-[#FFD700] text-black border-[#FFD700] hover:bg-[#F0CB00]' : 'bg-white text-gray-600 border-[#E5E7EB] hover:bg-gray-50')}>
-              {label} ({counts[k]})
-            </button>
-          ))}
+      {!storeId && (
+        <div className={cn(CARD, 'p-10 text-center')}>
+          <Calculator size={22} className="inline text-gray-300 mb-2" />
+          <p className="text-sm text-gray-500">Select a store to calculate its restock.</p>
+          <p className="text-xs text-gray-400 mt-1">Nothing is saved until you click Save calculation or Create restock request.</p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50">
-                <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Store</th>
-                <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Status</th>
-                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Pairs/month</th>
-                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Target</th>
-                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Trigger</th>
-                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">On hand</th>
-                <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Pairs to send</th>
-                <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Consistency</th>
-                <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Last sale</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && (
-                <tr><td colSpan={9} className="py-10 text-center text-gray-400"><Loader2 size={18} className="animate-spin inline" /></td></tr>
-              )}
-              {!loading && rows.map((s) => (
-                <tr key={s.store_id} onClick={() => setStoreId(s.store_id)}
-                  className={cn('border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer', storeId === s.store_id && 'bg-amber-50/50')}>
-                  <td className="py-2.5 px-3">
-                    <div className="font-medium text-gray-800">{s.store_name}</div>
-                    <div className="text-xs text-gray-400 font-mono">{s.store_code}</div>
-                  </td>
-                  <td className="py-2.5 px-3"><StatusPill status={s.status} /></td>
-                  <td className="py-2.5 px-3 text-right">{s.pairs_per_month ?? '—'}</td>
-                  <td className="py-2.5 px-3 text-right">{s.target_stock ?? '—'}</td>
-                  <td className="py-2.5 px-3 text-right">{s.restock_trigger ?? '—'}</td>
-                  <td className="py-2.5 px-3 text-right font-semibold">{s.on_hand}</td>
-                  <td className="py-2.5 px-3 text-right font-semibold">{s.pairs_to_send ?? '—'}</td>
-                  <td className="py-2.5 px-3">
-                    {s.status === 'not_enough_history' ? <span className="text-gray-300">—</span>
-                      : s.consistency_flag ? <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Uneven</span>
-                      : <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Steady</span>}
-                  </td>
-                  <td className="py-2.5 px-3 text-xs">
-                    {s.last_sale_date ? (
-                      <span className={cn(s.stale_sales ? 'text-amber-700 font-medium' : 'text-gray-500')}>
-                        {formatMYDate(s.last_sale_date)}{s.stale_sales && ` · ${s.days_since_last_sale}d ago`}
-                      </span>
-                    ) : <span className="text-gray-300">No sales</span>}
-                  </td>
-                </tr>
-              ))}
-              {!loading && rows.length === 0 && (
-                <tr><td colSpan={9} className="py-10 text-center text-gray-400 text-sm">No stores</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
 
       {/* Store breakdown */}
       {storeId && (
@@ -444,8 +398,9 @@ export default function RestockCalculatorPage() {
                     <h2 className="text-lg font-semibold text-gray-900">{r.store_name}</h2>
                     <StatusPill status={r.status} />
                   </div>
+                  {periodText && <p className="text-sm text-gray-700 mt-0.5">{periodText}</p>}
                   <p className="text-xs text-gray-500 mt-0.5">
-                    {r.store_code} · {periodLabel(r.period.end_month)} ·{' '}
+                    {r.store_code} ·{' '}
                     {detail?.calcId
                       ? <>saved as calc {detail.calcId.slice(0, 8)}{unsaved && ' (unsaved changes)'}</>
                       : 'not saved'}
@@ -458,18 +413,18 @@ export default function RestockCalculatorPage() {
                 <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
                   <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
                   {r.last_sale_date
-                    ? `Last recorded sale was ${formatMYDate(r.last_sale_date)} (${r.days_since_last_sale} days ago). The store may not have entered its latest sales yet.`
+                    ? `Last recorded sale was ${formatMYDate(r.last_sale_date)} (${r.days_since_last_sale} days ago). The period ends on that date, so sales the store hasn't entered yet are not counted.`
                     : 'This store has no recorded sales.'}
                 </div>
               )}
 
               {r.status === 'not_enough_history' ? (
                 <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-                  <p className="font-semibold">Not enough history — start with 30–50 pairs.</p>
+                  <p className="font-semibold">Less than 1 month of sales — start with 30–50 pairs.</p>
                   <p className="mt-1">
-                    {r.first_sale_date
-                      ? `First sale was ${formatMYDate(r.first_sale_date)}, after ${monthLabel(r.period.months[0])}.`
-                      : 'No sales recorded yet.'} No calculation is made until the store has a full 3 months.
+                    {r.first_sale_date && r.last_sale_date
+                      ? `Sales recorded from ${formatMYDate(r.first_sale_date)} to ${formatMYDate(r.last_sale_date)}.`
+                      : 'No sales recorded yet.'} No calculation is made until the store has at least 1 month of sales.
                   </p>
                   <div className="flex justify-end mt-3">
                     <button onClick={handleSave} disabled={busy || !unsaved} className={SECONDARY}>
@@ -479,6 +434,13 @@ export default function RestockCalculatorPage() {
                 </div>
               ) : (
                 <>
+                  {r.period.short_history && (
+                    <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+                      <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
+                      Only {r.period.months_covered?.toFixed(1)} months of sales history, so the average is based on less than the chosen period.
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                     {[
                       ['Pairs / month', r.pairs_per_month],
@@ -494,12 +456,12 @@ export default function RestockCalculatorPage() {
                     ))}
                   </div>
 
-                  {/* Months */}
+                  {/* One-month blocks ending on the last sale */}
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-gray-100 bg-gray-50">
-                          <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Month</th>
+                          <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Month block</th>
                           <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Sales (RM)</th>
                           <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Pairs</th>
                           <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">vs average</th>
@@ -507,8 +469,11 @@ export default function RestockCalculatorPage() {
                       </thead>
                       <tbody>
                         {r.months.map((m) => (
-                          <tr key={m.month} className="border-b border-gray-50">
-                            <td className="py-2 px-3">{monthLabel(m.month)}</td>
+                          <tr key={m.start} className="border-b border-gray-50">
+                            <td className="py-2 px-3">
+                              {formatDateRange(m.start, m.end)}
+                              {m.partial && <span className="text-xs text-gray-400"> · partial (before first sale)</span>}
+                            </td>
                             <td className="py-2 px-3 text-right">{m.sales_amount.toFixed(2)}</td>
                             <td className="py-2 px-3 text-right">{m.pairs.toFixed(1)}</td>
                             <td className="py-2 px-3 text-right">
@@ -524,7 +489,7 @@ export default function RestockCalculatorPage() {
                     </table>
                     {r.consistency_flag && (
                       <p className="text-xs text-amber-700 mt-2">
-                        Sales are uneven: at least one month is more than {run?.settings.consistency_pct ?? 20}% away from the average. Check before sending.
+                        Sales are uneven: at least one month is more than {settings?.consistency_pct ?? 20}% away from the average. Check before sending.
                       </p>
                     )}
                   </div>
@@ -605,7 +570,7 @@ export default function RestockCalculatorPage() {
                 </>
               )}
 
-              {/* History */}
+              {/* Saved calculations for this store */}
               <div>
                 <h3 className="flex items-center gap-1.5 text-sm font-semibold text-gray-900 mb-2"><History size={15} /> Saved calculations</h3>
                 <div className="overflow-x-auto">
@@ -622,21 +587,27 @@ export default function RestockCalculatorPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {history.map((h) => (
-                        <tr key={h.id} className={cn('border-b border-gray-50', h.voided_at && 'text-gray-400 line-through')}>
-                          <td className="py-2 px-3">{new Date(h.calculated_at).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}</td>
-                          <td className="py-2 px-3">{h.calculated_by_name || '—'}</td>
-                          <td className="py-2 px-3">{periodLabel(h.end_month)}</td>
-                          <td className="py-2 px-3">{PILL[h.status].label}</td>
-                          <td className="py-2 px-3 text-right">{h.pairs_to_send ?? '—'} / {h.final_total ?? '—'}{h.edited_sends && ' (edited)'}</td>
-                          <td className="py-2 px-3">{h.restock_request_id ? h.restock_request_id.slice(0, 8) : '—'}</td>
-                          <td className="py-2 px-3 text-right no-underline">
-                            {h.voided_at
-                              ? <span className="no-underline" title={h.void_reason ?? ''}>Voided</span>
-                              : <button onClick={() => { setVoidTarget(h); setVoidReason('') }} className="text-gray-500 hover:text-gray-900 underline">Void</button>}
-                          </td>
-                        </tr>
-                      ))}
+                      {history.map((h) => {
+                        const hp = h.settings?.period
+                        return (
+                          <tr key={h.id} className={cn('border-b border-gray-50', h.voided_at && 'text-gray-400 line-through')}>
+                            <td className="py-2 px-3">{new Date(h.calculated_at).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })}</td>
+                            <td className="py-2 px-3">{h.calculated_by_name || '—'}</td>
+                            <td className="py-2 px-3">
+                              {formatDateRange(h.period_start, h.period_end)}
+                              {hp?.months_chosen && <span className="text-gray-400"> · {hp.months_chosen} mo{hp.short_history && hp.months_covered ? ` (${hp.months_covered.toFixed(1)} covered)` : ''}</span>}
+                            </td>
+                            <td className="py-2 px-3">{PILL[h.status].label}</td>
+                            <td className="py-2 px-3 text-right">{h.pairs_to_send ?? '—'} / {h.final_total ?? '—'}{h.edited_sends && ' (edited)'}</td>
+                            <td className="py-2 px-3">{h.restock_request_id ? h.restock_request_id.slice(0, 8) : '—'}</td>
+                            <td className="py-2 px-3 text-right no-underline">
+                              {h.voided_at
+                                ? <span className="no-underline" title={h.void_reason ?? ''}>Voided</span>
+                                : <button onClick={() => { setVoidTarget(h); setVoidReason('') }} className="text-gray-500 hover:text-gray-900 underline">Void</button>}
+                            </td>
+                          </tr>
+                        )
+                      })}
                       {history.length === 0 && (
                         <tr><td colSpan={7} className="py-4 text-center text-gray-400">No saved calculations</td></tr>
                       )}
@@ -649,10 +620,6 @@ export default function RestockCalculatorPage() {
         </div>
       )}
 
-      {!storeId && !loading && (
-        <p className="flex items-center gap-1.5 text-xs text-gray-500"><Calculator size={13} /> Click a store (or pick one above) to see the per-SKU breakdown. Nothing is saved until you click Save calculation or Create restock request.</p>
-      )}
-
       {/* Confirm modal (clear / create request) */}
       {confirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
@@ -662,7 +629,7 @@ export default function RestockCalculatorPage() {
             </h2>
             <p className="text-sm text-gray-600 mb-6">
               {confirm === 'clear'
-                ? 'This resets the store, period, filters and any unsaved Send numbers on this page. Saved calculations stay in history.'
+                ? 'This clears the selected store and any unsaved Send numbers on this page. Saved calculations stay in history.'
                 : `Saves this calculation and creates a linked pending restock request for ${r?.store_name} with ${finalTotal} pairs. Approve it in the Restock Queue to create the delivery order.`}
             </p>
             <div className="flex gap-3">
