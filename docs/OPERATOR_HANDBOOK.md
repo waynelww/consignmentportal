@@ -117,6 +117,26 @@ A GitHub Action (`sync-shopify-orders.yml`) calls
 migration, it must be pasted into the Supabase SQL editor before the
 feature (or the cron) works.
 
+## Restock Calculator (Wayne's method)
+
+`/admin/restock-calculator` (super_admin + ops_manager). Maths lives only in
+`lib/restock/wayne-calc.ts`; test with `npx tsx scripts/test-wayne-calc.ts`
+(pins Hyperground STR-015 Jul–Sep 2026 = 31.7 pairs/month, target 127,
+trigger 63). Separate from `/admin/predictions`, which is unchanged.
+
+- Pairs = sales RM ÷ price per pair; a product counts as Special Patches
+  when its `selling_price` ≥ the `restock_calc_special_min_selling_price`
+  setting (RM19), otherwise Plain. Prices, multipliers, the consistency %
+  and stale-sale days are `restock_calc_*` rows in `public.settings`,
+  editable from the page.
+- History check is month-level: a store needs a sale in (or before) the
+  first month of the period, otherwise "Not enough history".
+- Opening a store saves a row in `restock_calculations` (who, when,
+  settings, per-SKU results, edited Send numbers, linked restock request).
+  Rows are append-only (DB trigger): never deleted, only voided with a
+  reason. "Create restock request" goes through the normal Restock Queue.
+- Read-only bot endpoint: `/api/bot/restock-calc`.
+
 ## Automation inventory (GitHub Actions + webhooks)
 
 - `monthly-invoices.yml` — 1st + 2nd of month, generates commission invoices.

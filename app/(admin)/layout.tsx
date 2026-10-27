@@ -58,6 +58,7 @@ const NAV_ITEMS = [
     items: [
       { label: 'Restock Queue', href: '/admin/restocks', icon: RefreshCcw },
       { label: 'Predictions', href: '/admin/predictions', icon: Sparkles },
+      { label: 'Restock Calculator', href: '/admin/restock-calculator', icon: Calculator },
       { label: 'Delivery Orders', href: '/admin/delivery-orders', icon: Truck },
       { label: 'Events', href: '/admin/events', icon: CalendarDays },
       { label: 'Event Targets', href: '/admin/events/targets', icon: Target },
@@ -104,6 +105,7 @@ function getPageTitle(pathname: string): string {
     '/admin/stock': 'Stock',
     '/admin/restocks': 'Restock Queue',
     '/admin/predictions': 'Restock Predictions',
+    '/admin/restock-calculator': 'Restock Calculator',
     '/admin/delivery-orders': 'Delivery Orders',
     '/admin/events/targets': 'Event Targets',
     '/admin/events': 'Events',
