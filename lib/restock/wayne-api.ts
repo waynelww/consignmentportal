@@ -1,8 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import {
-  calcStore, defaultEndMonth, malaysiaToday, parseWayneSettings, periodFor,
-  WAYNE_SETTING_KEYS, type CalcProduct, type CalcSale, type WayneResult, type WayneSettings,
+  calcStore, malaysiaToday, parseWayneSettings, resolvePeriod,
+  WAYNE_SETTING_KEYS, type CalcProduct, type CalcSale, type PeriodMonths, type WayneResult, type WayneSettings,
 } from '@/lib/restock/wayne-calc'
 
 // Shared loaders for the Restock Calculator routes (admin + bot). All maths
@@ -26,6 +26,13 @@ export async function loadWayneSettings(db: SupabaseClient): Promise<WayneSettin
   return parseWayneSettings(data ?? [])
 }
 
+export async function listActiveStores(db?: SupabaseClient) {
+  const client = db ?? (await createServiceClient())
+  const { data, error } = await client.from('stores').select('id, store_code, store_name').eq('status', 'active').order('store_name')
+  if (error) throw new Error(error.message)
+  return (data ?? []) as { id: string; store_code: string; store_name: string }[]
+}
+
 // PostgREST caps responses (1000 rows by default) — page through.
 async function fetchAll<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
   const size = 1000
@@ -40,21 +47,19 @@ async function fetchAll<T>(build: (from: number, to: number) => PromiseLike<{ da
 
 export interface CalcRun {
   today: string
-  end_month: string
-  period: ReturnType<typeof periodFor>
+  months: PeriodMonths
   settings: WayneSettings
   stores: WayneResult[]
 }
 
 /**
- * Calculate for every active store (or just the given ones).
- * `endMonth` defaults to the last complete month in Malaysia time.
+ * Calculate the given active stores (by id or code; all active stores when
+ * neither is given). Each store's period is counted back from its own last
+ * recorded sale.
  */
-export async function runWayneCalc(opts: { endMonth?: string | null; storeIds?: string[]; storeCodes?: string[]; db?: SupabaseClient } = {}): Promise<CalcRun> {
+export async function runWayneCalc(opts: { months: PeriodMonths; storeIds?: string[]; storeCodes?: string[]; db?: SupabaseClient }): Promise<CalcRun> {
   const db = opts.db ?? (await createServiceClient())
   const today = malaysiaToday()
-  const endMonth = opts.endMonth || defaultEndMonth(today)
-  const period = periodFor(endMonth)
   const settings = await loadWayneSettings(db)
 
   let storeQ = db.from('stores').select('id, store_code, store_name').eq('status', 'active').order('store_code')
@@ -63,35 +68,31 @@ export async function runWayneCalc(opts: { endMonth?: string | null; storeIds?: 
   const { data: stores, error: storeErr } = await storeQ
   if (storeErr) throw new Error(storeErr.message)
   const storeList = (stores ?? []) as { id: string; store_code: string; store_name: string }[]
-  if (storeList.length === 0) return { today, end_month: endMonth, period, settings, stores: [] }
-  const ids = storeList.map((s) => s.id)
 
-  const [sales, inventory, bounds] = await Promise.all([
-    fetchAll<CalcSale & { store_id: string }>((from, to) =>
-      db.from('sales')
-        .select('store_id, product_id, sale_date, quantity, total_amount')
-        .in('store_id', ids)
-        .gte('sale_date', period.start)
-        .lte('sale_date', period.end)
-        .order('id')
-        .range(from, to)),
-    fetchAll<{ store_id: string; product_id: string; quantity_on_hand: number }>((from, to) =>
-      db.from('store_inventory')
-        .select('store_id, product_id, quantity_on_hand')
-        .in('store_id', ids)
-        .order('id')
-        .range(from, to)),
-    // first / last recorded sale per store (one tiny query each)
-    Promise.all(ids.map(async (id) => {
-      const [first, last] = await Promise.all([
-        db.from('sales').select('sale_date').eq('store_id', id).order('sale_date', { ascending: true }).limit(1).maybeSingle(),
-        db.from('sales').select('sale_date').eq('store_id', id).order('sale_date', { ascending: false }).limit(1).maybeSingle(),
-      ])
-      return [id, { first: (first.data?.sale_date as string | undefined) ?? null, last: (last.data?.sale_date as string | undefined) ?? null }] as const
-    })),
-  ])
+  const perStore = await Promise.all(storeList.map(async (store) => {
+    const [first, last, inventory] = await Promise.all([
+      db.from('sales').select('sale_date').eq('store_id', store.id).order('sale_date', { ascending: true }).limit(1).maybeSingle(),
+      db.from('sales').select('sale_date').eq('store_id', store.id).order('sale_date', { ascending: false }).limit(1).maybeSingle(),
+      fetchAll<{ product_id: string; quantity_on_hand: number }>((from, to) =>
+        db.from('store_inventory').select('product_id, quantity_on_hand').eq('store_id', store.id).order('id').range(from, to)),
+    ])
+    const firstSale = (first.data?.sale_date as string | undefined) ?? null
+    const lastSale = (last.data?.sale_date as string | undefined) ?? null
+    const p = resolvePeriod(firstSale, lastSale, opts.months)
+    const sales = p.start && p.end
+      ? await fetchAll<CalcSale>((from, to) =>
+          db.from('sales')
+            .select('product_id, sale_date, quantity, total_amount')
+            .eq('store_id', store.id)
+            .gte('sale_date', p.start!)
+            .lte('sale_date', p.end!)
+            .order('id')
+            .range(from, to))
+      : []
+    return { store, firstSale, lastSale, inventory, sales: sales.map((x) => ({ ...x, total_amount: Number(x.total_amount) })) }
+  }))
 
-  const productIds = [...new Set([...sales.map((s) => s.product_id), ...inventory.map((i) => i.product_id)])]
+  const productIds = [...new Set(perStore.flatMap((x) => [...x.sales.map((s) => s.product_id), ...x.inventory.map((i) => i.product_id)]))]
   const products: Record<string, CalcProduct> = {}
   for (let i = 0; i < productIds.length; i += 200) {
     const { data, error } = await db.from('products').select('id, sku, name, selling_price').in('id', productIds.slice(i, i + 200))
@@ -101,32 +102,48 @@ export async function runWayneCalc(opts: { endMonth?: string | null; storeIds?: 
     }
   }
 
-  const boundMap = new Map(bounds)
-  const results = storeList.map((store) => calcStore({
+  const results = perStore.map((x) => calcStore({
     today,
-    endMonth,
+    months: opts.months,
     settings,
-    store,
+    store: x.store,
     products,
-    sales: sales.filter((s) => s.store_id === store.id).map((s) => ({ ...s, total_amount: Number(s.total_amount) })),
-    firstSaleDate: boundMap.get(store.id)?.first ?? null,
-    lastSaleDate: boundMap.get(store.id)?.last ?? null,
-    inventory: inventory.filter((i) => i.store_id === store.id),
+    sales: x.sales,
+    firstSaleDate: x.firstSale,
+    lastSaleDate: x.lastSale,
+    inventory: x.inventory,
   }))
 
-  return { today, end_month: endMonth, period, settings, stores: results }
+  return { today, months: opts.months, settings, stores: results }
 }
 
-/** Row shape for public.restock_calculations built from a result. */
-export function toCalcRow(r: WayneResult, settings: WayneSettings, user: { id: string; name: string | null }) {
+/**
+ * Row shape for public.restock_calculations built from a result. No schema
+ * change: end_month = month of the last recorded sale, period_start/end =
+ * the actual dates used, and the period choice (2/3 months), months covered
+ * and short-history flag go into the settings JSONB under `period`.
+ */
+export function toCalcRow(r: WayneResult, settings: WayneSettings, user: { id: string; name: string | null }, today: string) {
+  const start = r.period.start ?? r.last_sale_date ?? today
+  const end = r.period.end ?? r.last_sale_date ?? today
   return {
     store_id: r.store_id,
     store_code: r.store_code,
     store_name: r.store_name,
-    end_month: r.period.end_month,
-    period_start: r.period.start,
-    period_end: r.period.end,
-    settings,
+    end_month: end.slice(0, 7),
+    period_start: start,
+    period_end: end,
+    settings: {
+      ...settings,
+      period: {
+        basis: 'last_recorded_sale',
+        months_chosen: r.period.months_chosen,
+        months_covered: r.period.months_covered,
+        nominal_start: r.period.nominal_start,
+        short_history: r.period.short_history,
+        history_months: r.history_months,
+      },
+    },
     status: r.status,
     months: r.months,
     pairs_per_month: r.pairs_per_month,

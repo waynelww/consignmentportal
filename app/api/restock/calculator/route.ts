@@ -1,11 +1,12 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
-import { requireRestockCalcAccess, runWayneCalc, toCalcRow } from '@/lib/restock/wayne-api'
-import { isValidMonth } from '@/lib/restock/wayne-calc'
+import { listActiveStores, requireRestockCalcAccess, runWayneCalc, toCalcRow } from '@/lib/restock/wayne-api'
+import { DEFAULT_PERIOD_MONTHS, isPeriodMonths } from '@/lib/restock/wayne-calc'
 
 // Restock Calculator (Wayne's method). super_admin + ops_manager only.
-// GET  ?end_month=YYYY-MM[&store_id=]  → calculate for active stores (never saved)
-// POST { store_id, end_month, edited_sends? }
+// GET                              → active stores for the dropdown
+// GET  ?store_id=&months=2|3       → calculate one store (never saved)
+// POST { store_id, months, edited_sends? }
 //      → recalculates server-side and saves the result (plus any edited Send
 //        numbers) to restock_calculations. Only called by "Save calculation"
 //        and by "Create restock request".
@@ -14,15 +15,19 @@ export async function GET(request: NextRequest) {
   if ('error' in access) return access.error
 
   const { searchParams } = new URL(request.url)
-  const endMonth = searchParams.get('end_month')
   const storeId = searchParams.get('store_id')
-  if (endMonth && !isValidMonth(endMonth)) {
-    return Response.json({ error: 'end_month must be YYYY-MM' }, { status: 400 })
+  const monthsParam = searchParams.get('months')
+  const months = monthsParam === null ? DEFAULT_PERIOD_MONTHS : Number(monthsParam)
+  if (!isPeriodMonths(months)) {
+    return Response.json({ error: 'months must be 2 or 3' }, { status: 400 })
   }
 
   try {
-    const run = await runWayneCalc({ endMonth, storeIds: storeId ? [storeId] : undefined })
-    return Response.json(run)
+    if (!storeId) return Response.json({ stores: await listActiveStores() })
+    const run = await runWayneCalc({ months, storeIds: [storeId] })
+    const result = run.stores[0]
+    if (!result) return Response.json({ error: 'Store not found or not active' }, { status: 404 })
+    return Response.json({ today: run.today, months: run.months, settings: run.settings, result })
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : 'Calculation failed' }, { status: 500 })
   }
@@ -30,7 +35,7 @@ export async function GET(request: NextRequest) {
 
 const SaveSchema = z.object({
   store_id: z.string().uuid(),
-  end_month: z.string().refine(isValidMonth, 'end_month must be YYYY-MM'),
+  months: z.union([z.literal(2), z.literal(3)]),
   edited_sends: z.record(z.string().uuid(), z.number().int().min(0).max(100000)).optional(),
 })
 
@@ -52,14 +57,14 @@ export async function POST(request: NextRequest) {
 
   let run
   try {
-    run = await runWayneCalc({ endMonth: parsed.data.end_month, storeIds: [parsed.data.store_id] })
+    run = await runWayneCalc({ months: parsed.data.months, storeIds: [parsed.data.store_id] })
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : 'Calculation failed' }, { status: 500 })
   }
   const result = run.stores[0]
   if (!result) return Response.json({ error: 'Store not found or not active' }, { status: 404 })
 
-  const row = toCalcRow(result, run.settings, { id: user.id, name: profile.full_name })
+  const row = toCalcRow(result, run.settings, { id: user.id, name: profile.full_name }, run.today)
   if (parsed.data.edited_sends) {
     const known = new Map(result.skus.map((s) => [s.product_id, s.send]))
     const overrides: Record<string, number> = {}

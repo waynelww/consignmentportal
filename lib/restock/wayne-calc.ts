@@ -5,15 +5,20 @@
 // affected by this file.
 //
 // Method, per store:
-//  - Period = 3 complete calendar months ending at `endMonth` (Malaysia time).
-//  - Monthly pairs = Σ sales.total_amount ÷ price per pair, where a product
-//    with selling_price ≥ special_min_selling_price is "Special Patches"
+//  - Period = the 2 or 3 months (user's choice) ending on the store's LAST
+//    RECORDED SALE: end = last sale date, start = end minus N months + 1 day
+//    (e.g. last sale 26 Oct, 3 months → 27 Jul – 26 Oct).
+//  - Short history: if the first sale is after that start, the period starts
+//    at the first sale and months covered = (last − first sale days) ÷ 30.4,
+//    minimum 1. Under 1 month of sales → no calculation ("start with 30–50").
+//  - Pairs = Σ sales.total_amount ÷ price per pair, where a product with
+//    selling_price ≥ special_min_selling_price is "Special Patches"
 //    (price_special) and everything else is Plain (price_plain).
-//  - Pairs/month = average of the 3 months.
+//  - Pairs/month = total pairs in the period ÷ months covered.
+//  - The period is split into N consecutive one-month blocks ending on the
+//    last sale; full blocks feed the consistency check.
 //  - Target = pairs/month × target_multiplier; trigger = × trigger_multiplier.
 //  - "Restock now" if total on hand < trigger, else "Stock OK".
-//  - No sale in (or before) the first month of the period → not enough
-//    history, no calculation.
 //  - Per SKU (only products already in store_inventory): split the target by
 //    each SKU's share of pairs sold in the period; send = max(0, SKU target −
 //    on hand). Everything rounded to the nearest pair.
@@ -49,6 +54,11 @@ export const WAYNE_SETTING_KEYS: Record<keyof WayneSettings, string> = {
   stale_sale_days: 'restock_calc_stale_sale_days',
 }
 
+export type PeriodMonths = 2 | 3
+export const PERIOD_MONTH_OPTIONS: PeriodMonths[] = [2, 3]
+export const DEFAULT_PERIOD_MONTHS: PeriodMonths = 3
+export const DAYS_PER_MONTH = 30.4
+
 export interface CalcProduct {
   id: string
   sku: string | null
@@ -70,7 +80,7 @@ export interface CalcInventory {
 
 export interface WayneInput {
   today: string // YYYY-MM-DD in Malaysia time
-  endMonth: string // YYYY-MM, last month of the period
+  months: PeriodMonths
   settings: WayneSettings
   store: { id: string; store_code: string; store_name: string }
   products: Record<string, CalcProduct>
@@ -82,11 +92,22 @@ export interface WayneInput {
 
 export type StoreStatus = 'restock_now' | 'stock_ok' | 'not_enough_history'
 
-export interface MonthResult {
-  month: string // YYYY-MM
+export interface PeriodInfo {
+  months_chosen: PeriodMonths
+  nominal_start: string | null // last sale − N months + 1 day
+  start: string | null // actual start (later of nominal start and first sale)
+  end: string | null // last recorded sale
+  months_covered: number | null // N, or (last − first sale days) ÷ 30.4 for short history
+  short_history: boolean
+}
+
+export interface BlockResult {
+  start: string // block start (may be before the period start when partial)
+  end: string
   sales_amount: number
-  pairs: number // unrounded
-  deviation_pct: number | null // vs average, null when average is 0
+  pairs: number
+  partial: boolean // starts before the first sale — shown, not checked
+  deviation_pct: number | null // vs pairs/month; null when partial or average 0
   flagged: boolean
 }
 
@@ -113,9 +134,10 @@ export interface WayneResult {
   store_id: string
   store_code: string
   store_name: string
-  period: { end_month: string; months: string[]; start: string; end: string }
+  period: PeriodInfo
   status: StoreStatus
-  months: MonthResult[]
+  history_months: number | null // (last − first sale days) ÷ 30.4, 1 dp
+  months: BlockResult[]
   pairs_per_month: number | null // 1 dp
   target_stock: number | null
   restock_trigger: number | null
@@ -134,14 +156,8 @@ const round = (n: number) => Math.round(n)
 const round1 = (n: number) => Math.round(n * 10) / 10
 const round2 = (n: number) => Math.round(n * 100) / 100
 
-export function isValidMonth(m: string): boolean {
-  return /^\d{4}-(0[1-9]|1[0-2])$/.test(m)
-}
-
-export function addMonths(month: string, delta: number): string {
-  const [y, m] = month.split('-').map(Number)
-  const idx = y * 12 + (m - 1) + delta
-  return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`
+export function isPeriodMonths(n: unknown): n is PeriodMonths {
+  return n === 2 || n === 3
 }
 
 /** Today's date (YYYY-MM-DD) in Malaysia time. */
@@ -151,24 +167,50 @@ export function malaysiaToday(now: Date = new Date()): string {
   }).format(now)
 }
 
-/** Default end month = the last complete month (e.g. 27 Oct → Sep). */
-export function defaultEndMonth(today: string): string {
-  return addMonths(today.slice(0, 7), -1)
+const iso = (d: Date) => d.toISOString().slice(0, 10)
+
+export function addDays(date: string, n: number): string {
+  const d = new Date(`${date}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + n)
+  return iso(d)
 }
 
-function lastDayOfMonth(month: string): string {
-  const [y, m] = month.split('-').map(Number)
-  const d = new Date(Date.UTC(y, m, 0)).getUTCDate()
-  return `${month}-${String(d).padStart(2, '0')}`
+/** Same day of month n months earlier, clamped to that month's last day. */
+export function subMonths(date: string, n: number): string {
+  const [y, m, day] = date.split('-').map(Number)
+  const idx = y * 12 + (m - 1) - n
+  const ty = Math.floor(idx / 12)
+  const tm = idx % 12
+  const last = new Date(Date.UTC(ty, tm + 1, 0)).getUTCDate()
+  return iso(new Date(Date.UTC(ty, tm, Math.min(day, last))))
 }
 
-export function periodFor(endMonth: string) {
-  const months = [addMonths(endMonth, -2), addMonths(endMonth, -1), endMonth]
-  return { end_month: endMonth, months, start: `${months[0]}-01`, end: lastDayOfMonth(endMonth) }
-}
-
-function daysBetween(a: string, b: string): number {
+export function daysBetween(a: string, b: string): number {
   return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000)
+}
+
+/** N consecutive one-month blocks ending on `end` (oldest first). */
+export function monthBlocks(end: string, months: PeriodMonths): { start: string; end: string }[] {
+  return Array.from({ length: months }, (_, i) => {
+    const k = months - 1 - i // months back from `end` for this block's end
+    return { start: addDays(subMonths(end, k + 1), 1), end: subMonths(end, k) }
+  })
+}
+
+/** Period for a store, counted back from its last recorded sale. */
+export function resolvePeriod(firstSale: string | null, lastSale: string | null, months: PeriodMonths) {
+  if (!lastSale || !firstSale) {
+    return { nominal_start: null, start: null, end: null, short_history: false, history_months: null as number | null }
+  }
+  const nominal = addDays(subMonths(lastSale, months), 1)
+  const short = firstSale > nominal
+  return {
+    nominal_start: nominal,
+    start: short ? firstSale : nominal,
+    end: lastSale,
+    short_history: short,
+    history_months: daysBetween(firstSale, lastSale) / DAYS_PER_MONTH,
+  }
 }
 
 export function isSpecial(p: CalcProduct | undefined, s: WayneSettings): boolean {
@@ -176,9 +218,8 @@ export function isSpecial(p: CalcProduct | undefined, s: WayneSettings): boolean
 }
 
 export function calcStore(input: WayneInput): WayneResult {
-  const { settings: s, store, products } = input
-  const period = periodFor(input.endMonth)
-  const inPeriod = input.sales.filter((x) => x.sale_date >= period.start && x.sale_date <= period.end)
+  const { settings: s, store, products, months: n } = input
+  const p = resolvePeriod(input.firstSaleDate, input.lastSaleDate, n)
 
   const onHandBySku = new Map<string, number>()
   for (const i of input.inventory) {
@@ -191,20 +232,19 @@ export function calcStore(input: WayneInput): WayneResult {
     store_id: store.id,
     store_code: store.store_code,
     store_name: store.store_name,
-    period,
     on_hand: onHand,
+    history_months: p.history_months === null ? null : round1(p.history_months),
     first_sale_date: input.firstSaleDate,
     last_sale_date: input.lastSaleDate,
     days_since_last_sale: daysSince,
     stale_sales: daysSince === null || daysSince > s.stale_sale_days,
   }
 
-  // Month-level history check: the store needs a sale in (or before) the
-  // first month of the period.
-  const secondMonthStart = `${period.months[1]}-01`
-  if (!input.firstSaleDate || input.firstSaleDate >= secondMonthStart) {
+  // Under 1 month of sales (or none): no calculation.
+  if (!p.start || !p.end || p.history_months === null || p.history_months < 1) {
     return {
       ...base,
+      period: { months_chosen: n, nominal_start: p.nominal_start, start: p.start, end: p.end, months_covered: null, short_history: p.short_history },
       status: 'not_enough_history',
       months: [],
       pairs_per_month: null,
@@ -217,25 +257,37 @@ export function calcStore(input: WayneInput): WayneResult {
     }
   }
 
-  // Monthly pairs from sales amount ÷ price per pair
-  const amountByMonth = new Map<string, number>()
-  const pairsByMonth = new Map<string, number>()
-  const soldByProduct = new Map<string, number>()
-  for (const x of inPeriod) {
-    const m = x.sale_date.slice(0, 7)
-    const amt = Number(x.total_amount) || 0
-    const price = isSpecial(products[x.product_id], s) ? s.price_special : s.price_plain
-    amountByMonth.set(m, (amountByMonth.get(m) ?? 0) + amt)
-    pairsByMonth.set(m, (pairsByMonth.get(m) ?? 0) + amt / price)
-    soldByProduct.set(x.product_id, (soldByProduct.get(x.product_id) ?? 0) + (x.quantity ?? 0))
-  }
+  const start = p.start
+  const end = p.end
+  const monthsCovered = p.short_history ? Math.min(n, Math.max(1, p.history_months)) : n
+  const pairsOf = (x: CalcSale) => (Number(x.total_amount) || 0) / (isSpecial(products[x.product_id], s) ? s.price_special : s.price_plain)
 
-  const rawMonths = period.months.map((m) => ({ month: m, sales_amount: round2(amountByMonth.get(m) ?? 0), pairs: pairsByMonth.get(m) ?? 0 }))
-  const avg = rawMonths.reduce((a, b) => a + b.pairs, 0) / rawMonths.length
-  const months: MonthResult[] = rawMonths.map((m) => {
-    const dev = avg > 0 ? ((m.pairs - avg) / avg) * 100 : null
-    return { ...m, pairs: round2(m.pairs), deviation_pct: dev === null ? null : round1(dev), flagged: dev !== null && Math.abs(dev) > s.consistency_pct }
-  })
+  const inPeriod = input.sales.filter((x) => x.sale_date >= start && x.sale_date <= end)
+  const totalPairs = inPeriod.reduce((a, x) => a + pairsOf(x), 0)
+  const avg = totalPairs / monthsCovered
+
+  // One-month blocks ending on the last sale; blocks wholly before the
+  // first sale are dropped, the one containing it is shown as partial.
+  const blocks: BlockResult[] = monthBlocks(end, n)
+    .filter((b) => b.end >= start)
+    .map((b) => {
+      const rows = inPeriod.filter((x) => x.sale_date >= b.start && x.sale_date <= b.end)
+      const pairs = rows.reduce((a, x) => a + pairsOf(x), 0)
+      const partial = b.start < start
+      const dev = !partial && avg > 0 ? ((pairs - avg) / avg) * 100 : null
+      return {
+        start: b.start,
+        end: b.end,
+        sales_amount: round2(rows.reduce((a, x) => a + (Number(x.total_amount) || 0), 0)),
+        pairs: round2(pairs),
+        partial,
+        deviation_pct: dev === null ? null : round1(dev),
+        flagged: dev !== null && Math.abs(dev) > s.consistency_pct,
+      }
+    })
+
+  const soldByProduct = new Map<string, number>()
+  for (const x of inPeriod) soldByProduct.set(x.product_id, (soldByProduct.get(x.product_id) ?? 0) + (x.quantity ?? 0))
 
   const targetExact = avg * s.target_multiplier
   const target = round(targetExact)
@@ -246,16 +298,16 @@ export function calcStore(input: WayneInput): WayneResult {
   const invIds = [...onHandBySku.keys()]
   const soldInInv = invIds.reduce((a, id) => a + (soldByProduct.get(id) ?? 0), 0)
   const skus: SkuResult[] = invIds.map((id) => {
-    const p = products[id]
+    const prod = products[id]
     const sold = soldByProduct.get(id) ?? 0
     const share = soldInInv > 0 ? sold / soldInInv : 0
     const skuTarget = round(targetExact * share)
     const qoh = onHandBySku.get(id) ?? 0
     return {
       product_id: id,
-      sku: p?.sku ?? null,
-      name: p?.name ?? 'Unknown product',
-      is_special: isSpecial(p, s),
+      sku: prod?.sku ?? null,
+      name: prod?.name ?? 'Unknown product',
+      is_special: isSpecial(prod, s),
       pairs_sold: sold,
       share: Math.round(share * 10000) / 10000,
       sku_target: skuTarget,
@@ -272,13 +324,14 @@ export function calcStore(input: WayneInput): WayneResult {
 
   return {
     ...base,
+    period: { months_chosen: n, nominal_start: p.nominal_start, start, end, months_covered: round2(monthsCovered), short_history: p.short_history },
     status: onHand < trigger ? 'restock_now' : 'stock_ok',
-    months,
+    months: blocks,
     pairs_per_month: round1(avg),
     target_stock: target,
     restock_trigger: trigger,
     pairs_to_send: skus.reduce((a, b) => a + b.send, 0),
-    consistency_flag: months.some((m) => m.flagged),
+    consistency_flag: blocks.some((m) => m.flagged),
     skus,
     sold_not_in_inventory,
   }
@@ -290,11 +343,30 @@ export function parseWayneSettings(rows: { key: string; value: string | null }[]
   const byKey = new Map(rows.map((r) => [r.key, r.value]))
   for (const k of Object.keys(WAYNE_SETTING_KEYS) as (keyof WayneSettings)[]) {
     const raw = byKey.get(WAYNE_SETTING_KEYS[k])
-    const n = raw === undefined || raw === null || raw === '' ? NaN : Number(raw)
-    if (Number.isFinite(n) && n >= 0) out[k] = n
+    const v = raw === undefined || raw === null || raw === '' ? NaN : Number(raw)
+    if (Number.isFinite(v) && v >= 0) out[k] = v
   }
   // a zero price would divide by zero
   if (out.price_plain <= 0) out.price_plain = DEFAULT_WAYNE_SETTINGS.price_plain
   if (out.price_special <= 0) out.price_special = DEFAULT_WAYNE_SETTINGS.price_special
   return out
+}
+
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const dm = (d: string) => `${Number(d.slice(8, 10))} ${MON[Number(d.slice(5, 7)) - 1]}`
+
+/** "27 Jul – 26 Oct 2026" (year shown on both sides when it differs). */
+export function formatDateRange(start: string, end: string): string {
+  return start.slice(0, 4) === end.slice(0, 4)
+    ? `${dm(start)} – ${dm(end)} ${end.slice(0, 4)}`
+    : `${dm(start)} ${start.slice(0, 4)} – ${dm(end)} ${end.slice(0, 4)}`
+}
+
+/** "27 Jul – 26 Oct 2026 (3 months, ending on last recorded sale)" */
+export function describePeriod(p: PeriodInfo): string | null {
+  if (!p.start || !p.end) return null
+  const span = p.short_history
+    ? `${round1(p.months_covered ?? 0)} months of history`
+    : `${p.months_chosen} months`
+  return `${formatDateRange(p.start, p.end)} (${span}, ending on last recorded sale)`
 }
