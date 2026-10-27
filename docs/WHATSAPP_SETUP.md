@@ -114,6 +114,59 @@ row should move sent → delivered → read (webhook round-trip proven).
 - Coexistence: someone must open the WhatsApp Business app at least every
   ~13 days or API sending stops until it's reopened.
 
+## 10. Coexistence onboarding of the CS number (after App Review approval)
+
+State on 2026-10-27: App Review submission 1779090393199728 (Tech Provider
+app, `whatsapp_business_messaging` + `whatsapp_business_management`) is
+**Review in progress**. Until it is approved, Facebook Login for Business only
+offers the "General" configuration variation and the Embedded Signup dialog
+falls back to the take-over flow, which is why the CS number could not be
+connected earlier. Once Meta approves (watch App dashboard → Alert Inbox and
+the contact email), do the following — about 20 minutes:
+
+1. **Create the Embedded Signup configuration.** App dashboard → Facebook
+   Login for Business → Configurations → Create configuration → variation
+   **WhatsApp Embedded Signup** (it only appears after approval) → name
+   `xcms-coexistence`, keep the default WhatsApp permissions, save. Copy the
+   new **Configuration ID** and set `NEXT_PUBLIC_WA_ES_CONFIG_ID` to it in
+   Vercel (and `.env.local`), then redeploy. The old General config
+   1153539300575878 can be deleted.
+2. **Prepare the CS phone.** WhatsApp Business app on the CS phone updated to
+   the latest version, phone unlocked and next to you. Chats stay on the
+   phone; nothing is deleted or migrated.
+3. **Run the flow.** Logged into Facebook as the Xocks admin in Chrome, open
+   `https://consignmentportal.vercel.app/admin/whatsapp/onboard` → **Connect
+   WhatsApp number**. In Meta's dialog pick business **Xocks**
+   (851885455824098) and the main WABA **Xocks 1839031783476008** (the one
+   with the 19 approved templates and the Kaleyra credit line), enter
+   **+60 11‑5425 7317**, and choose the option for a number *already using the
+   WhatsApp Business app*. A QR code is delivered inside the WhatsApp
+   Business app on the CS phone — scan it there. The page lists the
+   `WA_EMBEDDED_SIGNUP` events; `FINISH` means done.
+4. **Wire the ids.** WhatsApp Manager → Phone numbers (WABA 1839031783476008)
+   now shows the CS number with a **Phone number ID**. Set in Vercel and
+   `.env.local`: `WHATSAPP_PHONE_NUMBER_ID=<that id>`,
+   `WHATSAPP_WABA_ID=1839031783476008`, `WHATSAPP_TIER_LIMIT=2000` (this WABA
+   is already at the 2,000/day tier). Subscribe the app to the WABA if the
+   flow did not: `POST /1839031783476008/subscribed_apps` with the system-user
+   token. Redeploy.
+5. **Verify.** `/admin/whatsapp` must now list the 19 Xocks templates; do a
+   Test send to your own number and watch it go sent → delivered → read in
+   the blast log. Then remove the dead +60 11‑5427 7317 entry
+   (1027897073736657) from the WABA.
+6. **Coexistence rules for the CS team.** Keep using the WhatsApp Business
+   app as before. Someone must open the app at least every ~13 days or API
+   sending pauses until it is reopened. API throughput is capped at 20
+   msg/s, no group messages via API, and old chat history is not synced to
+   XCMS. Replies CS types in the app are invisible to XCMS until Phase 2
+   subscribes the `smb_message_echoes` webhook field.
+7. The sandbox number +1 555 160 1883 (WABA 1481918227333075) stays available
+   for testing XCMS without touching the real number; it can only message the
+   5 verified recipients and is free.
+
+If Meta rejects the review, the rejection reason lands in Alert Inbox; fix,
+then Review → App Review → resubmit (screencasts and answers are retained).
+
 ## Troubleshooting: `(#10) subcode 2593181` "no permission to send on behalf of this WABA"
 
 Seen 2026-10-27 on WABA 709384251831562 (the WABA holding Meta test number
