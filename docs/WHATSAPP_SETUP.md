@@ -113,3 +113,26 @@ row should move sent → delivered → read (webhook round-trip proven).
   Manager — a Red rating can freeze the tier or drop it.
 - Coexistence: someone must open the WhatsApp Business app at least every
   ~13 days or API sending stops until it's reopened.
+
+## Troubleshooting: `(#10) subcode 2593181` "no permission to send on behalf of this WABA"
+
+Seen 2026-10-27 on WABA 709384251831562 (the WABA holding Meta test number
+646890128504196). The token, app subscription and `health_status` all looked
+fine; Meta's own API Setup "Send message" button refused with "Missing
+payment method", and no card could be set as default on the WABA ("We
+weren't able to set … as your default payment method").
+
+Cause: the WABA was an old Manychat-era account. Manychat was still assigned
+as a **full-access partner** and its (access-removed) partner credit line was
+still bound to the WABA, which Meta treats as an *ineligible* payment method
+and which blocks any card from becoming default.
+
+Fix: Business Settings → Accounts → Messaging accounts → pick the WABA →
+Partners tab → Manychat → Manage → **Remove access**. Sends started working
+immediately afterwards (first error changed to `132001 template not found`,
+i.e. the permission gate was gone). Card "Set as default" may still fail on
+that WABA; service-window replies work regardless.
+
+Related: Meta test numbers can only message up to 5 verified recipients and
+templates are per-WABA — the 19 approved Xocks templates live on the main
+WABA 1839031783476008, not on the test WABA.
