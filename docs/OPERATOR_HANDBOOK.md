@@ -39,11 +39,12 @@ env vars. Key names: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
 
 1. **No psql / no ad-hoc DDL.** Schema changes are written as SQL files in
    `supabase/migrations/` first, then applied with the Supabase connector's
-   `apply_migration` tool (not pasted by hand) — only after showing Wayne
-   the SQL and getting an explicit OK. The connector is scoped to project
+   `apply_migration` tool (not pasted by hand) — only after showing the
+   current XCMS operator (whoever is running the session) the SQL and
+   getting their explicit OK. The connector is scoped to project
    `mhdyurnrmpjxsjbhbxrp` (XCMS) only; never touch any other project.
-   **Never drop or delete tables or data without Wayne's explicit
-   approval.** Data reads/writes can use the REST API with the service key.
+   **Never drop or delete tables or data without the current operator's
+   explicit approval.** Data reads/writes can use the REST API with the service key.
 2. **`npx next build` does NOT catch TypeScript errors** (build config
    ignores them). Always also run `npx tsc --noEmit -p tsconfig.json`.
    A handful of pre-existing implicit-`any` errors are known and ignorable.
