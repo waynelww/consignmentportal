@@ -3,7 +3,9 @@ import { z } from 'zod'
 import { checkRateLimit, recordAttempt } from '@/lib/rate-limit'
 
 const Schema = z.object({
-  endpoint: z.enum(['login', 'forgot-password']),
+  // Sign-in only. Reset emails ("Email me a reset link") are no longer
+  // limited by XCMS — only by Supabase's auth email rate limit.
+  endpoint: z.enum(['login']),
   email: z.string().email().optional().nullable(),
   // Set true after a SUCCESSFUL operation so the success is recorded
   // (doesn't count toward limit, but allows analytics)
@@ -13,7 +15,6 @@ const Schema = z.object({
 // Limits — easy to tune later
 const LIMITS: Record<string, { maxFailures: number; windowSeconds: number }> = {
   login: { maxFailures: 5, windowSeconds: 15 * 60 },           // 5 failures / 15 min
-  'forgot-password': { maxFailures: 3, windowSeconds: 60 * 60 }, // 3 emails / hour
 }
 
 export async function POST(request: NextRequest) {
