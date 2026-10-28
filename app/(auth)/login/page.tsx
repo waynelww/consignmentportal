@@ -21,6 +21,7 @@ export default function LoginPage() {
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
+  const [resetSentTo, setResetSentTo] = useState<string | null>(null)
 
   const {
     register,
@@ -130,6 +131,7 @@ export default function LoginPage() {
       toast.error('Could not send reset email. Please try again.')
     } else {
       toast.success('Password reset email sent. Check your inbox.')
+      setResetSentTo(email)
     }
   }
 
@@ -240,6 +242,13 @@ export default function LoginPage() {
           <p className="text-[10px] text-gray-400 mt-2">
             Enter your email above first, then click here
           </p>
+          {resetSentTo && (
+            // Reset links only work in the browser that requested them (PKCE)
+            <div className="mt-3 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700">
+              <p>Reset email sent to <span className="font-semibold">{resetSentTo}</span>. Check your inbox (and spam folder).</p>
+              <p className="mt-1 font-semibold text-[#0A0A0A]">Open the reset link on this same device and browser.</p>
+            </div>
+          )}
         </div>
       </div>
 

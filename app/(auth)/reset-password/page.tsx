@@ -103,7 +103,8 @@ function ResetPasswordPage() {
             <AlertCircle size={32} className="mx-auto text-amber-500 mb-3" />
             <p className="text-sm font-semibold text-gray-800">Reset link expired or invalid</p>
             <p className="text-xs text-gray-500 mt-1.5 mb-5">
-              Password reset links expire after 1 hour. Request a new one to continue.
+              Password reset links expire after 1 hour and can only be used once.
+              Request a new link from this browser, then open the reset link on this same device and browser.
             </p>
             <Link
               href="/login"
