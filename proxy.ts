@@ -103,7 +103,8 @@ export async function proxy(request: NextRequest) {
   // The password-reset email link lands here logged OUT (with ?code=… or a
   // #token fragment that the page turns into a session), so it must not be
   // bounced to /login — that dropped the code and broke every reset link.
-  const isResetPage = path.startsWith('/reset-password')
+  // Exact path only — nothing else is let through logged out.
+  const isResetPage = path === '/reset-password' || path === '/reset-password/'
 
   if (!user && !isAuthPage && !isResetPage) {
     return NextResponse.redirect(new URL('/login', request.url))
