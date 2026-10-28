@@ -95,40 +95,23 @@ export default function LoginPage() {
 
     setIsResetting(true)
 
-    // Rate-limit: 3 reset emails per hour per IP/email
-    const rlRes = await fetch('/api/auth/check-rate-limit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ endpoint: 'forgot-password', email }),
-    })
-    if (rlRes.status === 429) {
-      const body = await rlRes.json().catch(() => ({}))
-      toast.error(body.error ?? 'Too many reset requests. Try again later.', { duration: 6000 })
-      setIsResetting(false)
-      return
-    }
-
+    // No XCMS-side limit on reset emails — Supabase's own auth email rate
+    // limit (Authentication → Rate Limits) is the only cap.
     const supabase = createClient()
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
     })
 
-    // Record the outcome (failed reset emails count against the limit so people
-    // can't spam non-existent emails)
-    fetch('/api/auth/check-rate-limit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        endpoint: 'forgot-password',
-        email,
-        succeeded: !error,
-      }),
-    }).catch(() => {})
-
     setIsResetting(false)
 
     if (error) {
-      toast.error('Could not send reset email. Please try again.')
+      const rateLimited = error.code === 'over_email_send_rate_limit' || error.status === 429
+      toast.error(
+        rateLimited
+          ? 'Too many reset emails were sent recently. Please try again later.'
+          : 'Could not send reset email. Please try again.',
+        { duration: 6000 },
+      )
     } else {
       toast.success('Password reset email sent. Check your inbox.')
       setResetSentTo(email)
