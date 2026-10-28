@@ -24,28 +24,32 @@ function ResetPasswordPage() {
   // allowing the password update.
   useEffect(() => {
     const supabase = createClient()
+    let settled = false
+    const ok = () => { settled = true; setSessionReady('ok') }
 
-    // First check if there's already a recovery session
-    supabase.auth.getSession().then(({ data }: { data: { session: unknown } }) => {
-      if (data.session) {
-        setSessionReady('ok')
-      } else {
-        // Wait for the auth event triggered by the URL hash
-        const { data: listener } = supabase.auth.onAuthStateChange((event: string, session: unknown) => {
-          if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
-            setSessionReady('ok')
-          }
-        })
-        // If nothing arrives after a moment, the link is invalid/expired
-        const t = setTimeout(() => {
-          if (sessionReady === 'loading') setSessionReady('no_session')
-        }, 2500)
-        return () => {
-          listener?.subscription?.unsubscribe()
-          clearTimeout(t)
-        }
-      }
+    // Supabase sends expired/used links back with an error in the URL
+    const params = new URLSearchParams(window.location.search + '&' + window.location.hash.replace(/^#/, ''))
+    if (params.get('error') || params.get('error_code')) {
+      setSessionReady('no_session')
+      return
+    }
+
+    // Listen first so a recovery session arriving from the link is never missed
+    const { data: listener } = supabase.auth.onAuthStateChange((event: string, session: unknown) => {
+      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) ok()
     })
+    // getSession waits for supabase-js to process ?code= / #access_token
+    supabase.auth.getSession().then(({ data }: { data: { session: unknown } }) => {
+      if (data.session) ok()
+    })
+    // If nothing arrives after a moment, the link is invalid/expired
+    const t = setTimeout(() => {
+      if (!settled) setSessionReady('no_session')
+    }, 4000)
+    return () => {
+      listener?.subscription?.unsubscribe()
+      clearTimeout(t)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
