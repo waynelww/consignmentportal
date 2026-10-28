@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { generateDOPdf } from '@/lib/pdf/generate-do'
+import { generatePackingSlipPdf } from '@/lib/pdf/generate-slip'
 
 const SIGNED_BUCKET = 'do-documents'
 
@@ -9,6 +10,9 @@ export async function GET(
   { params }: { params: Promise<{ doId: string }> }
 ) {
   const inline = _request.nextUrl.searchParams.has('inline')
+  // ?slip → 4 x 6 inch packing slip for a restock DO (admin only), generated
+  // from the DO's data every time; nothing is stored
+  const slip = _request.nextUrl.searchParams.has('slip')
   const { doId } = await params
 
   const supabase = await createClient()
@@ -44,7 +48,8 @@ export async function GET(
         unit_cost,
         products:product_id (
           name,
-          sku
+          sku,
+          category
         )
       )
     `)
@@ -62,6 +67,50 @@ export async function GET(
     }
   } else if (profile.role !== 'super_admin' && profile.role !== 'ops_manager') {
     return Response.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // ── Packing slip (restock DOs, admins only) ─────────────────────────────────
+  if (slip) {
+    if (profile.role !== 'super_admin' && profile.role !== 'ops_manager') {
+      return Response.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    if (deliveryOrder.do_type !== 'restock') {
+      return Response.json({ error: 'Packing slips are only available for restock DOs' }, { status: 400 })
+    }
+    const slipStore = deliveryOrder.stores as {
+      store_name: string; address: string | null; city: string | null; postcode: string | null
+      state: string | null; pic_name: string | null; pic_phone: string | null
+    } | null
+    if (!slipStore) return Response.json({ error: 'Store data not found' }, { status: 500 })
+    type SlipItemRaw = { quantity: number; products: { name: string; sku: string; category: string | null } | null }
+    const slipBytes = await generatePackingSlipPdf({
+      doNumber: deliveryOrder.do_number,
+      createdAt: deliveryOrder.created_at,
+      storeName: slipStore.store_name,
+      address: slipStore.address,
+      postcode: slipStore.postcode,
+      city: slipStore.city,
+      state: slipStore.state,
+      picName: slipStore.pic_name,
+      picPhone: slipStore.pic_phone,
+      items: ((deliveryOrder.delivery_order_items as SlipItemRaw[]) ?? [])
+        .map((i) => ({
+          sku: i.products?.sku ?? '-',
+          name: i.products?.name ?? 'Unknown product',
+          category: i.products?.category ?? null,
+          quantity: i.quantity,
+        }))
+        .sort((a, b) => a.sku.localeCompare(b.sku, 'en', { numeric: true })),
+    })
+    return new Response(Buffer.from(slipBytes), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="Slip-${deliveryOrder.do_number}.pdf"`,
+        'Content-Length': String(slipBytes.length),
+        'Cache-Control': 'no-store',
+      },
+    })
   }
 
   // ── Signed version stored? Serve it — both sides see the same signed doc ─────

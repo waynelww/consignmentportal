@@ -3,7 +3,7 @@
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Plus, X, Pencil, Trash2, Loader2, Search, ArrowUpDown, Truck, Eye, FileText, Package, AlertTriangle, Check } from 'lucide-react'
+import { Plus, X, Pencil, Trash2, Loader2, Search, ArrowUpDown, Truck, Eye, FileText, Package, AlertTriangle, Check, Printer } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, cn } from '@/lib/utils'
 import type { DeliveryOrder, DeliveryOrderStatus, DeliveryOrderType, Store, Product } from '@/types'
@@ -637,6 +637,14 @@ export default function DeliveryOrdersPage() {
                 <FileText size={15} />
                 Open PDF
               </a>
+              {detailDO.do_type === 'restock' && (
+                // 4 x 6 inch packing slip, opened in the browser's PDF viewer to print
+                <a href={`/api/delivery-orders/${detailDO.id}/pdf?slip&inline`} target="_blank" rel="noopener noreferrer"
+                  className="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 whitespace-nowrap">
+                  <Printer size={15} className="shrink-0" />
+                  Print slip
+                </a>
+              )}
               <button onClick={() => setDetailDO(null)}
                 className="flex-1 py-2.5 bg-[#0A0A0A] text-white rounded-lg text-sm font-semibold hover:bg-gray-800 transition-colors">
                 Close

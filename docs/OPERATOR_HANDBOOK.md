@@ -209,6 +209,10 @@ Node 22 is the known-good version.
   order lookup, discount creation, inventory sync.
 - `lib/invoice-number.ts` — XCSM numbering.
 - `lib/pdf/generate-statement.ts` — the commission invoice PDF (pdf-lib).
+- `lib/pdf/generate-slip.ts` — 4 x 6 in packing slip for restock DOs
+  ("Print slip" in the DO details modal → `/api/delivery-orders/[id]/pdf?slip&inline`,
+  admins only, generated every time, nothing stored). One column → two
+  columns → extra labels; pinned by `npx tsx scripts/test-packing-slip.ts`.
 - `lib/events/target-calc.ts` — Event Target Calculator maths (single source
   of truth; pinned by `scripts/test-event-target-calc.ts`, run with
   `npx tsx`).
