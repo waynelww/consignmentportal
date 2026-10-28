@@ -99,8 +99,7 @@ export async function GET(
           name: i.products?.name ?? 'Unknown product',
           category: i.products?.category ?? null,
           quantity: i.quantity,
-        }))
-        .sort((a, b) => a.sku.localeCompare(b.sku, 'en', { numeric: true })),
+        })), // sorted for picking inside generatePackingSlipPdf
     })
     return new Response(Buffer.from(slipBytes), {
       status: 200,

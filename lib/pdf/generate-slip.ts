@@ -45,6 +45,7 @@ export interface SlipPageLayout {
   rowHeight: number
   fontSize: number
   rows: number
+  codes: string[] // SKU codes in printed order (column 1 top→bottom, then column 2)
   rowLines: number
   rowsTop: number
   rowsBottom: number
@@ -75,6 +76,20 @@ export function slipItemText(name: string, category?: string | null): string {
     return cut ? `${colour} · ${cut}` : colour
   }
   return name.trim()
+}
+
+// Picking order: Ankle (A1, A2 … A56), then Half (H…), then Crew (C…), each
+// by number; everything else (patches etc.) after, alphabetically.
+const CUT_ORDER: Record<string, number> = { A: 0, H: 1, C: 2 }
+export function compareSlipSku(a: string, b: string): number {
+  const ma = /^([AHC])(\d+)$/i.exec(a.trim())
+  const mb = /^([AHC])(\d+)$/i.exec(b.trim())
+  if (ma && mb) {
+    return CUT_ORDER[ma[1].toUpperCase()] - CUT_ORDER[mb[1].toUpperCase()] || Number(ma[2]) - Number(mb[2])
+  }
+  if (ma) return -1
+  if (mb) return 1
+  return a.localeCompare(b, 'en', { sensitivity: 'base' })
 }
 
 /** "27 October 2026" in Malaysia time */
@@ -130,7 +145,7 @@ export async function buildPackingSlip(p: SlipParams): Promise<{ bytes: Uint8Arr
     page.drawLine({ start: { x: x1, y }, end: { x: x2, y }, thickness, color })
 
   // ── Pre-computed text blocks ──────────────────────────────────────────
-  const items = p.items.map((i) => ({ code: safe(i.sku || '-'), label: safe(slipItemText(i.name, i.category)), qty: i.quantity }))
+  const items = [...p.items].sort((a, b) => compareSlipSku(a.sku, b.sku)).map((i) => ({ code: safe(i.sku || '-'), label: safe(slipItemText(i.name, i.category)), qty: i.quantity }))
   const totalPairs = items.reduce((a, i) => a + i.qty, 0)
   const addrLines: string[] = []
   for (const raw of (p.address ?? '').split(/\n+/).map((s) => s.trim()).filter(Boolean)) addrLines.push(...wrap(safe(raw), reg, 7.5, CW))
@@ -249,7 +264,7 @@ export async function buildPackingSlip(p: SlipParams): Promise<{ bytes: Uint8Arr
 
     const layout: SlipPageLayout = {
       label: pi + 1, columns: plan.columns, rowHeight: Math.round(h * 100) / 100, fontSize: Math.round(fs * 100) / 100,
-      rows: pageItems.length, rowLines, rowsTop, rowsBottom: lowest,
+      rows: pageItems.length, codes: pageItems.map((i) => i.code), rowLines, rowsTop, rowsBottom: lowest,
       totalsTop: null, packedByBottom: null, footerTop: null, continuedNote: false,
     }
 

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { PDFDocument } from 'pdf-lib'
-import { buildPackingSlip, slipItemText, slipDate, SLIP_WIDTH, SLIP_HEIGHT, type SlipItem, type SlipParams } from '../lib/pdf/generate-slip'
+import { buildPackingSlip, compareSlipSku, slipItemText, slipDate, SLIP_WIDTH, SLIP_HEIGHT, type SlipItem, type SlipParams } from '../lib/pdf/generate-slip'
 
 const outDir = process.argv[2]
 if (outDir) mkdirSync(outDir, { recursive: true })
@@ -21,6 +21,17 @@ assert.equal(slipItemText('We Want Jam x Xocks (Adults) - Grey Green', 'ankle'),
 assert.equal(slipItemText('Raya Socks 2026'), 'Raya Socks 2026')
 assert.equal(slipDate('2026-10-27T06:31:58Z'), '27 October 2026')
 assert.equal(slipDate('2026-10-27T17:00:00Z'), '28 October 2026') // Malaysia time
+
+// ── Picking order: Ankle → Half → Crew by number, then the rest A–Z ──────
+const mixed = ['WHITEKUIH', 'C2', 'A11', 'H10', 'PCOCONUT', 'A2', 'C10', 'H3', 'A56', 'BLUEELEPHANT', 'A1', 'RAYA26B', 'C1', 'H22']
+assert.deepEqual([...mixed].sort(compareSlipSku), [
+  'A1', 'A2', 'A11', 'A56', // A2 before A11: numeric, not text
+  'H3', 'H10', 'H22',
+  'C1', 'C2', 'C10',
+  'BLUEELEPHANT', 'PCOCONUT', 'RAYA26B', 'WHITEKUIH',
+])
+assert.ok(compareSlipSku('A2', 'A11') < 0)
+assert.ok(compareSlipSku('H99', 'C1') < 0) // every Half before any Crew
 
 const store = {
   storeName: 'Vaernand store',
@@ -140,6 +151,17 @@ async function main() {
   await check('slip-DO-2026-0032', real, { labels: 1, columns: 1 })
   const realPdf = await PDFDocument.load((await buildPackingSlip(real)).bytes)
   assert.equal(realPdf.getTitle(), 'Packing slip DO-2026-0032')
+
+  // The PDF itself prints rows in picking order, whatever order the DO had
+  const unsorted = await buildPackingSlip({
+    doNumber: 'DO-2026-0105', createdAt: '2026-10-27T06:31:58Z', ...store,
+    items: ['WHITEKUIH', 'C2', 'A11', 'H10', 'A2', 'C10', 'A1'].map((sku) => ({
+      sku, quantity: 1,
+      name: sku === 'WHITEKUIH' ? 'Special Patches Series - White Kuih' : `Plain Series - ${({ A: 'Ankle', C: 'Crew', H: 'Half' } as Record<string, string>)[sku[0]]} - Red`,
+    })),
+  })
+  if (outDir) writeFileSync(join(outDir, 'slip-sort-order.pdf'), unsorted.bytes)
+  assert.deepEqual(unsorted.pages[0].codes, ['A1', 'A2', 'A11', 'H10', 'C2', 'C10', 'WHITEKUIH'], 'PDF rows in picking order')
 
   // Every size from 1 to 200 SKUs: 1 col → 2 cols → extra labels, evenly
   // filled, nothing overlapping
