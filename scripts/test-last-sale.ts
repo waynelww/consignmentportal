@@ -3,7 +3,7 @@
 // Run: npx tsx scripts/test-last-sale.ts
 import assert from 'node:assert/strict'
 import {
-  todayMYT, daysBetween, saleAgeTone, parseReminderDays, storeSaleAge,
+  todayMYT, monthStartMYT, daysBetween, saleAgeTone, parseReminderDays, storeSaleAge,
   SALES_REMINDER_DEFAULT_DAYS,
 } from '../lib/sales/last-sale'
 
@@ -11,6 +11,11 @@ import {
 // 17:00 UTC on 28 Oct is 01:00 on 29 Oct in KL.
 assert.equal(todayMYT(new Date('2026-10-28T17:00:00Z')), '2026-10-29')
 assert.equal(todayMYT(new Date('2026-10-28T15:59:00Z')), '2026-10-28')
+
+// The month is the Malaysia month: 30 Sep 17:00 UTC is already 1 Oct in KL.
+assert.equal(monthStartMYT('2026-10-29'), '2026-10-01')
+assert.equal(monthStartMYT('2026-10-01'), '2026-10-01')
+assert.equal(monthStartMYT(todayMYT(new Date('2026-09-30T17:00:00Z'))), '2026-10-01', 'KL midnight rolls the month')
 
 // ── Day counting ─────────────────────────────────────────────────────────
 assert.equal(daysBetween('2026-10-22', '2026-10-29'), 7)
