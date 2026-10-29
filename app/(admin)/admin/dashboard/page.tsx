@@ -77,12 +77,26 @@ interface ActivityItem {
 
 import { describeCode, embedded } from '@/lib/restock/low-stock'
 import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
+import { fetchLastSaleDates, loadSalesReminderDays, storeSaleAge, type SaleAge } from '@/lib/sales/last-sale'
+import { SaleAgeBadge } from '@/components/shared/sale-age-badge'
+
+interface NotKeyingRow {
+  store_id: string
+  store_code: string
+  store_name: string
+  city: string
+  state: string
+  last_sale: string | null
+  age: SaleAge
+}
 export default function DashboardPage() {
   const [kpis, setKpis] = useState<DashboardKPIs | null>(null)
   const [trend, setTrend] = useState<SalesTrendPoint[]>([])
   const [topStores, setTopStores] = useState<StorePerformanceRow[]>([])
   const [bottomStores, setBottomStores] = useState<StorePerformanceRow[]>([])
   const [activity, setActivity] = useState<ActivityItem[]>([])
+  const [notKeying, setNotKeying] = useState<NotKeyingRow[]>([])
+  const [reminderDays, setReminderDays] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
@@ -131,7 +145,7 @@ export default function DashboardPage() {
         .order('sale_date', { ascending: true }),
       supabase
         .from('stores')
-        .select('id, store_code, store_name, city, state, performance_score, consecutive_low_months')
+        .select('id, store_code, store_name, city, state, performance_score, consecutive_low_months, created_at')
         .eq('status', 'active')
         .order('performance_score', { ascending: false }),
       supabase
@@ -218,6 +232,29 @@ export default function DashboardPage() {
     const sorted = [...perf].sort((a, b) => b.pairs_sold - a.pairs_sold)
     setTopStores(sorted.slice(0, 10))
     setBottomStores([...sorted].reverse().slice(0, 10))
+
+    // Not keying in sales: active stores at or past the reminder threshold, oldest first
+    const threshold = await loadSalesReminderDays(supabase)
+    const lastSaleMap = await fetchLastSaleDates(supabase, storeIds)
+    const followUp: NotKeyingRow[] = []
+    for (const s of stores) {
+      const last_sale = lastSaleMap.get(s.id) ?? null
+      const age = storeSaleAge(last_sale, s.created_at)
+      if (age && age.days >= threshold) {
+        followUp.push({
+          store_id: s.id,
+          store_code: s.store_code,
+          store_name: s.store_name,
+          city: s.city,
+          state: s.state,
+          last_sale,
+          age,
+        })
+      }
+    }
+    followUp.sort((a, b) => b.age.days - a.age.days)
+    setReminderDays(threshold)
+    setNotKeying(followUp)
 
     // Activity feed
     const acts: ActivityItem[] = (activityRes.data || []).map((row: any) => ({
@@ -386,6 +423,60 @@ export default function DashboardPage() {
               />
             </LineChart>
           </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Not keying in sales — follow-up list, oldest first */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Not keying in sales</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Active stores with no sale entered for {reminderDays ?? 7}+ days, oldest first
+            </p>
+          </div>
+          {!loading && (
+            <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
+              {notKeying.length} store{notKeying.length === 1 ? '' : 's'}
+            </span>
+          )}
+        </div>
+        {loading ? (
+          <div className="h-24 bg-gray-100 animate-pulse rounded-lg" />
+        ) : notKeying.length === 0 ? (
+          <p className="text-sm text-gray-400 py-6 text-center">Every active store has entered a sale recently.</p>
+        ) : (
+          <div className="overflow-x-auto max-h-96 overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white">
+                <tr className="border-b border-gray-100">
+                  <th className="text-left py-2 pr-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Store</th>
+                  <th className="text-left py-2 pr-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">City / State</th>
+                  <th className="text-left py-2 pr-4 text-xs font-semibold text-gray-500 uppercase tracking-wide">Last sale entered</th>
+                  <th className="text-right py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Days</th>
+                </tr>
+              </thead>
+              <tbody>
+                {notKeying.map((r) => (
+                  <tr key={r.store_id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                    <td className="py-2.5 pr-4">
+                      <Link href={`/admin/stores/${r.store_id}`} className="font-medium text-gray-900 hover:underline">
+                        {r.store_name}
+                      </Link>
+                      <span className="ml-2 font-mono text-xs text-gray-400">{r.store_code}</span>
+                    </td>
+                    <td className="py-2.5 pr-4 text-gray-600">{r.city}, {r.state}</td>
+                    <td className="py-2.5 pr-4 text-gray-600">
+                      {r.last_sale ? formatMYDate(r.last_sale) : <span className="text-gray-400">Never</span>}
+                    </td>
+                    <td className="py-2.5 text-right">
+                      <SaleAgeBadge age={r.age} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 

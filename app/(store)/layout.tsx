@@ -8,6 +8,7 @@ import PushSubscriber from '@/components/store/PushSubscriber'
 import { StoreProvider } from '@/components/store/StoreContext'
 import NavItem from '@/components/store/NavItem'
 import { StaffPicker } from '@/components/store/StaffPicker'
+import SalesReminderBanner from '@/components/store/SalesReminderBanner'
 import type { Store, Profile } from '@/types'
 
 interface StoreLayoutData {
@@ -85,6 +86,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
       {/* Page content — StoreProvider makes storeId + store available to all client pages */}
       <main className="flex-1 pt-[60px] pb-[72px]">
         <StoreProvider storeId={storeId} store={store}>
+          <SalesReminderBanner />
           {children}
         </StoreProvider>
       </main>

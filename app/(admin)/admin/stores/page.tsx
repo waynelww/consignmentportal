@@ -48,6 +48,8 @@ interface StoreRow extends StoreWithOpener {
 
 import { storeStockSummary, formatStoreStock, type StoreStockSummary, type StockRowFields } from '@/lib/restock/low-stock'
 import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
+import { fetchLastSaleDates, storeSaleAge } from '@/lib/sales/last-sale'
+import { SaleAgeBadge } from '@/components/shared/sale-age-badge'
 export default function StoresPage() {
   const [stores, setStores] = useState<StoreRow[]>([])
   const [total, setTotal] = useState(0)
@@ -157,27 +159,18 @@ export default function StoresPage() {
       return
     }
 
-    const [{ data: salesData }, { data: lastSaleData }] = await Promise.all([
+    const [{ data: salesData }, lastSaleMap] = await Promise.all([
       supabase
         .from('sales')
         .select('store_id, quantity')
         .in('store_id', ids)
         .gte('sale_date', startOfMonth),
-      supabase
-        .from('sales')
-        .select('store_id, sale_date')
-        .in('store_id', ids)
-        .order('sale_date', { ascending: false }),
+      fetchLastSaleDates(supabase, ids),
     ])
 
     const pairsMap: Record<string, number> = {}
     for (const s of salesData || []) {
       pairsMap[s.store_id] = (pairsMap[s.store_id] || 0) + s.quantity
-    }
-
-    const lastSaleMap: Record<string, string> = {}
-    for (const s of lastSaleData || []) {
-      if (!lastSaleMap[s.store_id]) lastSaleMap[s.store_id] = s.sale_date
     }
 
     // Stock per store on this page (same rule as the store page).
@@ -197,7 +190,7 @@ export default function StoresPage() {
         return {
           ...s,
           pairs_mtd: pairsMap[s.id] || 0,
-          last_sale: lastSaleMap[s.id] || null,
+          last_sale: lastSaleMap.get(s.id) ?? null,
           stock: rows.length ? storeStockSummary(rows, s, lowSettings.pct) : null,
         }
       })
@@ -526,7 +519,10 @@ export default function StoresPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-gray-500 text-xs">
-                        {store.last_sale ? formatMYDate(store.last_sale) : '—'}
+                        <div className="flex items-center gap-2 whitespace-nowrap">
+                          <span>{store.last_sale ? formatMYDate(store.last_sale) : 'Never'}</span>
+                          <SaleAgeBadge age={storeSaleAge(store.last_sale, store.created_at)} />
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">

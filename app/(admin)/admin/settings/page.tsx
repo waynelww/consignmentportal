@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import type { Setting, Profile } from '@/types'
 import { toast } from 'sonner'
 import XocksTeamManager from '@/components/admin/XocksTeamManager'
+import { SALES_REMINDER_SETTING_KEY, SALES_REMINDER_DEFAULT_DAYS } from '@/lib/sales/last-sale'
 
 type SettingsTab = 'general' | 'users' | 'notifications' | 'team'
 
@@ -96,8 +97,14 @@ export default function SettingsPage() {
   useEffect(() => { if (activeTab === 'notifications') fetchNotifications() }, [activeTab, fetchNotifications])
 
   async function saveSettings() {
+    const reminder = (editedSettings[SALES_REMINDER_SETTING_KEY] ?? String(SALES_REMINDER_DEFAULT_DAYS)).trim()
+    const reminderDays = Number(reminder)
+    if (!/^\d+$/.test(reminder) || reminderDays < 1 || reminderDays > 365) {
+      toast.error('Sales reminder must be a whole number of days from 1 to 365')
+      return
+    }
     setSavingSettings(true)
-    const allEdited = { ...editedSettings }
+    const allEdited: Record<string, string> = { ...editedSettings, [SALES_REMINDER_SETTING_KEY]: String(reminderDays) }
     // Ensure company info keys are always included even if new
     for (const key of ['company_name', 'company_address', 'company_contact']) {
       if (!(key in allEdited)) allEdited[key] = ''
@@ -176,7 +183,9 @@ export default function SettingsPage() {
   }
 
   // Group settings by prefix
+  // The sales reminder has its own field below, so it is left out of the generic list.
   const settingGroups = settings.reduce<Record<string, Setting[]>>((acc, s) => {
+    if (s.key === SALES_REMINDER_SETTING_KEY) return acc
     const group = s.key.split('_')[0] || 'general'
     if (!acc[group]) acc[group] = []
     acc[group].push(s)
@@ -246,6 +255,31 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   ))}
+
+                  {/* Store sales reminder — the banner threshold in the store app */}
+                  <div>
+                    <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Store Sales Reminder</h3>
+                    <div className="flex items-start gap-4">
+                      <div className="flex-1 min-w-0">
+                        <label className="text-sm font-medium text-gray-700 block mb-0.5">Remind stores after (days)</label>
+                        <p className="text-xs text-gray-400">
+                          Stores see a banner in XCMS when their last sale entered is this many days old or more. In-app only.
+                        </p>
+                      </div>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        max={365}
+                        step={1}
+                        value={editedSettings[SALES_REMINDER_SETTING_KEY] ?? String(SALES_REMINDER_DEFAULT_DAYS)}
+                        onChange={(e) =>
+                          setEditedSettings((prev) => ({ ...prev, [SALES_REMINDER_SETTING_KEY]: e.target.value }))
+                        }
+                        className="w-48 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                      />
+                    </div>
+                  </div>
 
                   {/* Company info section — always shown for invoice purposes */}
                   <div>
