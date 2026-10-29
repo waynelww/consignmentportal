@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
     for (let from = 0; ; from += PAGE) {
       let q = supabase
         .from('sales')
-        .select('*, store:stores(store_code, store_name), product:products(sku, name)')
+        .select('*, store:stores(store_code, store_name), product:products(sku, name), staff:store_staff_id(name)')
         .order('sale_date', { ascending: true })
         .order('created_at', { ascending: true })
         .range(from, from + PAGE - 1)
@@ -78,10 +78,12 @@ export async function GET(request: NextRequest) {
       for (const r of (data ?? []) as Record<string, unknown>[]) {
         const store = r.store as { store_code?: string; store_name?: string } | null
         const product = r.product as { sku?: string; name?: string } | null
+        const staff = r.staff as { name?: string } | null
         rows.push({
           sale_date: r.sale_date,
           store_code: store?.store_code,
           store_name: store?.store_name,
+          'Keyed in by': staff?.name ?? '-',
           sku: product?.sku,
           product_name: product?.name,
           quantity: r.quantity,
@@ -99,7 +101,7 @@ export async function GET(request: NextRequest) {
       }
       if (!data || data.length < PAGE) break
     }
-    const cols = ['sale_date', 'store_code', 'store_name', 'sku', 'product_name', 'quantity', 'unit_price',
+    const cols = ['sale_date', 'store_code', 'store_name', 'Keyed in by', 'sku', 'product_name', 'quantity', 'unit_price',
       'total_amount', 'commission_amount', 'xocks_revenue', 'payment_method', 'qr_reference',
       'promo_discount', 'sale_group_id', 'recorded_at', 'id']
     return csvResponse(toCsv(rows, cols), `xcms-sales-${monthSuffix}.csv`)

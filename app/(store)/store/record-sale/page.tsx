@@ -10,6 +10,7 @@ import { formatCurrency } from '@/lib/utils'
 import type { StoreInventory, Promo } from '@/types'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/components/store/StoreContext'
+import { StaffSheet, useSelectedStaffId, useStoreStaff } from '@/components/store/StaffPicker'
 
 interface CartItem {
   inventoryItem: StoreInventory
@@ -37,6 +38,12 @@ export default function RecordSalePage() {
   const [promoCode, setPromoCode] = useState('')
 
   const [search, setSearch] = useState('')
+
+  // Who is keying in this sale — remembered on this phone until changed
+  const staffState = useStoreStaff(storeId)
+  const selectedStaffId = useSelectedStaffId(storeId)
+  const selectedStaff = staffState.staff.find((s) => s.id === selectedStaffId) ?? null
+  const [staffSheetOpen, setStaffSheetOpen] = useState(false)
 
   // Load inventory + promos in parallel
   useEffect(() => {
@@ -196,6 +203,10 @@ export default function RecordSalePage() {
 
   async function confirmOrder() {
     if (!storeId || cart.length === 0) return
+    if (!selectedStaff) {
+      setStaffSheetOpen(true)
+      return
+    }
     setSubmitting(true)
 
     try {
@@ -209,6 +220,7 @@ export default function RecordSalePage() {
             quantity: c.quantity,
           })),
           promo_id: selectedPromo?.id ?? null,
+          store_staff_id: selectedStaff.id,
         }),
       })
 
@@ -533,6 +545,18 @@ export default function RecordSalePage() {
                   <span className="text-lg font-bold text-[#0A0A0A]">{formatCurrency(cartTotal)}</span>
                 </div>
               </div>
+              {/* Who is keying in this sale */}
+              <button
+                type="button"
+                onClick={() => setStaffSheetOpen(true)}
+                className={cn(
+                  'w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs',
+                  selectedStaff ? 'border-gray-200 text-gray-600' : 'border-amber-300 bg-amber-50 text-amber-800 font-semibold',
+                )}
+              >
+                <span>Keyed in by</span>
+                <span className="font-bold truncate ml-2">{selectedStaff ? selectedStaff.name : 'Select staff'}</span>
+              </button>
               <button
                 onClick={confirmOrder}
                 disabled={submitting}
@@ -557,6 +581,18 @@ export default function RecordSalePage() {
           </div>
         </div>
       )}
+
+      {/* Staff picker — shown when confirming without a staff member selected */}
+      <StaffSheet
+        storeId={storeId}
+        state={staffState}
+        open={staffSheetOpen}
+        onClose={() => setStaffSheetOpen(false)}
+        onPicked={(member) => {
+          setStaffSheetOpen(false)
+          toast.success(`Keyed in by ${member.name}`)
+        }}
+      />
 
       {/* Promo picker drawer */}
       {promoPickerOpen && (

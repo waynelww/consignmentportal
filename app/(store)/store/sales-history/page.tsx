@@ -78,7 +78,7 @@ export default function SalesHistoryPage() {
     const supabase = createClient()
     supabase
       .from('sales')
-      .select('*, product:products(id, name, sku)')
+      .select('*, product:products(id, name, sku), staff:store_staff_id(name)')
       .eq('store_id', storeId)
       .gte('sale_date', from)
       .lte('sale_date', to)
@@ -109,7 +109,7 @@ export default function SalesHistoryPage() {
   }), [filtered])
 
   function downloadCSV() {
-    const header = ['Date', 'Time', 'Product', 'SKU', 'Qty', 'Unit Price', 'Total', 'Commission', 'Payment', 'QR Ref']
+    const header = ['Date', 'Time', 'Product', 'SKU', 'Qty', 'Unit Price', 'Total', 'Commission', 'Payment', 'QR Ref', 'Keyed in by']
     const rows = filtered.map((s) => {
       const d = new Date(s.created_at)
       const dateStr = formatMYDate(s.created_at)
@@ -125,6 +125,7 @@ export default function SalesHistoryPage() {
         s.commission_amount.toFixed(2),
         s.payment_method,
         s.qr_reference ?? '',
+        s.staff?.name ?? '-',
       ]
     })
 
@@ -320,6 +321,7 @@ export default function SalesHistoryPage() {
                     <p className="text-xs text-gray-400 mt-0.5">
                       {formatMYDate(sale.sale_date)} · {timeStr} · Qty {sale.quantity}
                     </p>
+                    <p className="text-xs text-gray-400 mt-0.5">Keyed in by {sale.staff?.name ?? '-'}</p>
                     {sale.qr_reference && (
                       <p className="text-xs font-mono text-gray-400 mt-0.5">Ref: {sale.qr_reference}</p>
                     )}

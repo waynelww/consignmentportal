@@ -69,6 +69,7 @@ interface ActivityItem {
   created_at: string
   store_name: string
   product_name: string
+  staff_name: string
   quantity: number
   total_amount: number
   payment_method: string
@@ -133,7 +134,7 @@ export default function DashboardPage() {
         .order('performance_score', { ascending: false }),
       supabase
         .from('sales')
-        .select('id, created_at, quantity, total_amount, payment_method, stores(store_name), products(name)')
+        .select('id, created_at, quantity, total_amount, payment_method, stores(store_name), products(name), staff:store_staff_id(name)')
         .order('created_at', { ascending: false })
         .limit(20),
     ])
@@ -214,6 +215,7 @@ export default function DashboardPage() {
       created_at: row.created_at,
       store_name: row.stores?.store_name || '—',
       product_name: row.products?.name || '—',
+      staff_name: row.staff?.name || '-',
       quantity: row.quantity,
       total_amount: row.total_amount,
       payment_method: row.payment_method,
@@ -235,15 +237,19 @@ export default function DashboardPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         async (payload: any) => {
           const sale = payload.new as Sale & { store_id: string; product_id: string }
-          const [{ data: storeData }, { data: productData }] = await Promise.all([
+          const [{ data: storeData }, { data: productData }, { data: staffData }] = await Promise.all([
             supabase.from('stores').select('store_name').eq('id', sale.store_id).single(),
             supabase.from('products').select('name').eq('id', sale.product_id).single(),
+            sale.store_staff_id
+              ? supabase.from('store_staff').select('name').eq('id', sale.store_staff_id).maybeSingle()
+              : Promise.resolve({ data: null }),
           ])
           const newItem: ActivityItem = {
             id: sale.id,
             created_at: sale.created_at,
             store_name: storeData?.store_name || '—',
             product_name: productData?.name || '—',
+            staff_name: staffData?.name || '-',
             quantity: sale.quantity,
             total_amount: sale.total_amount,
             payment_method: sale.payment_method,
@@ -475,7 +481,7 @@ export default function DashboardPage() {
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-gray-800 truncate">{item.store_name}</p>
                       <p className="text-xs text-gray-500">
-                        {item.product_name} × {item.quantity}
+                        {item.product_name} × {item.quantity} · by {item.staff_name}
                       </p>
                     </div>
                     <div className="text-right flex-shrink-0">

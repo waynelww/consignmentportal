@@ -60,6 +60,7 @@ export async function generateStatementPdf(params: {
   items: Array<{
     productName: string
     sku: string
+    keyedInBy: string                // staff name, or "-" when none was recorded
     unitsSold: number
     unitPrice: number
     revenue: number
@@ -211,25 +212,28 @@ export async function generateStatementPdf(params: {
 
   // Column positions — all relative to MARGIN (50). Content width = 495.
   // Left-edge constants (for left-aligned cols) / right-edge constants (for right-aligned number cols)
-  const C_PROD_L   = MARGIN           // Product name — left-aligned, 185pt wide
-  const C_SKU_L    = MARGIN + 190     // SKU — left-aligned, 65pt wide
-  const C_UNITS_R  = MARGIN + 285     // Units — right-aligned (30pt column)
-  const C_PRICE_R  = MARGIN + 365     // Unit Price — right-aligned (80pt column)
-  const C_REV_R    = MARGIN + 430     // Revenue — right-aligned (65pt column)
-  const C_COMM_R   = MARGIN + 495     // Commission — right-aligned (65pt, = page right edge)
+  const C_PROD_L   = MARGIN           // Product name — left-aligned, 135pt wide
+  const C_SKU_L    = MARGIN + 135     // SKU — left-aligned, 55pt wide
+  const C_STAFF_L  = MARGIN + 190     // Keyed in by — left-aligned, 85pt wide
+  const C_UNITS_R  = MARGIN + 310     // Units — right-aligned (35pt column)
+  const C_PRICE_R  = MARGIN + 380     // Unit Price — right-aligned (70pt column)
+  const C_REV_R    = MARGIN + 445     // Revenue — right-aligned (65pt column)
+  const C_COMM_R   = MARGIN + 495     // Commission — right-aligned (50pt, = page right edge)
 
   // Vertical separator x positions (drawn between columns)
-  const SEP_AFTER_PROD  = MARGIN + 187
-  const SEP_AFTER_SKU   = MARGIN + 257
-  const SEP_AFTER_UNITS = MARGIN + 290
-  const SEP_AFTER_PRICE = MARGIN + 370
-  const SEP_AFTER_REV   = MARGIN + 435
+  const SEP_AFTER_PROD  = MARGIN + 135
+  const SEP_AFTER_SKU   = MARGIN + 190
+  const SEP_AFTER_STAFF = MARGIN + 275
+  const SEP_AFTER_UNITS = MARGIN + 310
+  const SEP_AFTER_PRICE = MARGIN + 380
+  const SEP_AFTER_REV   = MARGIN + 445
 
   const ROW_H = 18
   const CELL_PAD = 4
   const SEP_COLOR = rgb(0.75, 0.75, 0.75)
   const prodMaxW = SEP_AFTER_PROD - C_PROD_L - CELL_PAD * 2
   const skuMaxW  = SEP_AFTER_SKU  - C_SKU_L  - CELL_PAD * 2
+  const staffMaxW = SEP_AFTER_STAFF - C_STAFF_L - CELL_PAD * 2
 
   // Header row
   page.drawRectangle({
@@ -244,6 +248,7 @@ export async function generateStatementPdf(params: {
   const hc = rgb(1, 1, 1)
   page.drawText('Product',      { x: C_PROD_L  + CELL_PAD, y: headerY, size: 7.5, font: boldFont, color: hc })
   page.drawText('SKU',          { x: C_SKU_L   + CELL_PAD, y: headerY, size: 7.5, font: boldFont, color: hc })
+  page.drawText('Keyed in by',  { x: C_STAFF_L + CELL_PAD, y: headerY, size: 7.5, font: boldFont, color: hc })
   drawRight(page, 'Units',      C_UNITS_R - CELL_PAD, headerY, 7.5, boldFont, hc)
   drawRight(page, 'Unit Price', C_PRICE_R - CELL_PAD, headerY, 7.5, boldFont, hc)
   drawRight(page, 'Revenue',    C_REV_R   - CELL_PAD, headerY, 7.5, boldFont, hc)
@@ -266,7 +271,7 @@ export async function generateStatementPdf(params: {
 
     // Column separator lines — drawn on the current page directly
     const rowTop = y + 4
-    for (const sx of [SEP_AFTER_PROD, SEP_AFTER_SKU, SEP_AFTER_UNITS, SEP_AFTER_PRICE, SEP_AFTER_REV]) {
+    for (const sx of [SEP_AFTER_PROD, SEP_AFTER_SKU, SEP_AFTER_STAFF, SEP_AFTER_UNITS, SEP_AFTER_PRICE, SEP_AFTER_REV]) {
       page.drawLine({ start: { x: sx, y: rowTop }, end: { x: sx, y: rowTop - ROW_H }, thickness: 0.4, color: SEP_COLOR })
     }
 
@@ -276,6 +281,7 @@ export async function generateStatementPdf(params: {
 
     page.drawText(fitText(item.productName, prodMaxW, 7.5, regularFont), { x: C_PROD_L + CELL_PAD, y: rowY, size: 7.5, font: regularFont, color: rc })
     page.drawText(fitText(item.sku,         skuMaxW,  7.5, regularFont), { x: C_SKU_L  + CELL_PAD, y: rowY, size: 7.5, font: regularFont, color: skuColor })
+    page.drawText(fitText(item.keyedInBy,   staffMaxW, 7.5, regularFont), { x: C_STAFF_L + CELL_PAD, y: rowY, size: 7.5, font: regularFont, color: rc })
     drawRight(page, String(item.unitsSold), C_UNITS_R - CELL_PAD, rowY, 7.5, regularFont, rc)
     drawRight(page, fmt(item.unitPrice),    C_PRICE_R - CELL_PAD, rowY, 7.5, regularFont, rc)
     drawRight(page, fmt(item.revenue),      C_REV_R   - CELL_PAD, rowY, 7.5, regularFont, rc)

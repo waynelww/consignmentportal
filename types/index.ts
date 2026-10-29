@@ -158,10 +158,20 @@ export interface Sale {
   sale_group_id?: string | null
   promo_id?: string | null
   promo_discount?: number
+  store_staff_id?: string | null
   // joined
   product?: Product
   store?: Store
   promo?: Promo
+  staff?: { name: string } | null
+}
+
+export interface StoreStaff {
+  id: string
+  store_id: string
+  name: string
+  active: boolean
+  created_at: string
 }
 
 export interface StoreTypeRow {
