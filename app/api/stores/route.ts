@@ -26,6 +26,9 @@ const CreateStoreSchema = z.object({
   commission_rate: z.number().min(0).max(100).default(30),
   payment_terms_days: z.number().int().min(1).max(365).optional().default(7),
   notes: z.string().optional(),
+  // Who at Xocks opened the store. Required for new stores (the shared admin
+  // login can't tell us); must be an active Xocks team member (checked below).
+  opened_by_member_id: z.string().uuid('Choose who opened this store'),
   initial_inventory: z.array(z.object({
     product_id: z.string().uuid(),
     quantity: z.number().int().nonnegative(),
@@ -65,8 +68,18 @@ export async function POST(request: NextRequest) {
     store_name, pic_name, pic_phone, email, password,
     address, city, state, postcode, store_type,
     bank_name, bank_account_number, bank_account_name,
-    commission_rate, payment_terms_days, notes, initial_inventory,
+    commission_rate, payment_terms_days, notes, initial_inventory, opened_by_member_id,
   } = parsed.data
+
+  const { data: opener } = await supabase
+    .from('xocks_team_members')
+    .select('id')
+    .eq('id', opened_by_member_id)
+    .eq('active', true)
+    .maybeSingle()
+  if (!opener) {
+    return Response.json({ error: 'Choose an active Xocks team member for "Opened by"' }, { status: 400 })
+  }
 
   // INSERT store — store_code generated from the max existing code, not a
   // count, so it can't collide with a code still in use after a deletion.
@@ -98,6 +111,7 @@ export async function POST(request: NextRequest) {
           status: 'active',
           qr_code_ref: `${storeCode}-${randomChars(8)}`,
           notes: notes ?? null,
+          opened_by_member_id,
         })
         .select('id')
         .single(),
