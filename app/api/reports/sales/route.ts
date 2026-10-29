@@ -43,8 +43,7 @@ export async function GET(request: NextRequest) {
       store_id,
       product_id,
       products:product_id ( name, sku, category ),
-      stores:store_id ( store_name, store_code, store_type, state ),
-      staff:store_staff_id ( name )
+      stores:store_id ( store_name, store_code, store_type, state )
     `)
     .gte('sale_date', start_date)
     .lte('sale_date', end_date)
@@ -105,17 +104,6 @@ export async function GET(request: NextRequest) {
   }
   const by_state = Array.from(stateMap.values()).sort((a, b) => b.revenue - a.revenue)
 
-  // Aggregate by keyed-in staff ("-" for sales with no staff recorded)
-  const staffMap = new Map<string, { staff: string; pairs: number; revenue: number }>()
-  for (const s of filteredSales) {
-    const staff = (s.staff as unknown as { name: string } | null)?.name ?? '-'
-    const existing = staffMap.get(staff) ?? { staff, pairs: 0, revenue: 0 }
-    existing.pairs += s.quantity
-    existing.revenue = Number((existing.revenue + s.total_amount).toFixed(2))
-    staffMap.set(staff, existing)
-  }
-  const by_staff = Array.from(staffMap.values()).sort((a, b) => b.pairs - a.pairs)
-
   const totals = {
     total_pairs: filteredSales.reduce((sum, s) => sum + s.quantity, 0),
     total_revenue: Number(filteredSales.reduce((sum, s) => sum + s.total_amount, 0).toFixed(2)),
@@ -124,5 +112,5 @@ export async function GET(request: NextRequest) {
     transaction_count: filteredSales.length,
   }
 
-  return cachedAdminJson({ daily, by_store_type, by_sku, by_state, by_staff, totals })
+  return cachedAdminJson({ daily, by_store_type, by_sku, by_state, totals })
 }
