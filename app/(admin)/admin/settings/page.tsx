@@ -6,8 +6,9 @@ import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import type { Setting, Profile } from '@/types'
 import { toast } from 'sonner'
+import XocksTeamManager from '@/components/admin/XocksTeamManager'
 
-type SettingsTab = 'general' | 'users' | 'notifications'
+type SettingsTab = 'general' | 'users' | 'notifications' | 'team'
 
 interface AdminUser extends Profile {
   email: string
@@ -188,7 +189,7 @@ export default function SettingsPage() {
       {/* Tabs */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100">
         <div className="flex border-b border-gray-100 px-4">
-          {(['general', 'users', 'notifications'] as SettingsTab[]).map((tab) => (
+          {(['general', 'users', 'notifications', 'team'] as SettingsTab[]).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -199,7 +200,7 @@ export default function SettingsPage() {
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               )}
             >
-              {tab === 'users' ? 'User Management' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab === 'users' ? 'User Management' : tab === 'team' ? 'Xocks Team' : tab.charAt(0).toUpperCase() + tab.slice(1)}
               {tab === 'notifications' ? ' Settings' : tab === 'general' ? ' Settings' : ''}
             </button>
           ))}
@@ -423,6 +424,9 @@ export default function SettingsPage() {
               )}
             </div>
           )}
+
+          {/* ── Xocks Team ── */}
+          {activeTab === 'team' && <XocksTeamManager />}
 
           {/* ── Notifications ── */}
           {activeTab === 'notifications' && (

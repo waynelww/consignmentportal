@@ -16,6 +16,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useXocksTeam } from '@/components/admin/useXocksTeam'
 import {
   formatCurrency,
   formatMYDate,
@@ -24,6 +25,7 @@ import {
 } from '@/lib/utils'
 import type {
   Store,
+  StoreWithOpener,
   StoreInventory,
   Sale,
   DeliveryOrder,
@@ -142,6 +144,9 @@ function EditField({ label, value, onChange, type = 'text', options }: {
   )
 }
 
+// Store row plus the "Opened by" name (the FK join; null when not recorded)
+const STORE_WITH_OPENER = '*, opened_by:xocks_team_members(name)'
+
 export default function StoreDetailPage() {
   const params = useParams<{ storeId: string }>()
   const storeId = params.storeId
@@ -149,7 +154,7 @@ export default function StoreDetailPage() {
   const searchParams = useSearchParams()
   const activeTab: Tab = (searchParams.get('tab') as Tab) || 'overview'
 
-  const [store, setStore] = useState<Store | null>(null)
+  const [store, setStore] = useState<StoreWithOpener | null>(null)
   const [inventory, setInventory] = useState<StoreInventory[]>([])
   const [selectedInvIds, setSelectedInvIds] = useState<Set<string>>(new Set())
   const [bulkDeletingInv, setBulkDeletingInv] = useState(false)
@@ -192,6 +197,8 @@ export default function StoreDetailPage() {
   // Edit store mode
   const [editMode, setEditMode] = useState(false)
   const [editFields, setEditFields] = useState<Partial<Store>>({})
+  // All names, including hidden ones, so an existing store's opener always shows
+  const team = useXocksTeam({ includeHidden: true })
   const [savingEdit, setSavingEdit] = useState(false)
   const supabase = createClient()
 
@@ -204,9 +211,9 @@ export default function StoreDetailPage() {
   useEffect(() => {
     async function load() {
       setLoading(true)
-      const { data } = await supabase.from('stores').select('*').eq('id', storeId).single()
+      const { data } = await supabase.from('stores').select(STORE_WITH_OPENER).eq('id', storeId).single()
       if (data) {
-        setStore(data as Store)
+        setStore(data as StoreWithOpener)
         setNotes(data.notes || '')
       }
       setLoading(false)
@@ -331,6 +338,7 @@ export default function StoreDetailPage() {
       postcode: store.postcode,
       commission_rate: store.commission_rate,
       payment_terms_days: store.payment_terms_days ?? 7,
+      opened_by_member_id: store.opened_by_member_id ?? '',
     })
     setEditMode(true)
     setTab('overview')
@@ -340,7 +348,11 @@ export default function StoreDetailPage() {
     setSavingEdit(true)
     const { error } = await supabase
       .from('stores')
-      .update({ ...editFields, updated_at: new Date().toISOString() })
+      .update({
+        ...editFields,
+        opened_by_member_id: editFields.opened_by_member_id || null,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', storeId)
     setSavingEdit(false)
     if (error) {
@@ -348,8 +360,8 @@ export default function StoreDetailPage() {
     } else {
       toast.success('Store updated!')
       setEditMode(false)
-      const { data } = await supabase.from('stores').select('*').eq('id', storeId).single()
-      if (data) { setStore(data as Store); setNotes(data.notes || '') }
+      const { data } = await supabase.from('stores').select(STORE_WITH_OPENER).eq('id', storeId).single()
+      if (data) { setStore(data as StoreWithOpener); setNotes(data.notes || '') }
     }
   }
 
@@ -488,6 +500,14 @@ export default function StoreDetailPage() {
   // Build dropdown options from the dynamic store_types table.
   // Include the store's current value (even if inactive/missing) so it doesn't
   // disappear from the dropdown after a type is deactivated.
+  // Active names, plus this store's current opener even if they were hidden since
+  const openerOptions = [
+    { value: '', label: 'Not recorded' },
+    ...team.members
+      .filter((m) => m.active || m.id === store.opened_by_member_id)
+      .map((m) => ({ value: m.id, label: m.active ? m.name : `${m.name} (hidden)` })),
+  ]
+
   const storeTypeOptions = (() => {
     const opts = storeTypes
       .filter((t) => t.is_active)
@@ -538,6 +558,11 @@ export default function StoreDetailPage() {
             <h1 className="text-xl font-bold text-gray-900">{store.store_name}</h1>
             <p className="text-sm text-gray-500 mt-0.5">
               {labelForType(store.store_type)} · {store.city}, {store.state}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {store.opened_by
+                ? <>Opened by {store.opened_by.name} on {formatMYDate(store.created_at)}</>
+                : 'Opened by: not recorded'}
             </p>
           </div>
           <div className="flex items-start gap-3">
@@ -595,6 +620,7 @@ export default function StoreDetailPage() {
                   {editMode ? (
                     <div className="space-y-3">
                       <EditField label="Store Name" value={editFields.store_name ?? ''} onChange={(v) => setEditFields(f => ({ ...f, store_name: v }))} />
+                      <EditField label="Opened by" value={editFields.opened_by_member_id ?? ''} onChange={(v) => setEditFields(f => ({ ...f, opened_by_member_id: v }))} options={openerOptions} />
                       <EditField label="Store Type" value={editFields.store_type ?? ''} onChange={(v) => setEditFields(f => ({ ...f, store_type: v as Store['store_type'] }))} options={storeTypeOptions} />
                       <div className="grid grid-cols-2 gap-3">
                         <EditField label="PIC Name" value={editFields.pic_name ?? ''} onChange={(v) => setEditFields(f => ({ ...f, pic_name: v }))} />
@@ -623,6 +649,7 @@ export default function StoreDetailPage() {
                   ) : (
                     <dl className="space-y-2">
                       {[
+                        ['Opened by', store.opened_by ? `${store.opened_by.name} on ${formatMYDate(store.created_at)}` : 'Not recorded'],
                         ['PIC Name', store.pic_name],
                         ['PIC Phone', store.pic_phone],
                         ['Email', store.email || '—'],

@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { MALAYSIAN_STATES, generateRef, cn } from '@/lib/utils'
 import type { Product, StoreTypeRow } from '@/types'
+import { useXocksTeam } from '@/components/admin/useXocksTeam'
 
 // ── Step schemas ──────────────────────────────────────────────────────────────
 
@@ -27,6 +28,8 @@ const step1Schema = z.object({
   state: z.string().min(1, 'State is required'),
   postcode: z.string().min(5, 'Postcode is required'),
   notes: z.string().optional(),
+  // The Xocks team member who opened this store (the shared admin login can't say)
+  opened_by_member_id: z.string().min(1, 'Choose who opened this store'),
 })
 
 const step2Schema = z.object({
@@ -165,6 +168,25 @@ function NewStorePage() {
   // Step 2 two-phase: 'pick' for ticking SKUs, 'quantities' for setting amounts
   const [pickPhase, setPickPhase] = useState<'pick' | 'quantities'>('pick')
   const [search, setSearch] = useState('')
+
+  // "Opened by" — active Xocks team members, with inline quick-add
+  const team = useXocksTeam()
+  const [addOpenerOpen, setAddOpenerOpen] = useState(false)
+  const [newOpenerName, setNewOpenerName] = useState('')
+  const [addingOpener, setAddingOpener] = useState(false)
+
+  async function quickAddOpener() {
+    const name = newOpenerName.trim()
+    if (!name) return
+    setAddingOpener(true)
+    const created = await team.add(name)
+    setAddingOpener(false)
+    if (!created) return
+    form1.setValue('opened_by_member_id', created.id, { shouldValidate: true })
+    toast.success(`"${created.name}" added and selected`)
+    setNewOpenerName('')
+    setAddOpenerOpen(false)
+  }
 
   // Step 3 clipboard state
   const [copiedField, setCopiedField] = useState<string | null>(null)
@@ -531,6 +553,73 @@ Welcome aboard! 🧦`
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
           <h2 className="text-base font-semibold text-gray-900 mb-5">Store Information</h2>
           <form onSubmit={form1.handleSubmit(onStep1)} className="space-y-4">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Opened by *</label>
+              <div className="flex gap-2">
+                <select
+                  {...form1.register('opened_by_member_id')}
+                  className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+                >
+                  <option value="">{team.loaded ? 'Select who opened this store...' : 'Loading...'}</option>
+                  {team.members.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setAddOpenerOpen((o) => !o)}
+                  className={cn(
+                    'shrink-0 inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold rounded-lg border transition-colors',
+                    addOpenerOpen
+                      ? 'bg-[#0A0A0A] text-[#FFD700] border-[#0A0A0A]'
+                      : 'border-gray-200 text-gray-700 hover:bg-gray-50',
+                  )}
+                  title="Add a name to the Xocks team list"
+                >
+                  <Plus size={14} />
+                  Add name
+                </button>
+              </div>
+
+              {addOpenerOpen && (
+                <div className="mt-2 p-3 rounded-lg bg-amber-50 border border-amber-200 space-y-2">
+                  <p className="text-[11px] text-amber-900 font-semibold">
+                    Add a Xocks team member — they appear in this dropdown and in Settings → Xocks Team.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newOpenerName}
+                      maxLength={60}
+                      onChange={(e) => setNewOpenerName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          quickAddOpener()
+                        }
+                        if (e.key === 'Escape') setAddOpenerOpen(false)
+                      }}
+                      placeholder="Team member name"
+                      autoFocus
+                      className="flex-1 px-3 py-2 text-sm border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={quickAddOpener}
+                      disabled={addingOpener || !newOpenerName.trim()}
+                      className="shrink-0 inline-flex items-center gap-1 px-4 py-2 bg-[#0A0A0A] text-[#FFD700] text-xs font-bold rounded-lg disabled:opacity-50"
+                    >
+                      {addingOpener ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                      Add
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <FieldError message={form1.formState.errors.opened_by_member_id?.message} />
+              <p className="text-[11px] text-gray-400 mt-1">The store login is shared, so pick the person who set this store up.</p>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-medium text-gray-600 block mb-1">Store Name *</label>

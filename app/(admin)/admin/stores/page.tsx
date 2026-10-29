@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { Search, Plus, Download, ChevronLeft, ChevronRight, Edit, ToggleLeft, ToggleRight, FileText, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, formatCurrency, MALAYSIAN_STATES, cn } from '@/lib/utils'
-import type { Store, StoreStatus, StoreTypeRow } from '@/types'
+import type { Store, StoreStatus, StoreTypeRow, StoreWithOpener } from '@/types'
+import { useXocksTeam } from '@/components/admin/useXocksTeam'
 import { toast } from 'sonner'
 
 type TabKey = 'active' | 'inactive' | 'drafts'
@@ -39,7 +40,7 @@ function ScoreBadge({ score }: { score: number }) {
   return <span className={cn('font-semibold text-sm', color)}>{score}</span>
 }
 
-interface StoreRow extends Store {
+interface StoreRow extends StoreWithOpener {
   pairs_mtd: number
   last_sale: string | null
 }
@@ -53,6 +54,9 @@ export default function StoresPage() {
   const [stateFilter, setStateFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  // '' = any, 'none' = not recorded, otherwise an xocks_team_members id
+  const [openerFilter, setOpenerFilter] = useState('')
+  const team = useXocksTeam({ includeHidden: true })
 
   // Tabs — Active is default; "drafts" loads from the store_drafts table instead of stores
   const [tab, setTab] = useState<TabKey>('active')
@@ -112,7 +116,7 @@ export default function StoresPage() {
     setLoading(true)
     let query = supabase
       .from('stores')
-      .select('*', { count: 'exact' })
+      .select('*, opened_by:xocks_team_members(name)', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
 
@@ -132,9 +136,11 @@ export default function StoresPage() {
     }
     // Manual status override within tab
     if (statusFilter) query = query.eq('status', statusFilter)
+    if (openerFilter === 'none') query = query.is('opened_by_member_id', null)
+    else if (openerFilter) query = query.eq('opened_by_member_id', openerFilter)
 
     const { data, count } = await query
-    const storeList = (data || []) as Store[]
+    const storeList = (data || []) as StoreWithOpener[]
     setTotal(count || 0)
 
     // Get MTD sales and last sale for each store
@@ -179,7 +185,7 @@ export default function StoresPage() {
       }))
     )
     setLoading(false)
-  }, [page, search, stateFilter, typeFilter, statusFilter, tab, fetchDrafts])
+  }, [page, search, stateFilter, typeFilter, statusFilter, openerFilter, tab, fetchDrafts])
 
   useEffect(() => {
     fetchStores()
@@ -189,7 +195,7 @@ export default function StoresPage() {
   // Reset page when tab or filters change
   useEffect(() => {
     setPage(0)
-  }, [tab, search, stateFilter, typeFilter, statusFilter])
+  }, [tab, search, stateFilter, typeFilter, statusFilter, openerFilter])
 
   async function toggleStatus(store: StoreRow) {
     const newStatus: StoreStatus = store.status === 'active' ? 'inactive' : 'active'
@@ -368,6 +374,17 @@ export default function StoresPage() {
             <option value="suspended">Suspended</option>
             <option value="pending">Pending</option>
           </select>
+          <select
+            value={openerFilter}
+            onChange={(e) => setOpenerFilter(e.target.value)}
+            className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
+          >
+            <option value="">All Openers</option>
+            <option value="none">Not recorded</option>
+            {team.members.map((m) => (
+              <option key={m.id} value={m.id}>{m.active ? m.name : `${m.name} (hidden)`}</option>
+            ))}
+          </select>
         </div>
       </div>
       )}
@@ -438,6 +455,7 @@ export default function StoresPage() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">PIC</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">City / State</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Type</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Opened by</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Score</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Units MTD</th>
@@ -449,7 +467,7 @@ export default function StoresPage() {
               {loading
                 ? Array.from({ length: 8 }).map((_, i) => (
                     <tr key={i} className="border-b border-gray-50">
-                      {Array.from({ length: 10 }).map((_, j) => (
+                      {Array.from({ length: 11 }).map((_, j) => (
                         <td key={j} className="px-4 py-3">
                           <div className="h-4 bg-gray-100 animate-pulse rounded" />
                         </td>
@@ -466,6 +484,9 @@ export default function StoresPage() {
                       </td>
                       <td className="px-4 py-3 text-gray-600">
                         {labelForType(store.store_type)}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {store.opened_by ? store.opened_by.name : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={store.status} />
@@ -506,7 +527,7 @@ export default function StoresPage() {
                   ))}
               {!loading && stores.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-gray-400 text-sm">
+                  <td colSpan={11} className="px-4 py-12 text-center text-gray-400 text-sm">
                     No stores found
                   </td>
                 </tr>

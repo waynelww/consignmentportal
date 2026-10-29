@@ -90,9 +90,21 @@ export interface Store {
   agreement_signed_at: string | null
   agreement_signed_by: string | null
   notes: string | null
+  opened_by_member_id: string | null
   created_at: string
   updated_at: string
 }
+
+/** A Xocks team member who can be recorded as opening a store. */
+export interface XocksTeamMember {
+  id: string
+  name: string
+  active: boolean
+  created_at: string
+}
+
+/** A store row with its "Opened by" name joined in (null when not recorded). */
+export type StoreWithOpener = Store & { opened_by: { name: string } | null }
 
 export interface Product {
   id: string
