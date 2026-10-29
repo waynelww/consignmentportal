@@ -17,6 +17,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMYDate, formatMonthYear, cn, STORE_TYPE_LABELS } from '@/lib/utils'
 import type { Store } from '@/types'
+import type { StoreStaffReport } from '@/lib/reports/sales-by-staff'
 
 type ReportTab = 'sales' | 'stores' | 'inventory' | 'commissions'
 
@@ -41,6 +42,36 @@ function exportCSV(data: Record<string, unknown>[], filename: string) {
   URL.revokeObjectURL(url)
 }
 
+function exportSalesReportCSV(
+  daily: { date: string; pairs: number; revenue: number }[],
+  dailyRange: string,
+  groups: StoreStaffReport[],
+  staffLabel: string,
+) {
+  const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+  const lines: string[] = []
+  lines.push(cell(`Daily sales ${dailyRange}`))
+  lines.push(['Date', 'Pairs Sold', 'Revenue'].map(cell).join(','))
+  for (const d of daily) lines.push([d.date, d.pairs, d.revenue].map(cell).join(','))
+  lines.push('')
+  lines.push(cell(`Sales by staff ${staffLabel}`))
+  lines.push(['Store Code', 'Store', 'Keyed in by', 'Source', 'Sales', 'Pairs', 'RM'].map(cell).join(','))
+  for (const g of groups) {
+    for (const r of g.rows) {
+      const source = r.source === 'staff' ? 'Store staff' : r.source === 'admin' ? 'Admin login' : '-'
+      lines.push([g.store_code, g.store_name, r.label, source, r.sales, r.pairs, r.revenue].map(cell).join(','))
+    }
+    lines.push([g.store_code, g.store_name, 'Total', '', g.total.sales, g.total.pairs, g.total.revenue].map(cell).join(','))
+  }
+  const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'sales-report.csv'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<ReportTab>('sales')
   const supabase = createClient()
@@ -53,7 +84,14 @@ export default function ReportsPage() {
   const [salesByType, setSalesByType] = useState<any[]>([])
   const [salesBySKU, setSalesBySKU] = useState<any[]>([])
   const [salesByState, setSalesByState] = useState<any[]>([])
-  const [salesByStaff, setSalesByStaff] = useState<any[]>([])
+  // ── Sales by staff (own month + store filters)
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const [sbsMonth, setSbsMonth] = useState(currentMonthKey)
+  const [sbsStore, setSbsStore] = useState('all')
+  const [sbsStores, setSbsStores] = useState<{ id: string; store_code: string; store_name: string }[]>([])
+  const [sbsGroups, setSbsGroups] = useState<StoreStaffReport[]>([])
+  const [sbsLoading, setSbsLoading] = useState(false)
+  const [sbsError, setSbsError] = useState<string | null>(null)
   const [salesMetrics, setSalesMetrics] = useState({ totalPairs: 0, totalRevenue: 0, avgPerDay: 0, totalStores: 0 })
   const [salesLoading, setSalesLoading] = useState(false)
 
@@ -77,7 +115,7 @@ export default function ReportsPage() {
     setSalesLoading(true)
     const { data } = await supabase
       .from('sales')
-      .select('sale_date, quantity, xocks_revenue, store_id, product_id, stores(store_type, state), products(sku, name), staff:store_staff_id(name)')
+      .select('sale_date, quantity, xocks_revenue, store_id, product_id, stores(store_type, state), products(sku, name)')
       .gte('sale_date', salesFrom)
       .lte('sale_date', salesTo)
 
@@ -118,16 +156,6 @@ export default function ReportsPage() {
       stateMap[st] = (stateMap[st] || 0) + r.quantity
     }
     setSalesByState(Object.entries(stateMap).sort((a, b) => b[1] - a[1]).map(([state, pairs]) => ({ state, pairs })))
-
-    // By keyed-in staff ("-" for sales with no staff recorded)
-    const staffMap: Record<string, { pairs: number; revenue: number }> = {}
-    for (const r of rows) {
-      const name = (r.staff as any)?.name || '-'
-      if (!staffMap[name]) staffMap[name] = { pairs: 0, revenue: 0 }
-      staffMap[name].pairs += r.quantity
-      staffMap[name].revenue += r.xocks_revenue
-    }
-    setSalesByStaff(Object.entries(staffMap).sort((a, b) => b[1].pairs - a[1].pairs).map(([name, v]) => ({ name, ...v })))
 
     const totalPairs = rows.reduce((a, r) => a + r.quantity, 0)
     const totalRevenue = rows.reduce((a, r) => a + r.xocks_revenue, 0)
@@ -229,6 +257,29 @@ export default function ReportsPage() {
   }, [commMonth, commYear])
 
   useEffect(() => { if (activeTab === 'sales') fetchSales() }, [activeTab, fetchSales])
+
+  const fetchSalesByStaff = useCallback(async () => {
+    setSbsLoading(true)
+    setSbsError(null)
+    const params = new URLSearchParams({ month: sbsMonth })
+    if (sbsStore !== 'all') params.set('store_id', sbsStore)
+    const res = await fetch(`/api/reports/sales-by-staff?${params}`)
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      setSbsError(body.error ?? 'Could not load sales by staff')
+      setSbsGroups([])
+    } else {
+      setSbsGroups((body.stores ?? []) as StoreStaffReport[])
+    }
+    setSbsLoading(false)
+  }, [sbsMonth, sbsStore])
+
+  useEffect(() => {
+    if (activeTab !== 'sales') return
+    fetchSalesByStaff()
+    supabase.from('stores').select('id, store_code, store_name').order('store_code')
+      .then((res: { data: unknown }) => setSbsStores((res.data ?? []) as { id: string; store_code: string; store_name: string }[]))
+  }, [activeTab, fetchSalesByStaff])
   useEffect(() => { if (activeTab === 'stores') fetchStores() }, [activeTab, fetchStores])
   useEffect(() => { if (activeTab === 'inventory') fetchInventory() }, [activeTab, fetchInventory])
   useEffect(() => { if (activeTab === 'commissions') fetchCommissions() }, [activeTab, fetchCommissions])
@@ -273,7 +324,12 @@ export default function ReportsPage() {
                   className="px-4 py-2 bg-[#0A0A0A] text-white text-sm rounded-lg hover:bg-gray-800 transition-colors">
                   Apply
                 </button>
-                <button onClick={() => exportCSV(salesData.map(d => ({ Date: d.date, 'Pairs Sold': d.pairs, Revenue: d.revenue })), 'sales-report.csv')}
+                <button onClick={() => exportSalesReportCSV(
+                    salesData,
+                    `${salesFrom} to ${salesTo}`,
+                    sbsGroups,
+                    `${sbsMonth} · ${sbsStore === 'all' ? 'All stores' : sbsStores.find((st) => st.id === sbsStore)?.store_name ?? ''}`,
+                  )}
                   className="px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-2">
                   <Download size={14} /> CSV
                 </button>
@@ -360,33 +416,72 @@ export default function ReportsPage() {
                 )}
               </div>
 
-              {/* Keyed in by */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Keyed in by</h3>
-                {salesLoading ? <div className="h-24 bg-gray-100 animate-pulse rounded-xl" /> : (
-                  <div className="overflow-x-auto bg-white rounded-xl border border-gray-100">
+              {/* Sales by staff */}
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-3 items-end">
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">Month</label>
+                    <input type="month" value={sbsMonth} onChange={(e) => e.target.value && setSbsMonth(e.target.value)}
+                      className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">Store</label>
+                    <select value={sbsStore} onChange={(e) => setSbsStore(e.target.value)}
+                      className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] bg-white max-w-[260px]">
+                      <option value="all">All stores</option>
+                      {sbsStores.map((st) => (
+                        <option key={st.id} value={st.id}>{st.store_code} · {st.store_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <h3 className="text-sm font-semibold text-gray-700">Sales by staff</h3>
+                {sbsError ? (
+                  <p className="text-sm text-red-600">{sbsError}</p>
+                ) : sbsLoading ? (
+                  <div className="h-32 bg-gray-100 animate-pulse rounded-xl" />
+                ) : sbsGroups.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-6 text-center">No sales in this month</p>
+                ) : sbsGroups.map((group) => (
+                  <div key={group.store_id} className="bg-white rounded-xl border border-gray-100 overflow-x-auto">
+                    <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-700">
+                      {group.store_code} · {group.store_name}
+                    </div>
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-gray-100">
-                          <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Staff</th>
+                          <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Keyed in by</th>
+                          <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">Sales</th>
                           <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">Pairs</th>
-                          <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">Xocks Revenue</th>
+                          <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">RM</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {salesByStaff.length === 0 ? (
-                          <tr><td colSpan={3} className="py-6 text-center text-gray-400 text-sm">No sales in this period</td></tr>
-                        ) : salesByStaff.map((row) => (
-                          <tr key={row.name} className="border-b border-gray-50">
-                            <td className="px-4 py-2 text-gray-800">{row.name}</td>
+                        {group.rows.map((row) => (
+                          <tr key={row.source + row.label} className="border-b border-gray-50">
+                            <td className="px-4 py-2 text-gray-800">
+                              {row.label}
+                              {row.source === 'admin' && (
+                                <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">Admin login</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2 text-right">{row.sales}</td>
                             <td className="px-4 py-2 text-right">{row.pairs}</td>
                             <td className="px-4 py-2 text-right">{formatCurrency(row.revenue)}</td>
                           </tr>
                         ))}
                       </tbody>
+                      <tfoot>
+                        <tr className="bg-gray-50 font-semibold">
+                          <td className="px-4 py-2">Total</td>
+                          <td className="px-4 py-2 text-right">{group.total.sales}</td>
+                          <td className="px-4 py-2 text-right">{group.total.pairs}</td>
+                          <td className="px-4 py-2 text-right">{formatCurrency(group.total.revenue)}</td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
-                )}
+                ))}
               </div>
             </div>
           )}
