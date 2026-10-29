@@ -42,20 +42,9 @@ function exportCSV(data: Record<string, unknown>[], filename: string) {
   URL.revokeObjectURL(url)
 }
 
-function exportSalesReportCSV(
-  daily: { date: string; pairs: number; revenue: number }[],
-  dailyRange: string,
-  groups: StoreStaffReport[],
-  staffLabel: string,
-) {
+function exportSalesByStaffCSV(groups: StoreStaffReport[], filename: string) {
   const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
-  const lines: string[] = []
-  lines.push(cell(`Daily sales ${dailyRange}`))
-  lines.push(['Date', 'Pairs Sold', 'Revenue'].map(cell).join(','))
-  for (const d of daily) lines.push([d.date, d.pairs, d.revenue].map(cell).join(','))
-  lines.push('')
-  lines.push(cell(`Sales by staff ${staffLabel}`))
-  lines.push(['Store Code', 'Store', 'Keyed in by', 'Source', 'Sales', 'Pairs', 'RM'].map(cell).join(','))
+  const lines: string[] = [['Store Code', 'Store', 'Keyed in by', 'Source', 'Sales', 'Pairs', 'RM'].map(cell).join(',')]
   for (const g of groups) {
     for (const r of g.rows) {
       const source = r.source === 'staff' ? 'Store staff' : r.source === 'admin' ? 'Admin login' : '-'
@@ -67,7 +56,7 @@ function exportSalesReportCSV(
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'sales-report.csv'
+  a.download = filename
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -324,12 +313,7 @@ export default function ReportsPage() {
                   className="px-4 py-2 bg-[#0A0A0A] text-white text-sm rounded-lg hover:bg-gray-800 transition-colors">
                   Apply
                 </button>
-                <button onClick={() => exportSalesReportCSV(
-                    salesData,
-                    `${salesFrom} to ${salesTo}`,
-                    sbsGroups,
-                    `${sbsMonth} · ${sbsStore === 'all' ? 'All stores' : sbsStores.find((st) => st.id === sbsStore)?.store_name ?? ''}`,
-                  )}
+                <button onClick={() => exportCSV(salesData.map(d => ({ Date: d.date, 'Pairs Sold': d.pairs, Revenue: d.revenue })), 'sales-report.csv')}
                   className="px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-2">
                   <Download size={14} /> CSV
                 </button>
@@ -435,7 +419,16 @@ export default function ReportsPage() {
                     </select>
                   </div>
                 </div>
-                <h3 className="text-sm font-semibold text-gray-700">Sales by staff</h3>
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-gray-700">Sales by staff</h3>
+                  <button
+                    onClick={() => exportSalesByStaffCSV(sbsGroups, `sales-by-staff-${sbsMonth}${sbsStore === 'all' ? '' : `-${sbsStores.find((st) => st.id === sbsStore)?.store_code ?? sbsStore}`}.csv`)}
+                    disabled={sbsGroups.length === 0}
+                    className="px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-40"
+                  >
+                    <Download size={14} /> Export CSV
+                  </button>
+                </div>
                 {sbsError ? (
                   <p className="text-sm text-red-600">{sbsError}</p>
                 ) : sbsLoading ? (
