@@ -53,6 +53,7 @@ export default function ReportsPage() {
   const [salesByType, setSalesByType] = useState<any[]>([])
   const [salesBySKU, setSalesBySKU] = useState<any[]>([])
   const [salesByState, setSalesByState] = useState<any[]>([])
+  const [salesByStaff, setSalesByStaff] = useState<any[]>([])
   const [salesMetrics, setSalesMetrics] = useState({ totalPairs: 0, totalRevenue: 0, avgPerDay: 0, totalStores: 0 })
   const [salesLoading, setSalesLoading] = useState(false)
 
@@ -76,7 +77,7 @@ export default function ReportsPage() {
     setSalesLoading(true)
     const { data } = await supabase
       .from('sales')
-      .select('sale_date, quantity, xocks_revenue, store_id, product_id, stores(store_type, state), products(sku, name)')
+      .select('sale_date, quantity, xocks_revenue, store_id, product_id, stores(store_type, state), products(sku, name), staff:store_staff_id(name)')
       .gte('sale_date', salesFrom)
       .lte('sale_date', salesTo)
 
@@ -117,6 +118,16 @@ export default function ReportsPage() {
       stateMap[st] = (stateMap[st] || 0) + r.quantity
     }
     setSalesByState(Object.entries(stateMap).sort((a, b) => b[1] - a[1]).map(([state, pairs]) => ({ state, pairs })))
+
+    // By keyed-in staff ("-" for sales with no staff recorded)
+    const staffMap: Record<string, { pairs: number; revenue: number }> = {}
+    for (const r of rows) {
+      const name = (r.staff as any)?.name || '-'
+      if (!staffMap[name]) staffMap[name] = { pairs: 0, revenue: 0 }
+      staffMap[name].pairs += r.quantity
+      staffMap[name].revenue += r.xocks_revenue
+    }
+    setSalesByStaff(Object.entries(staffMap).sort((a, b) => b[1].pairs - a[1].pairs).map(([name, v]) => ({ name, ...v })))
 
     const totalPairs = rows.reduce((a, r) => a + r.quantity, 0)
     const totalRevenue = rows.reduce((a, r) => a + r.xocks_revenue, 0)
@@ -346,6 +357,35 @@ export default function ReportsPage() {
                       <Bar dataKey="pairs" fill="#0A0A0A" name="Pairs" />
                     </BarChart>
                   </ResponsiveContainer>
+                )}
+              </div>
+
+              {/* Keyed in by */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Keyed in by</h3>
+                {salesLoading ? <div className="h-24 bg-gray-100 animate-pulse rounded-xl" /> : (
+                  <div className="overflow-x-auto bg-white rounded-xl border border-gray-100">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-100">
+                          <th className="text-left px-4 py-2 text-xs font-semibold text-gray-500">Staff</th>
+                          <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">Pairs</th>
+                          <th className="text-right px-4 py-2 text-xs font-semibold text-gray-500">Xocks Revenue</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {salesByStaff.length === 0 ? (
+                          <tr><td colSpan={3} className="py-6 text-center text-gray-400 text-sm">No sales in this period</td></tr>
+                        ) : salesByStaff.map((row) => (
+                          <tr key={row.name} className="border-b border-gray-50">
+                            <td className="px-4 py-2 text-gray-800">{row.name}</td>
+                            <td className="px-4 py-2 text-right">{row.pairs}</td>
+                            <td className="px-4 py-2 text-right">{formatCurrency(row.revenue)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </div>

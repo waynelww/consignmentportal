@@ -14,6 +14,7 @@ const RecordSaleSchema = z.object({
   quantity: z.number().int().positive(),
   payment_method: z.enum(['qr', 'cash']),
   qr_reference: z.string().optional(),
+  store_staff_id: z.string().uuid().optional().nullable(),
 })
 
 export async function POST(request: NextRequest) {
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Validation error', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { store_id, product_id, quantity, payment_method, qr_reference } = parsed.data
+  const { store_id, product_id, quantity, payment_method, qr_reference, store_staff_id } = parsed.data
 
   // store_owner can only record for own store
   if (profile.role === 'store_owner' && profile.store_id !== store_id) {
@@ -72,6 +73,22 @@ export async function POST(request: NextRequest) {
 
   // Fetch store commission rate — use admin client to bypass RLS on stores table
   const adminClient = createAdminClient()
+
+  // The person keying in the sale must be an active staff member of this store
+  let keyedInStaffId: string | null = null
+  if (store_staff_id) {
+    const { data: staff } = await adminClient
+      .from('store_staff')
+      .select('id')
+      .eq('id', store_staff_id)
+      .eq('store_id', store_id)
+      .eq('active', true)
+      .maybeSingle()
+    if (!staff) {
+      return Response.json({ error: 'Staff member not found or hidden for this store' }, { status: 400 })
+    }
+    keyedInStaffId = staff.id
+  }
   const { data: store, error: storeErr } = await adminClient
     .from('stores')
     .select('commission_rate')
@@ -112,6 +129,7 @@ export async function POST(request: NextRequest) {
       qr_reference: qr_reference ?? null,
       recorded_by: user.id,
       sale_date: new Date().toISOString().split('T')[0],
+      ...(keyedInStaffId ? { store_staff_id: keyedInStaffId } : {}),
     })
     .select('id')
     .single()
@@ -237,7 +255,8 @@ export async function GET(request: NextRequest) {
     .select(`
       *,
       products:product_id ( name, sku ),
-      stores:store_id ( store_name, store_code )
+      stores:store_id ( store_name, store_code ),
+      staff:store_staff_id ( name )
     `)
     .order('created_at', { ascending: false })
     .limit(limit)

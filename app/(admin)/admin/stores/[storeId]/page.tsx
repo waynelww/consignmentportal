@@ -33,8 +33,9 @@ import type {
   StoreTypeRow,
 } from '@/types'
 import { toast } from 'sonner'
+import StoreStaffManager from '@/components/admin/StoreStaffManager'
 
-const TABS = ['overview', 'inventory', 'sales', 'delivery-orders', 'commissions'] as const
+const TABS = ['overview', 'inventory', 'sales', 'staff', 'delivery-orders', 'commissions'] as const
 type Tab = (typeof TABS)[number]
 
 type InventoryPeriod = '7d' | '14d' | '30d' | 'this-month' | 'last-month' | 'ytd' | 'max'
@@ -276,7 +277,7 @@ export default function StoreDetailPage() {
   async function loadSales() {
     let query = supabase
       .from('sales')
-      .select('*, product:products(name, sku)')
+      .select('*, product:products(name, sku), staff:store_staff_id(name)')
       .eq('store_id', storeId)
       .order('sale_date', { ascending: false })
       .limit(200)
@@ -437,7 +438,7 @@ export default function StoreDetailPage() {
 
   function exportSalesCSV() {
     if (sales.length === 0) { toast.error('No sales data'); return }
-    const headers = ['Date', 'Product', 'Qty', 'Unit Price', 'Total', 'Payment']
+    const headers = ['Date', 'Product', 'Qty', 'Unit Price', 'Total', 'Payment', 'Keyed in by']
     const rows = sales.map((s) => [
       s.sale_date,
       (s.product as any)?.name || s.product_id,
@@ -445,6 +446,7 @@ export default function StoreDetailPage() {
       s.unit_price,
       s.total_amount,
       s.payment_method,
+      (s.staff as any)?.name || '-',
     ])
     const csv = [headers, ...rows].map((r) => r.join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
@@ -1008,6 +1010,7 @@ export default function StoreDetailPage() {
                     <tr className="border-b border-gray-100">
                       <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Date</th>
                       <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Product</th>
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Keyed in by</th>
                       <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Qty</th>
                       <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Unit</th>
                       <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Total</th>
@@ -1019,6 +1022,7 @@ export default function StoreDetailPage() {
                       <tr key={s.id} className="border-b border-gray-50 hover:bg-gray-50/50">
                         <td className="py-2.5 px-3 text-gray-600">{formatMYDate(s.sale_date)}</td>
                         <td className="py-2.5 px-3 text-gray-800">{(s.product as any)?.name || '—'}</td>
+                        <td className="py-2.5 px-3 text-gray-600">{(s.staff as any)?.name || '-'}</td>
                         <td className="py-2.5 px-3 text-right">{s.quantity}</td>
                         <td className="py-2.5 px-3 text-right text-gray-500">{formatCurrency(s.unit_price)}</td>
                         <td className="py-2.5 px-3 text-right font-medium">{formatCurrency(s.total_amount)}</td>
@@ -1034,7 +1038,7 @@ export default function StoreDetailPage() {
                     ))}
                     {sales.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="py-10 text-center text-gray-400 text-sm">
+                        <td colSpan={7} className="py-10 text-center text-gray-400 text-sm">
                           No sales data
                         </td>
                       </tr>
@@ -1044,6 +1048,9 @@ export default function StoreDetailPage() {
               </div>
             </div>
           )}
+
+          {/* ── Staff Tab ── */}
+          {activeTab === 'staff' && <StoreStaffManager storeId={storeId} />}
 
           {/* ── Delivery Orders Tab ── */}
           {activeTab === 'delivery-orders' && (

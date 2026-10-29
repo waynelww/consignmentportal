@@ -15,6 +15,7 @@ const BatchSaleSchema = z.object({
     quantity: z.number().int().positive(),
   })).min(1),
   promo_id: z.string().uuid().optional().nullable(),
+  store_staff_id: z.string().uuid().optional().nullable(),
 })
 
 export async function POST(request: NextRequest) {
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Validation error', details: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { store_id, items, promo_id } = parsed.data
+  const { store_id, items, promo_id, store_staff_id } = parsed.data
 
   if (profile.role === 'store_owner' && profile.store_id !== store_id) {
     return Response.json({ error: 'Forbidden: cannot record sales for another store' }, { status: 403 })
@@ -62,6 +63,22 @@ export async function POST(request: NextRequest) {
 
   if (storeErr || !store) {
     return Response.json({ error: 'Store not found' }, { status: 404 })
+  }
+
+  // The person keying in the sale must be an active staff member of this store
+  let keyedInStaffId: string | null = null
+  if (store_staff_id) {
+    const { data: staff } = await adminClient
+      .from('store_staff')
+      .select('id')
+      .eq('id', store_staff_id)
+      .eq('store_id', store_id)
+      .eq('active', true)
+      .maybeSingle()
+    if (!staff) {
+      return Response.json({ error: 'Staff member not found or hidden for this store' }, { status: 400 })
+    }
+    keyedInStaffId = staff.id
   }
 
   const product_ids = items.map((i) => i.product_id)
@@ -211,6 +228,7 @@ export async function POST(request: NextRequest) {
       qr_reference: null,
       recorded_by: user.id,
       sale_date: today,
+      ...(keyedInStaffId ? { store_staff_id: keyedInStaffId } : {}),
     }
 
     // Try full insert (sale_group_id + promo fields), fall back gracefully

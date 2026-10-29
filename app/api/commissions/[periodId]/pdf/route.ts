@@ -123,7 +123,7 @@ export async function GET(
 
   const { data: sales, error: salesErr } = await supabase
     .from('sales')
-    .select(`quantity, unit_price, total_amount, commission_amount, products:product_id(name, sku)`)
+    .select(`quantity, unit_price, total_amount, commission_amount, products:product_id(name, sku), staff:store_staff_id(name)`)
     .eq('store_id', period.store_id)
     .gte('sale_date', startDate)
     .lt('sale_date', endDate)
@@ -132,28 +132,31 @@ export async function GET(
     return Response.json({ error: 'Failed to fetch sales', details: salesErr.message }, { status: 500 })
   }
 
-  // ── Aggregate by product ──────────────────────────────────────────────────────
+  // ── Aggregate by product and keyed-in staff ──────────────────────────────────
   type SaleRaw = {
     quantity: number; unit_price: number; total_amount: number
     commission_amount: number; products: { name: string; sku: string } | null
+    staff: { name: string } | null
   }
 
-  const productMap = new Map<string, {
-    productName: string; sku: string; unitsSold: number
+  const lineMap = new Map<string, {
+    productName: string; sku: string; keyedInBy: string; unitsSold: number
     unitPrice: number; revenue: number; commission: number
   }>()
 
   for (const sale of (sales as unknown as SaleRaw[]) ?? []) {
     const sku = sale.products?.sku ?? 'UNKNOWN'
-    const ex = productMap.get(sku)
+    const keyedInBy = sale.staff?.name ?? '-'
+    const key = `${sku}|${keyedInBy}`
+    const ex = lineMap.get(key)
     if (ex) {
       ex.unitsSold  += sale.quantity
       ex.revenue    += sale.total_amount
       ex.commission += sale.commission_amount
     } else {
-      productMap.set(sku, {
+      lineMap.set(key, {
         productName: sale.products?.name ?? 'Unknown Product',
-        sku, unitsSold: sale.quantity, unitPrice: sale.unit_price,
+        sku, keyedInBy, unitsSold: sale.quantity, unitPrice: sale.unit_price,
         revenue: sale.total_amount, commission: sale.commission_amount,
       })
     }
@@ -194,7 +197,7 @@ export async function GET(
     companyName: settingsMap['company_name'],
     companyAddress: settingsMap['company_address'],
     companyContact: settingsMap['company_contact'],
-    items: Array.from(productMap.values()),
+    items: Array.from(lineMap.values()),
     totalUnits: period.total_units_sold,
     totalRevenue: period.total_revenue,
     totalCommission: period.commission_amount,

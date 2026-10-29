@@ -7,6 +7,7 @@ import LogoutButton from '@/components/store/LogoutButton'
 import PushSubscriber from '@/components/store/PushSubscriber'
 import { StoreProvider } from '@/components/store/StoreContext'
 import NavItem from '@/components/store/NavItem'
+import { StaffPicker } from '@/components/store/StaffPicker'
 import type { Store, Profile } from '@/types'
 
 interface StoreLayoutData {
@@ -54,14 +55,17 @@ export default async function StoreLayout({ children }: { children: React.ReactN
     <div className="min-h-screen bg-[#F8F8F8] flex flex-col">
       {/* Top header */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-[#0A0A0A] px-4 py-3 flex items-center justify-between shadow-md">
-        <Link href="/store/profile" className="flex flex-col">
-          <span className="text-[#FFD700] font-bold text-base leading-tight truncate max-w-[220px]">
-            {store?.store_name ?? 'My Store'}
-          </span>
-          {store?.store_code && (
-            <span className="text-gray-400 text-xs">{store.store_code}</span>
-          )}
-        </Link>
+        <div className="flex items-center gap-2 min-w-0">
+          <Link href="/store/profile" className="flex flex-col min-w-0">
+            <span className="text-[#FFD700] font-bold text-base leading-tight truncate max-w-[220px]">
+              {store?.store_name ?? 'My Store'}
+            </span>
+            {store?.store_code && (
+              <span className="text-gray-400 text-xs">{store.store_code}</span>
+            )}
+          </Link>
+          <StaffPicker storeId={storeId} />
+        </div>
         <div className="flex items-center gap-1">
           <Link href="/store/notifications" className="relative p-2">
             <Bell size={22} className="text-white" />
