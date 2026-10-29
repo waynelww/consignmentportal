@@ -137,11 +137,23 @@ async function runTool(name: string, input: Record<string, unknown>, supabase: A
     case 'get_store_inventory': {
       const { data, error } = await supabase
         .from('store_inventory')
-        .select('quantity_on_hand, restock_threshold, products:product_id(sku, name, category, color)')
+        .select('quantity_on_hand, stocked_level, plan_level, stores:store_id(pairs_per_code, on_stock_plan), products:product_id(sku, name, category, color)')
         .eq('store_id', input.store_id as string)
         .order('quantity_on_hand', { ascending: false })
       if (error) return { error: error.message }
-      return { inventory: data, total_items: data?.length }
+      const lowSettings = await loadLowStockSettings(supabase)
+      const inventory = (data ?? []).map((row) => {
+        const store = embedded(row.stores as never) as { pairs_per_code: number; on_stock_plan: boolean } | null
+        const low = store ? describeCode(row, store, lowSettings.pct) : null
+        return {
+          quantity_on_hand: row.quantity_on_hand,
+          stocked_level: low?.stocked ?? null,
+          low_threshold: low ? Math.floor(low.threshold) : null,
+          status: low?.status ?? 'in_stock',
+          products: row.products,
+        }
+      })
+      return { inventory, total_items: inventory.length }
     }
 
     case 'create_delivery_order': {
@@ -234,6 +246,8 @@ async function runTool(name: string, input: Record<string, unknown>, supabase: A
   }
 }
 
+import { describeCode, embedded } from '@/lib/restock/low-stock'
+import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

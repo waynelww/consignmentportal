@@ -223,26 +223,59 @@ export async function sendCommissionPaidEmail(params: {
   }
 }
 
-export async function sendLowStockEmail(params: {
+export interface LowStockSummaryStore {
+  store_name: string
+  store_code: string
+  on_hand: number
+  stocked: number
+  pct: number
+  codes: { sku: string; name: string; on_hand: number; threshold: number; status: 'low_stock' | 'out_of_stock' }[]
+}
+
+/** Daily 09:00 MYT summary to the XCMS operator. Stores needing restock come first. */
+export async function sendLowStockSummaryEmail(params: {
   to: string
-  storeName: string
-  productName: string
+  date: string
+  stores: LowStockSummaryStore[]
+  storesChecked: number
 }): Promise<void> {
+  const need = params.stores.length
+  const rows = params.stores.map((s) => {
+    const codeLines = s.codes.length === 0
+      ? '<span style="color:#999;">No individual codes low</span>'
+      : s.codes
+          .map((c) => `${c.status === 'out_of_stock' ? '<strong style="color:#b91c1c;">OUT</strong>' : 'LOW'} ${c.sku} ${c.name}: ${c.on_hand} (threshold ${Number.isInteger(c.threshold) ? c.threshold : c.threshold.toFixed(1)})`)
+          .join('<br/>')
+    return `
+      <tr>
+        <td style="padding:8px 0;border-top:1px solid #eee;font-size:14px;color:#111;vertical-align:top;">
+          <strong>${s.store_name}</strong> <span style="color:#666;">(${s.store_code})</span><br/>
+          <span style="font-size:13px;color:#333;">${s.on_hand} of ${s.stocked} pairs (${s.pct}%)</span>
+        </td>
+        <td style="padding:8px 0;border-top:1px solid #eee;font-size:13px;color:#333;line-height:1.6;">${codeLines}</td>
+      </tr>`
+  }).join('')
+
+  const body = `
+    ${h2(`Low Stock Summary — ${params.date}`)}
+    ${p(need === 0
+      ? `No stores need restock today (${params.storesChecked} active stores checked).`
+      : `<strong>${need}</strong> of ${params.storesChecked} active store${params.storesChecked !== 1 ? 's' : ''} need restock. Worst first.`)}
+    ${need > 0 ? `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">${rows}</table>` : ''}
+    ${ctaButton('Open Restock Calculator', 'https://xcms.xocks.co/admin/restock-calculator')}
+  `
   try {
-    const body = `
-      ${h2('Low Stock Alert')}
-      ${p(`Stock for <strong>${params.productName}</strong> at <strong>${params.storeName}</strong> has dropped below the restock threshold.`)}
-      ${p('Please submit a restock request to avoid running out of stock.')}
-      ${ctaButton('Request Restock', 'https://xcms.xocks.co/store/restock')}
-    `
     await getResend().emails.send({
       from: FROM,
       to: params.to,
-      subject: `Low Stock Alert — ${params.productName} at ${params.storeName}`,
+      subject: need === 0
+        ? `Low stock summary ${params.date}: no restock needed`
+        : `Low stock summary ${params.date}: ${need} store${need !== 1 ? 's' : ''} need restock`,
       html: emailWrapper(body),
     })
   } catch (err) {
-    console.error('[sendLowStockEmail] Failed to send email:', err)
+    console.error('[sendLowStockSummaryEmail] Failed to send email:', err)
+    throw err
   }
 }
 

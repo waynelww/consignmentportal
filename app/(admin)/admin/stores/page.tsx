@@ -43,8 +43,11 @@ function ScoreBadge({ score }: { score: number }) {
 interface StoreRow extends StoreWithOpener {
   pairs_mtd: number
   last_sale: string | null
+  stock: StoreStockSummary | null // on hand vs stocked level (low-stock rule)
 }
 
+import { storeStockSummary, formatStoreStock, type StoreStockSummary, type StockRowFields } from '@/lib/restock/low-stock'
+import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 export default function StoresPage() {
   const [stores, setStores] = useState<StoreRow[]>([])
   const [total, setTotal] = useState(0)
@@ -177,12 +180,27 @@ export default function StoresPage() {
       if (!lastSaleMap[s.store_id]) lastSaleMap[s.store_id] = s.sale_date
     }
 
+    // Stock per store on this page (same rule as the store page).
+    const storeIds = storeList.map((s) => s.id)
+    const lowSettings = await loadLowStockSettings(supabase)
+    const { data: stockRows } = storeIds.length
+      ? await supabase.from('store_inventory').select('store_id, quantity_on_hand, stocked_level, plan_level').in('store_id', storeIds)
+      : { data: [] as { store_id: string; quantity_on_hand: number; stocked_level: number | null; plan_level: number | null }[] }
+    const invByStore: Record<string, StockRowFields[]> = {}
+    for (const r of stockRows ?? []) {
+      ;(invByStore[r.store_id] ??= []).push(r)
+    }
+
     setStores(
-      storeList.map((s) => ({
-        ...s,
-        pairs_mtd: pairsMap[s.id] || 0,
-        last_sale: lastSaleMap[s.id] || null,
-      }))
+      storeList.map((s) => {
+        const rows = invByStore[s.id] ?? []
+        return {
+          ...s,
+          pairs_mtd: pairsMap[s.id] || 0,
+          last_sale: lastSaleMap[s.id] || null,
+          stock: rows.length ? storeStockSummary(rows, s, lowSettings.pct) : null,
+        }
+      })
     )
     setLoading(false)
   }, [page, search, stateFilter, typeFilter, statusFilter, openerFilter, tab, fetchDrafts])
@@ -462,6 +480,7 @@ export default function StoresPage() {
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Score</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Units MTD</th>
+                <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Stock</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Last Sale</th>
                 <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
               </tr>
@@ -499,6 +518,12 @@ export default function StoresPage() {
                       </td>
                       <td className="px-4 py-3 text-right font-medium text-gray-800">
                         {store.pairs_mtd}
+                      </td>
+                      <td className="px-4 py-3 text-right text-xs text-gray-700 whitespace-nowrap">
+                        {store.stock ? formatStoreStock(store.stock) : '—'}
+                        {store.on_stock_plan && (
+                          <span className="ml-1.5 text-[10px] font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">4-month plan</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-gray-500 text-xs">
                         {store.last_sale ? formatMYDate(store.last_sale) : '—'}

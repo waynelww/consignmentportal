@@ -4,13 +4,15 @@ import { useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
-import { formatCurrency, getStockStatus } from '@/lib/utils'
+import { formatCurrency } from '@/lib/utils'
 import type { StoreInventory, Sale } from '@/types'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/components/store/StoreContext'
 
 type FilterTab = 'all' | 'in_stock' | 'low_stock' | 'out_of_stock'
 
+import { describeCode, embedded, storeStockSummary, formatStoreStock } from '@/lib/restock/low-stock'
+import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 export default function InventoryPage() {
   const { storeId } = useStore()
   const [inventory, setInventory] = useState<StoreInventory[]>([])
@@ -18,6 +20,13 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<FilterTab>('all')
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [lowPct, setLowPct] = useState(50)
+  // Store fields come embedded on each row (same store for every row).
+  const storeOf = (item: StoreInventory) => embedded(item.store as never) as { pairs_per_code: number; on_stock_plan: boolean } | null
+  const statusOf = (item: StoreInventory) => {
+    const store = storeOf(item)
+    return store ? describeCode(item, store, lowPct).status : 'in_stock'
+  }
 
   async function load() {
     if (!storeId) return
@@ -33,7 +42,7 @@ export default function InventoryPage() {
     const [invRes, salesRes] = await Promise.all([
       supabase
         .from('store_inventory')
-        .select('*, product:products(*)')
+        .select('*, product:products(*), store:stores(pairs_per_code, on_stock_plan)')
         .eq('store_id', storeId)
         .order('quantity_on_hand', { ascending: true }),
       supabase
@@ -46,6 +55,7 @@ export default function InventoryPage() {
 
     const inv = (invRes.data as StoreInventory[]) ?? []
     setInventory(inv)
+    setLowPct((await loadLowStockSettings(supabase)).pct)
 
     // Aggregate monthly sales per product
     const salesMap: Record<string, number> = {}
@@ -59,9 +69,12 @@ export default function InventoryPage() {
 
   useEffect(() => { load() }, [storeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const storeFields = inventory[0] ? storeOf(inventory[0]) : null
+  const stockSummary = storeFields ? storeStockSummary(inventory, storeFields, lowPct) : null
+
   const filtered = inventory.filter((item) => {
     if (filter === 'all') return true
-    return getStockStatus(item.quantity_on_hand, item.restock_threshold) === filter
+    return statusOf(item) === filter
   })
 
   const totalPairs = inventory.reduce((s, i) => s + i.quantity_on_hand, 0)
@@ -72,12 +85,12 @@ export default function InventoryPage() {
     {
       key: 'in_stock',
       label: 'In Stock',
-      count: inventory.filter((i) => getStockStatus(i.quantity_on_hand, i.restock_threshold) === 'in_stock').length,
+      count: inventory.filter((i) => statusOf(i) === 'in_stock').length,
     },
     {
       key: 'low_stock',
       label: 'Low Stock',
-      count: inventory.filter((i) => getStockStatus(i.quantity_on_hand, i.restock_threshold) === 'low_stock').length,
+      count: inventory.filter((i) => statusOf(i) === 'low_stock').length,
     },
     {
       key: 'out_of_stock',
@@ -131,6 +144,16 @@ export default function InventoryPage() {
       </div>
 
       {/* Grid — 3 per row for fast scanning */}
+      {stockSummary && (
+        <div className="flex items-center gap-2 text-sm mb-3">
+          <span className="text-gray-600">Stock:</span>
+          <strong className="text-[#0A0A0A]">{formatStoreStock(stockSummary)}</strong>
+          {storeFields?.on_stock_plan && (
+            <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">4-month plan</span>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <div className="grid grid-cols-3 gap-2">
           {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -148,7 +171,7 @@ export default function InventoryPage() {
       ) : (
         <div className="grid grid-cols-3 gap-2">
           {filtered.map((item) => {
-            const status = getStockStatus(item.quantity_on_hand, item.restock_threshold)
+            const status = statusOf(item)
             const unitsSold = monthlySales[item.product_id] ?? 0
 
             return (

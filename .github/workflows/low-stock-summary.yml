@@ -1,0 +1,40 @@
+name: Daily low-stock summary
+
+# Calls /api/cron/low-stock-summary at 09:00 Malaysia time every day. The
+# endpoint refreshes the 4-month plan levels and emails the operator the
+# stores needing restock. Idempotent apart from the email itself, so retries
+# only run when the request failed before sending.
+#
+# Requires repo secret: CRON_SECRET (same value as the Vercel env var).
+
+on:
+  schedule:
+    # 01:00 UTC = 09:00 Malaysia time
+    - cron: '0 1 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Call low-stock-summary endpoint (3 attempts)
+        run: |
+          set -u
+          URL="https://consignmentportal.vercel.app/api/cron/low-stock-summary"
+          for attempt in 1 2 3; do
+            echo "Attempt ${attempt}…"
+            code=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              --max-time 300 "$URL" || echo "000")
+            echo "HTTP ${code}"
+            cat /tmp/resp.json || true
+            echo ""
+            if [ "$code" = "200" ]; then
+              echo "✓ Low-stock summary sent."
+              exit 0
+            fi
+            sleep 90
+          done
+          echo "✗ All attempts failed — check Vercel logs for /api/cron/low-stock-summary."
+          exit 1

@@ -22,7 +22,6 @@ interface NotificationToggle {
 }
 
 const DEFAULT_NOTIFICATION_KEYS: Omit<NotificationToggle, 'email' | 'in_app'>[] = [
-  { key: 'notif_low_stock', label: 'Low Stock Alerts' },
   { key: 'notif_restock_request', label: 'Restock Requests' },
   { key: 'notif_do_dispatched', label: 'DO Dispatched' },
   { key: 'notif_do_delivered', label: 'DO Delivered' },

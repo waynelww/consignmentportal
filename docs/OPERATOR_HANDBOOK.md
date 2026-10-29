@@ -152,9 +152,43 @@ and ONE NINE NINE STR-019 as of 27 Oct 2026). Separate from
   request" goes through the normal Restock Queue.
 - Read-only bot endpoint: `/api/bot/restock-calc?months=2|3&store_code=`.
 
+## Low stock (stocked levels)
+
+Rule lives only in `lib/restock/low-stock.ts` (pinned by
+`npx tsx scripts/test-low-stock.ts`); plan maths stays in `wayne-calc.ts`.
+
+- **Stocked level per code.** Default = the store's `stores.pairs_per_code`
+  (set on the new-store form and the store page; default 3). An admin can
+  override one code (`store_inventory.stocked_level`, source `manual`) or
+  set every code at once ("Set all codes to N", which also clears overrides).
+  Delivery orders do not change stocked levels.
+- **4-month plan.** A store whose average monthly RM sales over the last
+  `restock_plan_avg_months` (3) is at least `restock_plan_min_monthly_sales`
+  (RM250) is on the plan (`stores.on_stock_plan`). Its total is the
+  4-month quantity from `wayne-calc.ts`, split across carried codes by sales
+  share (minimum 1 pair per code, so the total can be a pair or two over).
+  Plan levels are read-only; they refresh in the 09:00 MYT daily job, or
+  with "Recalculate plan" on the store page.
+- **Low:** `0 < on hand ≤ max(1, stocked × low_stock_pct / 100)`
+  (`low_stock_pct` = 50). **Out:** 0. **Store needs restock:** total on hand
+  below `low_stock_pct`% of total stocked, shown as "X of Y pairs (Z%)".
+- **Alerts:** no in-app, push or WhatsApp low-stock notifications. A
+  `restock_alerts` row is kept for each new low/out code (feeds the
+  dashboard). The daily email is the only alert.
+- **Daily email:** `.github/workflows/low-stock-summary.yml` calls
+  `/api/cron/low-stock-summary` at 09:00 MYT. It refreshes the plan levels,
+  then emails `low_stock_alert_email` (vaernandbk@gmail.com) through
+  Resend: stores needing restock, worst first, with their low codes.
+- Migration `supabase/migrations/20261029_low_stock_levels.sql` backfills
+  `stores.pairs_per_code` from the most common quantity on each store's
+  initial DO (ties go to the larger quantity; no initial DO → 3). It does
+  not touch `store_inventory` quantities. `restock_threshold` is no longer
+  read and can be dropped in a later migration.
+
 ## Automation inventory (GitHub Actions + webhooks)
 
 - `monthly-invoices.yml` — 1st + 2nd of month, generates commission invoices.
+- `low-stock-summary.yml` — daily 09:00 MYT low-stock email (see Low stock).
 - `nightly-backup.yml` — nightly database backup.
 - `sync-shopify-orders.yml` — every 2h, pulls Shopify orders for the
   performance dashboard.
