@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Search, Plus, Download, ChevronLeft, ChevronRight, Edit, ToggleLeft, ToggleRight, FileText, Trash2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, formatCurrency, MALAYSIAN_STATES, cn } from '@/lib/utils'
-import type { Store, StoreStatus, StoreTypeRow, StoreWithOpener } from '@/types'
+import type { StoreStatus, StoreTypeRow, StoreWithOpener } from '@/types'
 import { useXocksTeam } from '@/components/admin/useXocksTeam'
 import { toast } from 'sonner'
 
@@ -230,7 +230,7 @@ export default function StoresPage() {
   }
 
   async function exportCSV() {
-    let query = supabase.from('stores').select('*').order('store_name')
+    let query = supabase.from('stores').select('*, opened_by:xocks_team_members(name)').order('store_name')
     if (search)
       query = query.or(
         `store_name.ilike.%${search}%,pic_name.ilike.%${search}%,store_code.ilike.%${search}%,city.ilike.%${search}%`
@@ -238,6 +238,8 @@ export default function StoresPage() {
     if (stateFilter) query = query.eq('state', stateFilter)
     if (typeFilter) query = query.eq('store_type', typeFilter)
     if (statusFilter) query = query.eq('status', statusFilter)
+    if (openerFilter === 'none') query = query.is('opened_by_member_id', null)
+    else if (openerFilter) query = query.eq('opened_by_member_id', openerFilter)
 
     const { data } = await query
     if (!data || data.length === 0) {
@@ -247,9 +249,9 @@ export default function StoresPage() {
 
     const headers = [
       'Store Code', 'Store Name', 'PIC', 'Phone', 'Email', 'City', 'State',
-      'Type', 'Status', 'Performance Score', 'Commission Rate',
+      'Type', 'Status', 'Performance Score', 'Commission Rate', 'Opened by',
     ]
-    const rows = data.map((s: Store) => [
+    const rows = (data as StoreWithOpener[]).map((s) => [
       s.store_code,
       s.store_name,
       s.pic_name,
@@ -261,6 +263,7 @@ export default function StoresPage() {
       s.status,
       s.performance_score,
       s.commission_rate,
+      s.opened_by?.name ?? '',
     ])
 
     const csv = [headers, ...rows].map((r) => r.map((v) => `"${v}"`).join(',')).join('\n')
