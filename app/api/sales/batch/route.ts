@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { todayMYT } from '@/lib/sales/last-sale'
 
 function calcCommission(totalAmount: number, commissionRate: number) {
   const commission = Number((totalAmount * commissionRate / 100).toFixed(2))
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayMYT() // Malaysia day, not the UTC day
   // One transaction → one sale_group_id shared across all items
   const sale_group_id = crypto.randomUUID()
   const results = []

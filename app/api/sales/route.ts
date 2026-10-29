@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { todayMYT } from '@/lib/sales/last-sale'
 
 function calcCommission(totalAmount: number, commissionRate: number) {
   const commission = Number((totalAmount * commissionRate / 100).toFixed(2))
@@ -130,7 +131,7 @@ export async function POST(request: NextRequest) {
       payment_method,
       qr_reference: qr_reference ?? null,
       recorded_by: user.id,
-      sale_date: new Date().toISOString().split('T')[0],
+      sale_date: todayMYT(), // Malaysia day, not the UTC day
       ...(keyedInStaffId ? { store_staff_id: keyedInStaffId } : {}),
     })
     .select('id')

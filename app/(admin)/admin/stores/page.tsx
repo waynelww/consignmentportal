@@ -48,7 +48,8 @@ interface StoreRow extends StoreWithOpener {
 
 import { storeStockSummary, formatStoreStock, type StoreStockSummary, type StockRowFields } from '@/lib/restock/low-stock'
 import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
-import { fetchLastSaleDates, storeSaleAge } from '@/lib/sales/last-sale'
+import { fetchLastSaleDates, monthStartMYT, storeSaleAge } from '@/lib/sales/last-sale'
+import { fetchPairsSinceByStore } from '@/lib/sales/pairs'
 import { SaleAgeBadge } from '@/components/shared/sale-age-badge'
 export default function StoresPage() {
   const [stores, setStores] = useState<StoreRow[]>([])
@@ -148,9 +149,7 @@ export default function StoresPage() {
     const storeList = (data || []) as StoreWithOpener[]
     setTotal(count || 0)
 
-    // Get MTD sales and last sale for each store
-    const now = new Date()
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+    // Units MTD and last sale for each store (Malaysia month)
     const ids = storeList.map((s) => s.id)
 
     if (ids.length === 0) {
@@ -159,19 +158,10 @@ export default function StoresPage() {
       return
     }
 
-    const [{ data: salesData }, lastSaleMap] = await Promise.all([
-      supabase
-        .from('sales')
-        .select('store_id, quantity')
-        .in('store_id', ids)
-        .gte('sale_date', startOfMonth),
+    const [pairsMap, lastSaleMap] = await Promise.all([
+      fetchPairsSinceByStore(supabase, ids, monthStartMYT()),
       fetchLastSaleDates(supabase, ids),
     ])
-
-    const pairsMap: Record<string, number> = {}
-    for (const s of salesData || []) {
-      pairsMap[s.store_id] = (pairsMap[s.store_id] || 0) + s.quantity
-    }
 
     // Stock per store on this page (same rule as the store page).
     const storeIds = storeList.map((s) => s.id)

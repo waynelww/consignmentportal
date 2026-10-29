@@ -22,6 +22,11 @@ export function todayMYT(now: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(now)
 }
 
+/** First day of the Malaysia-time month containing `today`, as YYYY-MM-DD. */
+export function monthStartMYT(today: string = todayMYT()): string {
+  return `${today.slice(0, 8)}01`
+}
+
 /** Whole calendar days from one YYYY-MM-DD date to another (to − from). */
 export function daysBetween(fromDate: string, toDate: string): number {
   const ms = Date.parse(`${toDate}T00:00:00Z`) - Date.parse(`${fromDate}T00:00:00Z`)
