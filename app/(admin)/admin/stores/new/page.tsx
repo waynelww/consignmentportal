@@ -34,7 +34,7 @@ const step1Schema = z.object({
 
 const step2Schema = z.object({
   commission_rate: z.number().min(1).max(100),
-  restock_threshold: z.number().min(1),
+  pairs_per_code: z.number().int().min(1).max(999),
   payment_terms_days: z.number().int().min(1).max(365),
 })
 
@@ -198,7 +198,7 @@ function NewStorePage() {
   // Step 2 form
   const form2 = useForm<Step2Data>({
     resolver: zodResolver(step2Schema),
-    defaultValues: { commission_rate: 30, restock_threshold: 6, payment_terms_days: 7 },
+    defaultValues: { commission_rate: 30, pairs_per_code: 3, payment_terms_days: 7 },
   })
   // Step 3 form
   const form3 = useForm<Step3Data>({
@@ -357,7 +357,7 @@ function NewStorePage() {
         body: JSON.stringify({
           ...step1Data,
           commission_rate: step2Data.commission_rate,
-          restock_threshold: step2Data.restock_threshold,
+          pairs_per_code: step2Data.pairs_per_code,
           payment_terms_days: step2Data.payment_terms_days,
           initial_inventory: selections
             .filter((s) => s.selected)
@@ -814,13 +814,13 @@ Welcome aboard! 🧦`
                 <FieldError message={form2.formState.errors.commission_rate?.message} />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600 block mb-1">Restock Threshold (per SKU)</label>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Pairs per code (stocked level)</label>
                 <input
                   type="number"
-                  {...form2.register('restock_threshold', { valueAsNumber: true })}
+                  {...form2.register('pairs_per_code', { valueAsNumber: true })}
                   className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
                 />
-                <FieldError message={form2.formState.errors.restock_threshold?.message} />
+                <FieldError message={form2.formState.errors.pairs_per_code?.message} />
               </div>
             </div>
 

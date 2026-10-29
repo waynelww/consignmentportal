@@ -61,6 +61,8 @@ function exportSalesByStaffCSV(groups: StoreStaffReport[], filename: string) {
   URL.revokeObjectURL(url)
 }
 
+import { describeCode, embedded } from '@/lib/restock/low-stock'
+import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState<ReportTab>('sales')
   const supabase = createClient()
@@ -196,9 +198,10 @@ export default function ReportsPage() {
 
   const fetchInventory = useCallback(async () => {
     setInvLoading(true)
+    const lowPct = (await loadLowStockSettings(supabase)).pct
     const { data } = await supabase
       .from('store_inventory')
-      .select('product_id, quantity_on_hand, restock_threshold, store_id, products(sku, name, category)')
+      .select('product_id, quantity_on_hand, stocked_level, plan_level, store_id, products(sku, name, category), stores:store_id(pairs_per_code, on_stock_plan)')
 
     const productMap: Record<string, {
       sku: string; name: string; category: string;
@@ -214,7 +217,8 @@ export default function ReportsPage() {
       productMap[pid].total += inv.quantity_on_hand
       productMap[pid].stores++
       if (inv.quantity_on_hand === 0) productMap[pid].zero_stores++
-      if (inv.quantity_on_hand <= inv.restock_threshold) productMap[pid].below_threshold++
+      const invStore = embedded(inv.stores as never) as { pairs_per_code: number; on_stock_plan: boolean } | null
+      if (invStore && describeCode(inv, invStore, lowPct).status !== 'in_stock') productMap[pid].below_threshold++
     }
 
     setInvData(Object.values(productMap).sort((a, b) => b.zero_stores - a.zero_stores))

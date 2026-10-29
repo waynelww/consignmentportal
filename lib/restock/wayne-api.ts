@@ -34,7 +34,7 @@ export async function listActiveStores(db?: SupabaseClient) {
 }
 
 // PostgREST caps responses (1000 rows by default) — page through.
-async function fetchAll<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+export async function fetchAll<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
   const size = 1000
   const out: T[] = []
   for (let from = 0; ; from += size) {

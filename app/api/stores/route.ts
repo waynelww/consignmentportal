@@ -24,6 +24,7 @@ const CreateStoreSchema = z.object({
   bank_account_number: z.string().optional(),
   bank_account_name: z.string().optional(),
   commission_rate: z.number().min(0).max(100).default(30),
+  pairs_per_code: z.number().int().min(1).max(999).default(3),
   payment_terms_days: z.number().int().min(1).max(365).optional().default(7),
   notes: z.string().optional(),
   // Who at Xocks opened the store. Required for new stores (the shared admin
@@ -32,7 +33,6 @@ const CreateStoreSchema = z.object({
   initial_inventory: z.array(z.object({
     product_id: z.string().uuid(),
     quantity: z.number().int().nonnegative(),
-    restock_threshold: z.number().int().nonnegative().default(5),
   })).optional().default([]),
 })
 
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     store_name, pic_name, pic_phone, email, password,
     address, city, state, postcode, store_type,
     bank_name, bank_account_number, bank_account_name,
-    commission_rate, payment_terms_days, notes, initial_inventory, opened_by_member_id,
+    commission_rate, payment_terms_days, notes, initial_inventory, opened_by_member_id, pairs_per_code,
   } = parsed.data
 
   const { data: opener } = await supabase
@@ -98,6 +98,7 @@ export async function POST(request: NextRequest) {
           pic_name,
           pic_phone,
           email,
+          pairs_per_code,
           address,
           city,
           state,
@@ -156,7 +157,6 @@ export async function POST(request: NextRequest) {
       store_id: newStore.id,
       product_id: item.product_id,
       quantity_on_hand: item.quantity,
-      restock_threshold: item.restock_threshold,
     }))
 
     const { error: invErr } = await supabase.from('store_inventory').insert(inventoryRows)

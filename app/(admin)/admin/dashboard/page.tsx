@@ -75,6 +75,8 @@ interface ActivityItem {
   payment_method: string
 }
 
+import { describeCode, embedded } from '@/lib/restock/low-stock'
+import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 export default function DashboardPage() {
   const [kpis, setKpis] = useState<DashboardKPIs | null>(null)
   const [trend, setTrend] = useState<SalesTrendPoint[]>([])
@@ -106,10 +108,10 @@ export default function DashboardPage() {
         .from('commission_periods')
         .select('commission_amount')
         .in('status', ['pending', 'approved']),
+      // Low Stock card: codes low or out under the low-stock rule (active stores only).
       supabase
-        .from('restock_alerts')
-        .select('id', { count: 'exact' })
-        .eq('status', 'pending'),
+        .from('store_inventory')
+        .select('quantity_on_hand, stocked_level, plan_level, store:stores(pairs_per_code, on_stock_plan, status)'),
       supabase
         .from('restock_requests')
         .select('id', { count: 'exact' })
@@ -150,12 +152,20 @@ export default function DashboardPage() {
       0
     )
 
+    const lowSettings = await loadLowStockSettings(supabase)
+    let lowStockCount = 0
+    for (const row of (lowStockRes.data ?? []) as { quantity_on_hand: number; stocked_level: number | null; plan_level: number | null; store: { pairs_per_code: number; on_stock_plan: boolean; status: string } | null }[]) {
+      const store = embedded(row.store as never) as { pairs_per_code: number; on_stock_plan: boolean; status: string } | null
+      if (!store || store.status !== 'active') continue
+      if (describeCode(row, store, lowSettings.pct).status !== 'in_stock') lowStockCount++
+    }
+
     setKpis({
       active_stores: storesRes.count || 0,
       total_sales_mtd: totalPairs,
       revenue_mtd: revenueMTD,
       commissions_due: commissionsDue,
-      low_stock_alerts: lowStockRes.count || 0,
+      low_stock_alerts: lowStockCount,
       pending_restocks: pendingRestocksRes.count || 0,
       dos_in_transit: dosRes.count || 0,
       at_risk_stores: atRiskRes.count || 0,

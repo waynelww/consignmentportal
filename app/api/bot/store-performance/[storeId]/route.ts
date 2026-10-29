@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 // GET /api/bot/store-performance/[storeId]
 // Returns: 30/60/90-day sales trend, sell-through, restock cadence, top SKUs, current stock
+import { describeCode, embedded } from '@/lib/restock/low-stock'
+import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ storeId: string }> },
@@ -32,7 +34,7 @@ export async function GET(
 
   const { data: inventory } = await supabase
     .from('store_inventory')
-    .select('quantity_on_hand, restock_threshold, last_restocked_at, products:product_id ( sku, name )')
+    .select('quantity_on_hand, stocked_level, plan_level, last_restocked_at, products:product_id ( sku, name )')
     .eq('store_id', storeId)
 
   const { data: restocks } = await supabase
@@ -76,7 +78,11 @@ export async function GET(
   // Stock + sell-through
   const stockRows = inventory ?? []
   const totalOnHand = stockRows.reduce((s, r) => s + r.quantity_on_hand, 0)
-  const belowThreshold = stockRows.filter((r) => r.quantity_on_hand <= r.restock_threshold).length
+  const storeRow = await supabase.from('stores').select('pairs_per_code, on_stock_plan').eq('id', storeId).maybeSingle()
+  const lowSettings = await loadLowStockSettings(supabase)
+  const belowThreshold = storeRow.data
+    ? stockRows.filter((r) => describeCode(r, storeRow.data as { pairs_per_code: number; on_stock_plan: boolean }, lowSettings.pct).status !== 'in_stock').length
+    : 0
 
   // Restock cadence (avg days between dispatches)
   const restockDates = (restocks ?? []).map((r) => r.dispatch_date).filter(Boolean) as string[]

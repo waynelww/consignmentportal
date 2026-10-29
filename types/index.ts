@@ -69,6 +69,10 @@ export interface Store {
   id: string
   store_code: string
   store_name: string
+  pairs_per_code: number // default stocked level per code
+  on_stock_plan: boolean
+  avg_monthly_sales: number | null
+  plan_updated_at: string | null
   pic_name: string
   pic_phone: string
   email: string | null
@@ -130,7 +134,10 @@ export interface StoreInventory {
   store_id: string
   product_id: string
   quantity_on_hand: number
-  restock_threshold: number
+  restock_threshold: number // legacy: no longer read, see lib/restock/low-stock.ts
+  stocked_level: number | null // per-code manual override; null = store's pairs_per_code
+  stocked_level_source: 'manual' | null
+  plan_level: number | null // 4-month plan level, set for stores on the plan
   last_restocked_at: string | null
   created_at: string
   updated_at: string

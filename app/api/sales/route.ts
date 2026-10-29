@@ -17,6 +17,8 @@ const RecordSaleSchema = z.object({
   store_staff_id: z.string().uuid().optional().nullable(),
 })
 
+import { describeCode, embedded } from '@/lib/restock/low-stock'
+import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -55,7 +57,7 @@ export async function POST(request: NextRequest) {
   // Fetch inventory
   const { data: inventory, error: invErr } = await supabase
     .from('store_inventory')
-    .select('id, quantity_on_hand, restock_threshold')
+    .select('id, quantity_on_hand, stocked_level, plan_level, stores:store_id(pairs_per_code, on_stock_plan)')
     .eq('store_id', store_id)
     .eq('product_id', product_id)
     .single()
@@ -161,53 +163,28 @@ export async function POST(request: NextRequest) {
     created_by: user.id,
   })
 
-  // Check restock threshold
-  if (new_quantity_on_hand <= inventory.restock_threshold) {
-    // Check for existing pending restock_alert
-    const { data: existingAlert } = await supabase
-      .from('restock_alerts')
-      .select('id')
-      .eq('store_id', store_id)
-      .eq('product_id', product_id)
-      .eq('status', 'pending')
-      .maybeSingle()
-
-    if (!existingAlert) {
-      const { data: newAlert } = await supabase
+  // Low-stock check (lib/restock/low-stock.ts). A restock_alerts row feeds the
+  // dashboard; no notifications go to stores or admins (the daily email is the alert).
+  const lowStore = embedded(inventory.stores as never)
+  if (lowStore) {
+    const lowSettings = await loadLowStockSettings(supabase)
+    const low = describeCode({ quantity_on_hand: new_quantity_on_hand, stocked_level: inventory.stocked_level, plan_level: inventory.plan_level }, lowStore, lowSettings.pct)
+    if (low.status !== 'in_stock') {
+      const { data: existingAlert } = await supabase
         .from('restock_alerts')
-        .insert({
+        .select('id')
+        .eq('store_id', store_id)
+        .eq('product_id', product_id)
+        .eq('status', 'pending')
+        .maybeSingle()
+
+      if (!existingAlert) {
+        await supabase.from('restock_alerts').insert({
           store_id,
           product_id,
           current_quantity: new_quantity_on_hand,
-          threshold_quantity: inventory.restock_threshold,
+          threshold_quantity: Math.floor(low.threshold),
           status: 'pending',
-        })
-        .select('id')
-        .single()
-
-      if (newAlert) {
-        // Notify ops_manager role
-        await supabase.from('notifications').insert({
-          recipient_role: 'ops_manager',
-          recipient_store_id: null,
-          type: 'low_stock_alert',
-          title: 'Low Stock Alert',
-          message: `Store ${store_id} has low stock for product ${product_id} (${new_quantity_on_hand} remaining)`,
-          reference_id: newAlert.id,
-          reference_type: 'restock_alert',
-          is_read: false,
-        })
-
-        // Notify the store itself
-        await supabase.from('notifications').insert({
-          recipient_role: null,
-          recipient_store_id: store_id,
-          type: 'low_stock_alert',
-          title: 'Low Stock Alert',
-          message: `Your store has low stock for product ${product_id} (${new_quantity_on_hand} remaining)`,
-          reference_id: newAlert.id,
-          reference_type: 'restock_alert',
-          is_read: false,
         })
       }
     }

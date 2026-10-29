@@ -2,6 +2,8 @@ import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { cachedAdminJson } from '@/lib/cache'
 
+import { describeCode, embedded } from '@/lib/restock/low-stock'
+import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 export async function GET(_request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -18,6 +20,7 @@ export async function GET(_request: NextRequest) {
     return Response.json({ error: 'Forbidden: admin only' }, { status: 403 })
   }
 
+  const lowSettings = await loadLowStockSettings(supabase)
   // Full inventory snapshot across all stores
   const { data: inventory, error } = await supabase
     .from('store_inventory')
@@ -26,25 +29,20 @@ export async function GET(_request: NextRequest) {
       store_id,
       product_id,
       quantity_on_hand,
-      restock_threshold,
+      stocked_level,
+      plan_level,
       last_restocked_at,
       updated_at,
       products:product_id ( id, sku, name, category, color, selling_price, is_active ),
-      stores:store_id ( id, store_code, store_name, city, state, status )
+      stores:store_id ( id, store_code, store_name, city, state, status, pairs_per_code, on_stock_plan )
     `)
     .order('store_id', { ascending: true })
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
   const snapshot = (inventory ?? []).map((item) => {
-    let stock_status: 'in_stock' | 'low_stock' | 'out_of_stock'
-    if (item.quantity_on_hand <= 0) {
-      stock_status = 'out_of_stock'
-    } else if (item.quantity_on_hand <= item.restock_threshold) {
-      stock_status = 'low_stock'
-    } else {
-      stock_status = 'in_stock'
-    }
+    const store = embedded(item.stores as never) as { pairs_per_code: number; on_stock_plan: boolean } | null
+    const stock_status = store ? describeCode(item, store, lowSettings.pct).status : 'in_stock'
     return { ...item, stock_status }
   })
 

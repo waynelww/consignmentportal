@@ -48,6 +48,8 @@ const EXTERNAL_IN = '__external_in__'  // new stock arriving from outside the tr
 const EXTERNAL_OUT = '__external_out__' // stock leaving the tracked system (written off, sample, etc.)
 const ADD_NEW = '__add_new__' // opens the inline "add a new location" form
 
+import { describeCode, embedded } from '@/lib/restock/low-stock'
+import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 export default function StockPage() {
   const [rows, setRows] = useState<ProductStockRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -78,7 +80,7 @@ export default function StockPage() {
 
     const [{ data: productsData }, { data: invData }, { data: locations }] = await Promise.all([
       supabase.from('products').select('*').eq('is_active', true).order('sku'),
-      supabase.from('store_inventory').select('*, store:stores(id, store_name, city)'),
+      supabase.from('store_inventory').select('*, store:stores(id, store_name, city, pairs_per_code, on_stock_plan)'),
       supabase.from('stock_locations').select('id, name, type').eq('is_active', true),
     ])
 
@@ -120,8 +122,9 @@ export default function StockPage() {
     type InvRow = {
       product_id: string
       quantity_on_hand: number
-      restock_threshold: number
-      store: { id: string; store_name: string; city: string } | null
+      stocked_level: number | null
+      plan_level: number | null
+      store: { id: string; store_name: string; city: string; pairs_per_code: number; on_stock_plan: boolean } | null
     }
     const inventory = (invData || []) as InvRow[]
 
@@ -139,13 +142,15 @@ export default function StockPage() {
       }
     }
 
+    const lowPct = (await loadLowStockSettings(supabase)).pct
     const lowStoreSet = new Set<string>()
     for (const inv of inventory) {
       const row = productMap[inv.product_id]
       if (!row) continue
       row.total_deployed += inv.quantity_on_hand
       if (inv.quantity_on_hand > 0) row.stores_stocking++
-      if (inv.quantity_on_hand <= inv.restock_threshold) {
+      const low = inv.store ? describeCode(inv, inv.store, lowPct) : null
+      if (low && low.status !== 'in_stock') {
         row.low_stock_stores++
         if (inv.store?.id) lowStoreSet.add(inv.store.id)
       }
@@ -155,7 +160,7 @@ export default function StockPage() {
           store_name: inv.store.store_name,
           city: inv.store.city,
           quantity_on_hand: inv.quantity_on_hand,
-          threshold: inv.restock_threshold,
+          threshold: low ? Math.floor(low.threshold) : 0,
         })
       }
     }

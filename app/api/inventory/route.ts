@@ -2,6 +2,8 @@ import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 
+import { describeCode, embedded } from '@/lib/restock/low-stock'
+import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -30,22 +32,18 @@ export async function GET(request: NextRequest) {
     .from('store_inventory')
     .select(`
       *,
-      products:product_id ( id, sku, name, category, color, selling_price, is_active )
+      products:product_id ( id, sku, name, category, color, selling_price, is_active ),
+      stores:store_id ( pairs_per_code, on_stock_plan )
     `)
     .eq('store_id', store_id)
     .order('created_at', { ascending: false })
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
+  const lowSettings = await loadLowStockSettings(supabase)
   const inventory = (data ?? []).map((item) => {
-    let status: 'in_stock' | 'low_stock' | 'out_of_stock'
-    if (item.quantity_on_hand <= 0) {
-      status = 'out_of_stock'
-    } else if (item.quantity_on_hand <= item.restock_threshold) {
-      status = 'low_stock'
-    } else {
-      status = 'in_stock'
-    }
+    const store = embedded(item.stores as never) as { pairs_per_code: number; on_stock_plan: boolean } | null
+    const status = store ? describeCode(item, store, lowSettings.pct).status : 'in_stock'
     return { ...item, status }
   })
 

@@ -139,6 +139,7 @@ export interface WayneResult {
   history_months: number | null // (last − first sale days) ÷ 30.4, 1 dp
   months: BlockResult[]
   pairs_per_month: number | null // 1 dp
+  avg_monthly_sales: number | null // RM per month over the period (total_amount ÷ months covered), 2 dp
   target_stock: number | null
   restock_trigger: number | null
   on_hand: number
@@ -248,6 +249,7 @@ export function calcStore(input: WayneInput): WayneResult {
       status: 'not_enough_history',
       months: [],
       pairs_per_month: null,
+      avg_monthly_sales: null,
       target_stock: null,
       restock_trigger: null,
       pairs_to_send: null,
@@ -265,6 +267,7 @@ export function calcStore(input: WayneInput): WayneResult {
   const inPeriod = input.sales.filter((x) => x.sale_date >= start && x.sale_date <= end)
   const totalPairs = inPeriod.reduce((a, x) => a + pairsOf(x), 0)
   const avg = totalPairs / monthsCovered
+  const totalRm = inPeriod.reduce((a, x) => a + (Number(x.total_amount) || 0), 0)
 
   // One-month blocks ending on the last sale; blocks wholly before the
   // first sale are dropped, the one containing it is shown as partial.
@@ -328,6 +331,7 @@ export function calcStore(input: WayneInput): WayneResult {
     status: onHand < trigger ? 'restock_now' : 'stock_ok',
     months: blocks,
     pairs_per_month: round1(avg),
+    avg_monthly_sales: round2(totalRm / monthsCovered),
     target_stock: target,
     restock_trigger: trigger,
     pairs_to_send: skus.reduce((a, b) => a + b.send, 0),
@@ -335,6 +339,26 @@ export function calcStore(input: WayneInput): WayneResult {
     skus,
     sold_not_in_inventory,
   }
+}
+
+/**
+ * Split a total (e.g. a store's 4-month stocked level) across the given ids in
+ * proportion to their weights, using largest remainder so the parts add up to
+ * exactly `total`. With no weight at all the split is equal.
+ */
+export function allocateByShare(total: number, weights: Map<string, number>, ids: string[]): Map<string, number> {
+  const out = new Map<string, number>()
+  if (ids.length === 0) return out
+  const weightSum = ids.reduce((a, id) => a + (weights.get(id) ?? 0), 0)
+  const w = (id: string) => (weightSum > 0 ? (weights.get(id) ?? 0) : 1)
+  const wTotal = weightSum > 0 ? weightSum : ids.length
+  const exact = ids.map((id) => ({ id, base: Math.floor((total * w(id)) / wTotal), frac: ((total * w(id)) / wTotal) % 1 }))
+  let left = total - exact.reduce((a, x) => a + x.base, 0)
+  for (const x of [...exact].sort((a, b) => b.frac - a.frac || a.id.localeCompare(b.id))) {
+    if (left > 0) { x.base += 1; left -= 1 }
+  }
+  for (const x of exact) out.set(x.id, x.base)
+  return out
 }
 
 /** Parse settings rows ({key, value}) into WayneSettings, falling back to defaults. */

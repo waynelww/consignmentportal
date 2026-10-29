@@ -12,10 +12,14 @@ interface RequestItem {
   inventoryItem: StoreInventory
   included: boolean
   requestQty: number
+  low: boolean // at or below the low-stock level (lib/restock/low-stock.ts)
+  threshold: number // low when on hand is at or below this
 }
 
 type PageStep = 'review' | 'success'
 
+import { describeCode, embedded } from '@/lib/restock/low-stock'
+import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 export default function RestockRequestPage() {
   const { storeId } = useStore()
   const [items, setItems] = useState<RequestItem[]>([])
@@ -32,20 +36,25 @@ export default function RestockRequestPage() {
       // storeId from context — no auth waterfall needed
       const { data: invData } = await supabase
         .from('store_inventory')
-        .select('*, product:products(*)')
+        .select('*, product:products(*), store:stores(pairs_per_code, on_stock_plan)')
         .eq('store_id', storeId!)
         .order('quantity_on_hand', { ascending: true })
 
       const inv = (invData as StoreInventory[]) ?? []
 
+      const lowSettings = await loadLowStockSettings(supabase)
       const requestItems: RequestItem[] = inv.map((item) => {
-        const belowThreshold = item.quantity_on_hand < item.restock_threshold
+        const store = embedded(item.store as never)
+        const low = store ? describeCode(item, store, lowSettings.pct) : null
+        const belowThreshold = low !== null && low.status !== 'in_stock'
         // Default: target is 24 pairs, minimum request
         const defaultQty = Math.max(0, 24 - item.quantity_on_hand)
         return {
           inventoryItem: item,
           included: belowThreshold,
           requestQty: defaultQty > 0 ? defaultQty : 12,
+          low: belowThreshold,
+          threshold: low ? Math.floor(low.threshold) : 0,
         }
       })
 
@@ -172,7 +181,7 @@ export default function RestockRequestPage() {
           <div className="space-y-3">
             {items.map((item) => {
               const inv = item.inventoryItem
-              const belowThresh = inv.quantity_on_hand < inv.restock_threshold
+              const belowThresh = item.low
               return (
                 <div
                   key={inv.product_id}
@@ -209,7 +218,7 @@ export default function RestockRequestPage() {
                         )}
                       </div>
                       <p className="text-xs text-gray-400 mt-0.5">
-                        {inv.product?.sku} · In stock: <strong className="text-gray-600">{inv.quantity_on_hand}</strong> · Threshold: {inv.restock_threshold}
+                        {inv.product?.sku} · In stock: <strong className="text-gray-600">{inv.quantity_on_hand}</strong> · Low at {item.threshold} or fewer
                       </p>
                     </div>
                   </div>

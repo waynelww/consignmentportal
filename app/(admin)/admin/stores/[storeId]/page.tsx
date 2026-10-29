@@ -1,5 +1,7 @@
 'use client'
 
+import { describeCode, storeStockSummary, formatStoreStock, DEFAULT_PAIRS_PER_CODE } from '@/lib/restock/low-stock'
+import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
@@ -146,6 +148,8 @@ function EditField({ label, value, onChange, type = 'text', options }: {
 
 // Store row plus the "Opened by" name (the FK join; null when not recorded)
 const STORE_WITH_OPENER = '*, opened_by:xocks_team_members(name)'
+// Stand-in while the store is loading, so describeCode always has fields to read.
+const NO_STORE = { pairs_per_code: DEFAULT_PAIRS_PER_CODE, on_stock_plan: false }
 
 export default function StoreDetailPage() {
   const params = useParams<{ storeId: string }>()
@@ -200,6 +204,12 @@ export default function StoreDetailPage() {
   // All names, including hidden ones, so an existing store's opener always shows
   const team = useXocksTeam({ includeHidden: true })
   const [savingEdit, setSavingEdit] = useState(false)
+  // Low-stock: pct setting, unsaved per-code override drafts, plan recalc
+  const [lowPct, setLowPct] = useState(50)
+  const [levelDraft, setLevelDraft] = useState<Record<string, string>>({})
+  const [savingLevels, setSavingLevels] = useState(false)
+  const [allCodesLevel, setAllCodesLevel] = useState('')
+  const [recalcing, setRecalcing] = useState(false)
   const supabase = createClient()
 
   function setTab(tab: Tab) {
@@ -216,6 +226,7 @@ export default function StoreDetailPage() {
         setStore(data as StoreWithOpener)
         setNotes(data.notes || '')
       }
+      setLowPct((await loadLowStockSettings(supabase)).pct)
       setLoading(false)
     }
     load()
@@ -311,6 +322,82 @@ export default function StoreDetailPage() {
       .order('period_year', { ascending: false })
       .order('period_month', { ascending: false })
     setCommissions((data || []) as CommissionPeriod[])
+  }
+
+  async function refreshStore() {
+    const { data } = await supabase.from('stores').select(STORE_WITH_OPENER).eq('id', storeId).single()
+    if (data) setStore(data as StoreWithOpener)
+  }
+
+  // Per-code overrides for non-plan stores. A blank field clears the override.
+  async function saveLevels() {
+    const overrides = Object.entries(levelDraft).map(([id, raw]) => ({
+      id,
+      level: raw.trim() === '' ? null : Number(raw),
+    }))
+    if (overrides.some((o) => o.level !== null && (!Number.isInteger(o.level) || o.level < 0))) {
+      toast.error('Levels must be whole numbers, 0 or more')
+      return
+    }
+    setSavingLevels(true)
+    const res = await fetch(`/api/stores/${storeId}/levels`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ overrides }),
+    })
+    setSavingLevels(false)
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}))
+      toast.error(j.error ?? 'Failed to save levels')
+      return
+    }
+    toast.success('Stocked levels saved')
+    setLevelDraft({})
+    loadInventory()
+  }
+
+  // "Set all codes to N": sets the store's pairs per code and clears every per-code override.
+  async function applyAllLevels() {
+    const n = Number(allCodesLevel)
+    if (!Number.isInteger(n) || n < 1) {
+      toast.error('Enter a whole number, 1 or more')
+      return
+    }
+    if (!window.confirm(`Set every code at this store to ${n} pairs? This clears all per-code overrides.`)) return
+    setSavingLevels(true)
+    const res = await fetch(`/api/stores/${storeId}/levels`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pairs_per_code: n, clear_overrides: true }),
+    })
+    setSavingLevels(false)
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}))
+      toast.error(j.error ?? 'Failed to set levels')
+      return
+    }
+    toast.success(`All codes set to ${n}`)
+    setAllCodesLevel('')
+    setLevelDraft({})
+    await refreshStore()
+    loadInventory()
+  }
+
+  async function recalcPlan() {
+    setRecalcing(true)
+    const res = await fetch('/api/restock/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ store_ids: [storeId] }),
+    })
+    setRecalcing(false)
+    if (!res.ok) {
+      toast.error('Plan recalculation failed')
+      return
+    }
+    toast.success('Plan recalculated')
+    await refreshStore()
+    loadInventory()
   }
 
   async function saveNotes() {
@@ -634,6 +721,7 @@ export default function StoreDetailPage() {
                       </div>
                       <EditField label="State" value={editFields.state ?? ''} onChange={(v) => setEditFields(f => ({ ...f, state: v }))} options={stateOptions} />
                       <EditField label="Commission Rate (%)" value={editFields.commission_rate ?? 30} onChange={(v) => setEditFields(f => ({ ...f, commission_rate: Number(v) }))} type="number" />
+                      <EditField label="Pairs per code (default stocked level)" value={editFields.pairs_per_code ?? store.pairs_per_code} onChange={(v) => setEditFields(f => ({ ...f, pairs_per_code: Number(v) }))} type="number" />
                       <EditField
                         label="Payment Terms (days)"
                         value={editFields.payment_terms_days ?? 7}
@@ -658,6 +746,8 @@ export default function StoreDetailPage() {
                         ['State', store.state],
                         ['Postcode', store.postcode],
                         ['Commission Rate', `${store.commission_rate}%`],
+                        ['Pairs per code', String(store.pairs_per_code)],
+                        ['Stock plan', store.on_stock_plan ? `4-month plan (avg RM ${store.avg_monthly_sales ?? '—'}/mo)` : 'Off: pairs per code'],
                         ['Payment Terms', store.payment_terms_days ? `${store.payment_terms_days} working days` : '7 working days (default)'],
                       ].map(([label, value]) => (
                         <div key={label} className="flex gap-2">
@@ -759,6 +849,7 @@ export default function StoreDetailPage() {
             const totalSold = sortedInv.reduce((s, i) => s + (invSoldMap[i.product_id] ?? 0), 0)
             const totalInbound = sortedInv.reduce((s, i) => s + (invInboundMap[i.product_id] ?? 0), 0)
             const totalOnHand = sortedInv.reduce((s, i) => s + i.quantity_on_hand, 0)
+            const stockSummary = store ? storeStockSummary(inventory, store, lowPct) : null
 
             return (
               <div className="space-y-4">
@@ -845,6 +936,59 @@ export default function StoreDetailPage() {
                   </div>
                 )}
 
+                {/* Stocked levels: store summary, pairs per code, per-code overrides, 4-month plan */}
+                <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="text-gray-600">Stock:</span>
+                    <strong className="text-gray-900">{stockSummary ? formatStoreStock(stockSummary) : '—'}</strong>
+                    {store?.on_stock_plan && (
+                      <>
+                        <span className="text-[11px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">4-month plan</span>
+                        <button
+                          onClick={recalcPlan}
+                          disabled={recalcing}
+                          className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          {recalcing ? 'Recalculating…' : 'Recalculate plan'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {store?.on_stock_plan ? (
+                    <p className="text-xs text-gray-500">
+                      Each code&apos;s stocked level comes from the 4-month plan (sales share of the total). Per-code overrides are off for this store.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap items-end gap-2 text-sm">
+                      <span className="text-gray-600">Pairs per code: <strong>{store?.pairs_per_code}</strong> (edit in Overview)</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={1}
+                          value={allCodesLevel}
+                          onChange={(e) => setAllCodesLevel(e.target.value)}
+                          placeholder="N"
+                          className="w-16 px-2 py-1 text-sm border border-gray-200 rounded-lg"
+                        />
+                        <button
+                          onClick={applyAllLevels}
+                          disabled={savingLevels || !allCodesLevel}
+                          className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Set all codes to N
+                        </button>
+                      </div>
+                      <button
+                        onClick={saveLevels}
+                        disabled={savingLevels || Object.keys(levelDraft).length === 0}
+                        className="text-xs px-3 py-1.5 bg-[#0A0A0A] text-[#FFD700] rounded-lg disabled:opacity-40"
+                      >
+                        {savingLevels ? 'Saving…' : `Save overrides${Object.keys(levelDraft).length ? ` (${Object.keys(levelDraft).length})` : ''}`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {/* Table */}
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -862,6 +1006,7 @@ export default function StoreDetailPage() {
                         <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Product</th>
                         <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">SKU</th>
                         <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">On Hand</th>
+                        <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Stocked</th>
                         <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 bg-blue-50/60">
                           Sold ({PERIOD_LABELS[invPeriod]})
                         </th>
@@ -876,11 +1021,11 @@ export default function StoreDetailPage() {
                     <tbody>
                       {sortedInv.map((inv) => {
                         const qty = inv.quantity_on_hand
-                        const thr = inv.restock_threshold
+                        const low = describeCode(inv, store ?? NO_STORE, lowPct)
                         const sold = invSoldMap[inv.product_id] ?? 0
                         const inbound = invInboundMap[inv.product_id] ?? 0
                         const velocity = sold / days
-                        const status = qty === 0 ? 'Out' : qty <= thr ? 'Low' : 'OK'
+                        const status = low.status === 'out_of_stock' ? 'Out' : low.status === 'low_stock' ? 'Low' : 'OK'
                         const statusColor =
                           status === 'Out' ? 'bg-red-100 text-red-700' :
                           status === 'Low' ? 'bg-amber-100 text-amber-700' :
@@ -917,6 +1062,21 @@ export default function StoreDetailPage() {
                                   ~{daysLeft}d left
                                 </div>
                               )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              {store?.on_stock_plan ? (
+                                <span className="font-semibold text-gray-700">{low.stocked}</span>
+                              ) : (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  placeholder={String(store?.pairs_per_code ?? '')}
+                                  value={levelDraft[inv.id] ?? (inv.stocked_level ?? '')}
+                                  onChange={(e) => setLevelDraft((d) => ({ ...d, [inv.id]: e.target.value }))}
+                                  className="w-16 px-2 py-1 text-right text-sm border border-gray-200 rounded-lg"
+                                />
+                              )}
+                              <div className="text-[10px] text-gray-400">low at ≤ {Math.floor(low.threshold)}</div>
                             </td>
                             <td className="py-2.5 px-3 text-right bg-blue-50/30">
                               {invAnalyticsLoading ? (

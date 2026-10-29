@@ -1,5 +1,7 @@
 'use client'
 
+import { describeCode, embedded } from '@/lib/restock/low-stock'
+import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 export const dynamic = 'force-dynamic'
 
 import { useEffect, useState, useCallback, useMemo } from 'react'
@@ -118,21 +120,28 @@ export default function DeliveryOrdersPage() {
     setLoadingUnderstocked(true)
     supabase
       .from('store_inventory')
-      .select('product_id, quantity_on_hand, restock_threshold, product:products(sku, name)')
+      .select('product_id, quantity_on_hand, stocked_level, plan_level, product:products(sku, name), store:stores(pairs_per_code, on_stock_plan)')
       .eq('store_id', createStore)
-      .then(({ data, error }) => {
+      .then(async ({ data, error }) => {
         if (error || !data) { setUnderstocked([]); return }
-        type Row = { product_id: string; quantity_on_hand: number; restock_threshold: number; product: { sku: string; name: string } | null }
+        const lowSettings = await loadLowStockSettings(supabase)
+        type Row = { product_id: string; quantity_on_hand: number; stocked_level: number | null; plan_level: number | null; product: { sku: string; name: string } | null; store: { pairs_per_code: number; on_stock_plan: boolean } | null }
         const items = (data as unknown as Row[])
-          .filter((r) => r.quantity_on_hand <= r.restock_threshold)
-          .map((r) => ({
-            product_id: r.product_id,
-            sku: r.product?.sku ?? '—',
-            name: r.product?.name ?? 'Unknown product',
-            quantity_on_hand: r.quantity_on_hand,
-            threshold: r.restock_threshold,
-            suggested_qty: suggestQty(r.restock_threshold),
-          }))
+          .flatMap((r) => {
+            const store = embedded(r.store)
+            if (!store) return []
+            const low = describeCode(r, store, lowSettings.pct)
+            if (low.status === 'in_stock') return []
+            const threshold = Math.floor(low.threshold)
+            return [{
+              product_id: r.product_id,
+              sku: r.product?.sku ?? '—',
+              name: r.product?.name ?? 'Unknown product',
+              quantity_on_hand: r.quantity_on_hand,
+              threshold,
+              suggested_qty: suggestQty(threshold),
+            }]
+          })
           .sort((a, b) => a.quantity_on_hand - b.quantity_on_hand)
         setUnderstocked(items)
       })

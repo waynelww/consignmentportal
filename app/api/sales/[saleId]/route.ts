@@ -78,7 +78,7 @@ export async function PATCH(
   // Fetch current inventory
   const { data: inv, error: invErr } = await supabase
     .from('store_inventory')
-    .select('id, quantity_on_hand, restock_threshold')
+    .select('id, quantity_on_hand')
     .eq('store_id', sale.store_id)
     .eq('product_id', sale.product_id)
     .single()

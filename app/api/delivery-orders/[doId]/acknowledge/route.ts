@@ -117,7 +117,6 @@ export async function POST(
           store_id: profile.store_id,
           product_id: item.product_id,
           quantity_on_hand: item.quantity,
-          restock_threshold: 5,
           last_restocked_at: new Date().toISOString(),
         })
 
