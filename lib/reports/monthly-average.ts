@@ -48,7 +48,9 @@ export interface MonthlyAverageRow {
   total_rm: number // RM over the counted months, 2 dp
   total_pairs: number
   last_month_rm: number // RM in the last full month, 2 dp
-  change_pct: number | null // last full month vs avg_rm, 1 dp; null when avg is 0 or none
+  baseline_months: number // months the change is compared against (0 = no comparison)
+  baseline_avg_rm: number | null // average RM over those baseline months, 2 dp
+  change_pct: number | null // last full month vs baseline_avg_rm, 1 dp; null when there is no baseline or it is 0
 }
 
 export interface MonthlyAverageResult {
@@ -104,7 +106,8 @@ export function buildMonthlyAverage(input: {
   sales: MonthlyAverageSale[]
 }): MonthlyAverageResult {
   const win = monthlyAverageWindow(input.asOf, input.months)
-  const inWindow = new Set(win.month_keys)
+  // The window plus the month before it: a 1-month change compares against that month.
+  const inWindow = new Set([shiftMonthKey(win.month_keys[0], -1), ...win.month_keys])
 
   // Earliest sale month for each store, across all sales (not only the window).
   const openMonth = new Map<string, string>()
@@ -147,7 +150,16 @@ export function buildMonthlyAverage(input: {
     const n = counted.length
     const avgRm = n > 0 ? totalRm / n : null
     const lastRm = months.get(win.last_month)?.rm ?? 0
-    const changePct = avgRm && avgRm > 0 ? ((lastRm - avgRm) / avgRm) * 100 : null
+
+    // Baseline for the change: with 2+ months, the earlier counted months of
+    // the period (last month excluded); with 1 month, the month before it.
+    // Either way only months the store was open count.
+    const earlier = n >= 2
+      ? counted.slice(0, -1)
+      : (open && shiftMonthKey(win.last_month, -1) >= open ? [shiftMonthKey(win.last_month, -1)] : [])
+    const baselineRm = earlier.reduce((a, k) => a + (months.get(k)?.rm ?? 0), 0)
+    const baselineAvg = earlier.length > 0 ? baselineRm / earlier.length : null
+    const changePct = baselineAvg && baselineAvg > 0 ? ((lastRm - baselineAvg) / baselineAvg) * 100 : null
 
     return {
       store_id: store.id,
@@ -163,6 +175,8 @@ export function buildMonthlyAverage(input: {
       total_rm: round2(totalRm),
       total_pairs: totalPairs,
       last_month_rm: round2(lastRm),
+      baseline_months: earlier.length,
+      baseline_avg_rm: baselineAvg === null ? null : round2(baselineAvg),
       change_pct: changePct === null ? null : round1(changePct),
     }
   })

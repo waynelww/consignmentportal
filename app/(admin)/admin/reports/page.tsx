@@ -40,13 +40,15 @@ const MONTHLY_COLUMNS: { key: MonthlySortKey; label: string; numeric: boolean }[
   { key: 'store_name', label: 'Store', numeric: false },
   { key: 'store_type', label: 'Type', numeric: false },
   { key: 'state', label: 'State', numeric: false },
-  { key: 'avg_rm', label: 'Avg Monthly Sales (RM)', numeric: true },
+  { key: 'avg_rm', label: 'Sales (RM)', numeric: true },
   { key: 'avg_pairs', label: 'Avg Pairs / Month', numeric: true },
   { key: 'total_rm', label: 'Total for Period (RM)', numeric: true },
   { key: 'months_counted', label: 'Months Counted', numeric: true },
   { key: 'last_month_rm', label: 'Last Full Month (RM)', numeric: true },
-  { key: 'change_pct', label: 'Change vs Avg', numeric: true },
+  { key: 'change_pct', label: 'Change vs Earlier Avg', numeric: true },
 ]
+
+const NO_SALES_YET = 'No sales yet'
 
 const monthKeyLabel = (key: string) => {
   const [y, m] = key.split('-').map(Number)
@@ -56,13 +58,15 @@ const monthKeyLabel = (key: string) => {
 function exportMonthlyAverageCSV(rows: MonthlyAverageRow[], months: number, lastMonth: string) {
   const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
   const lines: string[] = [[
-    'Store Code', 'Store', 'Type', 'State', 'Status', 'Avg Monthly Sales (RM)', 'Avg Pairs / Month',
-    'Total for Period (RM)', 'Months Counted', 'Opened (first sale)', 'Last Full Month (RM)', 'Change vs Avg (%)',
+    'Store Code', 'Store', 'Type', 'State', 'Status', 'Sales (RM)', 'Avg Pairs / Month',
+    'Total for Period (RM)', 'Months Counted', 'Opened (first sale)', 'Last Full Month (RM)', 'Earlier Avg (RM)', 'Change vs Earlier Avg (%)',
   ].map(cell).join(',')]
   for (const r of rows) {
+    const none = r.open_month === null // no recorded sales: the screen shows "No sales yet"
     lines.push([
       r.store_code, r.store_name, STORE_TYPE_LABELS[r.store_type] || r.store_type, r.state, r.status,
-      r.avg_rm ?? '', r.avg_pairs ?? '', r.total_rm, r.months_counted, r.open_month ?? '', r.last_month_rm, r.change_pct ?? '',
+      none ? NO_SALES_YET : (r.avg_rm ?? ''), r.avg_pairs ?? '', r.total_rm, r.months_counted, r.open_month ?? '',
+      r.last_month_rm, r.baseline_avg_rm ?? '', r.change_pct ?? '',
     ].map(cell).join(','))
   }
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
@@ -860,7 +864,9 @@ export default function ReportsPage() {
                 <p className="text-xs text-gray-500">
                   {monthKeyLabel(monthlyResult.window.month_keys[0])} – {monthKeyLabel(monthlyResult.window.last_month)}
                   {' · '}last {monthlyResult.window.months} full {monthlyResult.window.months === 1 ? 'month' : 'months'}
-                  {' · '}current month excluded. Stores are averaged only over the months since their first recorded sale.
+                  {' · '}current month excluded. Sales (RM) is the average per counted month, from each store&apos;s first recorded sale.
+                  {' '}Change compares the last full month with the average of the earlier months in the period
+                  {monthlyResult.window.months === 1 ? ' (for 1 month: the month before it)' : ''}.
                 </p>
               )}
 
@@ -908,18 +914,16 @@ export default function ReportsPage() {
                             </td>
                             <td className="px-4 py-2.5 text-gray-600 text-xs">{STORE_TYPE_LABELS[r.store_type] || r.store_type}</td>
                             <td className="px-4 py-2.5 text-gray-600">{r.state}</td>
-                            <td className="px-4 py-2.5 text-right font-semibold">{r.avg_rm === null ? '—' : formatCurrency(r.avg_rm)}</td>
+                            <td className={cn('px-4 py-2.5 text-right', r.open_month === null ? 'text-gray-400 text-xs' : 'font-semibold')}>{r.open_month === null ? NO_SALES_YET : r.avg_rm === null ? '—' : formatCurrency(r.avg_rm)}</td>
                             <td className="px-4 py-2.5 text-right">{r.avg_pairs === null ? '—' : r.avg_pairs}</td>
-                            <td className="px-4 py-2.5 text-right">{formatCurrency(r.total_rm)}</td>
+                            <td className="px-4 py-2.5 text-right">{r.months_counted === 0 ? '—' : formatCurrency(r.total_rm)}</td>
                             <td className="px-4 py-2.5 text-right">
-                              {r.months_counted}
-                              {r.open_month === null ? (
-                                <span className="block text-[10px] text-gray-400">no sales yet</span>
-                              ) : r.open_month > firstWindowMonth && (
+                              {r.open_month === null ? '—' : r.months_counted}
+                              {r.open_month !== null && r.open_month > firstWindowMonth && (
                                 <span className="block text-[10px] text-gray-400">opened {monthKeyLabel(r.open_month)}</span>
                               )}
                             </td>
-                            <td className="px-4 py-2.5 text-right">{formatCurrency(r.last_month_rm)}</td>
+                            <td className="px-4 py-2.5 text-right">{r.months_counted === 0 ? '—' : formatCurrency(r.last_month_rm)}</td>
                             <td className={cn('px-4 py-2.5 text-right font-semibold',
                               r.change_pct === null ? 'text-gray-400' : r.change_pct >= 0 ? 'text-green-600' : 'text-red-600')}>
                               {r.change_pct === null ? '—' : `${r.change_pct > 0 ? '+' : ''}${r.change_pct.toFixed(1)}%`}

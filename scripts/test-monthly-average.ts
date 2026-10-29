@@ -70,7 +70,10 @@ assert.equal(a.total_pairs, 60)
 assert.equal(a.avg_rm, 600)
 assert.equal(a.avg_pairs, 20)
 assert.equal(a.last_month_rm, 900)
-assert.equal(a.change_pct, 50, '900 vs avg 600 = +50%')
+// change: last month vs average of the EARLIER months (Jul, Aug) = 450
+assert.equal(a.baseline_months, 2)
+assert.equal(a.baseline_avg_rm, 450)
+assert.equal(a.change_pct, 100, '900 vs earlier avg 450 = +100%')
 
 // b: opened Aug, so 2 months counted. total 300 / 2 = 150; last month 180
 const b = byId.get('b')!
@@ -80,7 +83,10 @@ assert.equal(b.avg_rm, 150)
 assert.equal(b.avg_pairs, 5)
 assert.equal(b.total_rm, 300)
 assert.equal(b.last_month_rm, 180)
-assert.equal(b.change_pct, 20, '180 vs avg 150 = +20%')
+// earlier counted months = Aug only (opened Aug): 180 vs 120 = +50%
+assert.equal(b.baseline_months, 1)
+assert.equal(b.baseline_avg_rm, 120)
+assert.equal(b.change_pct, 50, '180 vs earlier avg 120 = +50%')
 
 // c: no sales ever → blanks, zero months, sorted last by the page
 const c = byId.get('c')!
@@ -99,6 +105,9 @@ assert.equal(d.open_month, '2026-06')
 assert.equal(d.months_counted, 3)
 assert.equal(d.total_rm, 120, 'only Jul sales are in the window: 60 + 60')
 assert.equal(d.last_month_rm, 0)
+// earlier months Jul (120) and Aug (0): average 60, last month 0 = -100%
+assert.equal(d.baseline_months, 2)
+assert.equal(d.baseline_avg_rm, 60)
 assert.equal(d.change_pct, -100)
 
 // Zero average: change is null, not a divide-by-zero
@@ -110,9 +119,36 @@ const zero = buildMonthlyAverage({
 assert.equal(zero.avg_rm, 0)
 assert.equal(zero.change_pct, null)
 
-// 1-month selection: average equals last month, so change is 0
-const one = buildMonthlyAverage({ asOf: '2026-10-29', months: 1, stores, sales }).rows.find((r) => r.store_id === 'a')!
+// 1-month selection: compared against the month before last month (Aug)
+const oneRows = buildMonthlyAverage({ asOf: '2026-10-29', months: 1, stores, sales }).rows
+const one = oneRows.find((r) => r.store_id === 'a')!
 assert.equal(one.avg_rm, 900)
-assert.equal(one.change_pct, 0)
+assert.equal(one.baseline_months, 1)
+assert.equal(one.baseline_avg_rm, 600)
+assert.equal(one.change_pct, 50, '900 vs Aug 600 = +50%')
+
+// b opened Aug, so Aug is a valid comparison month for its 1-month change
+assert.equal(oneRows.find((r) => r.store_id === 'b')!.change_pct, 50, '180 vs Aug 120 = +50%')
+
+// Store opened in the last month: nothing earlier to compare with → no change
+const newStore = buildMonthlyAverage({
+  asOf: '2026-10-29', months: 3,
+  stores: [{ id: 'f', store_code: 'FFF-1', store_name: 'New', store_type: 'gym', state: 'Perak', status: 'active' }],
+  sales: [{ store_id: 'f', sale_date: '2026-09-05', quantity: 3, total_amount: 90 }],
+}).rows[0]
+assert.equal(newStore.open_month, '2026-09')
+assert.equal(newStore.months_counted, 1)
+assert.equal(newStore.avg_rm, 90)
+assert.equal(newStore.baseline_months, 0)
+assert.equal(newStore.change_pct, null)
+
+// 1-month selection for a store opened in the last month: the month before predates opening
+const newOne = buildMonthlyAverage({
+  asOf: '2026-10-29', months: 1,
+  stores: [{ id: 'f', store_code: 'FFF-1', store_name: 'New', store_type: 'gym', state: 'Perak', status: 'active' }],
+  sales: [{ store_id: 'f', sale_date: '2026-09-05', quantity: 3, total_amount: 90 }],
+}).rows[0]
+assert.equal(newOne.baseline_months, 0)
+assert.equal(newOne.change_pct, null)
 
 console.log('monthly-average: all assertions passed')
