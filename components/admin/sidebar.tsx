@@ -37,7 +37,7 @@ const navGroups = [
   {
     label: 'Analytics',
     items: [
-      { href: '/admin/reports', icon: BarChart2, label: 'Reports' },
+      { href: '/admin/reports', icon: BarChart2, label: 'Monthly Sales' },
     ],
   },
 ]
