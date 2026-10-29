@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Download } from 'lucide-react'
 import {
   LineChart,
@@ -18,15 +18,65 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMYDate, formatMonthYear, cn, STORE_TYPE_LABELS } from '@/lib/utils'
 import type { Store } from '@/types'
 import type { StoreStaffReport } from '@/lib/reports/sales-by-staff'
+import {
+  MONTHLY_AVERAGE_OPTIONS, DEFAULT_MONTHLY_AVERAGE_MONTHS,
+  type MonthlyAverageMonths, type MonthlyAverageResult, type MonthlyAverageRow,
+} from '@/lib/reports/monthly-average'
 
-type ReportTab = 'sales' | 'stores' | 'inventory' | 'commissions'
+type ReportTab = 'sales' | 'stores' | 'inventory' | 'commissions' | 'monthly'
 
 const TABS: { label: string; value: ReportTab }[] = [
   { label: 'Sales Performance', value: 'sales' },
   { label: 'Store Performance', value: 'stores' },
   { label: 'Inventory Report', value: 'inventory' },
   { label: 'Commission Report', value: 'commissions' },
+  { label: 'Monthly Average', value: 'monthly' },
 ]
+
+type MonthlySortKey = 'store_code' | 'store_name' | 'store_type' | 'state' | 'avg_rm' | 'avg_pairs' | 'total_rm' | 'months_counted' | 'last_month_rm' | 'change_pct'
+
+const MONTHLY_COLUMNS: { key: MonthlySortKey; label: string; numeric: boolean }[] = [
+  { key: 'store_code', label: 'Code', numeric: false },
+  { key: 'store_name', label: 'Store', numeric: false },
+  { key: 'store_type', label: 'Type', numeric: false },
+  { key: 'state', label: 'State', numeric: false },
+  { key: 'avg_rm', label: 'Sales (RM)', numeric: true },
+  { key: 'avg_pairs', label: 'Avg Pairs / Month', numeric: true },
+  { key: 'total_rm', label: 'Total for Period (RM)', numeric: true },
+  { key: 'months_counted', label: 'Months Counted', numeric: true },
+  { key: 'last_month_rm', label: 'Last Full Month (RM)', numeric: true },
+  { key: 'change_pct', label: 'Change vs Earlier Avg', numeric: true },
+]
+
+const NO_SALES_YET = 'No sales yet'
+
+const monthKeyLabel = (key: string) => {
+  const [y, m] = key.split('-').map(Number)
+  return new Date(y, m - 1).toLocaleString('en', { month: 'short', year: 'numeric' })
+}
+
+function exportMonthlyAverageCSV(rows: MonthlyAverageRow[], months: number, lastMonth: string) {
+  const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+  const lines: string[] = [[
+    'Store Code', 'Store', 'Type', 'State', 'Status', 'Sales (RM)', 'Avg Pairs / Month',
+    'Total for Period (RM)', 'Months Counted', 'Opened (first sale)', 'Last Full Month (RM)', 'Earlier Avg (RM)', 'Change vs Earlier Avg (%)',
+  ].map(cell).join(',')]
+  for (const r of rows) {
+    const none = r.open_month === null // no recorded sales: the screen shows "No sales yet"
+    lines.push([
+      r.store_code, r.store_name, STORE_TYPE_LABELS[r.store_type] || r.store_type, r.state, r.status,
+      none ? NO_SALES_YET : (r.avg_rm ?? ''), r.avg_pairs ?? '', r.total_rm, r.months_counted, r.open_month ?? '',
+      r.last_month_rm, r.baseline_avg_rm ?? '', r.change_pct ?? '',
+    ].map(cell).join(','))
+  }
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `monthly-average-${lastMonth}-${months}m.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 function exportCSV(data: Record<string, unknown>[], filename: string) {
   if (data.length === 0) return
@@ -101,6 +151,16 @@ export default function ReportsPage() {
   const [commYear, setCommYear] = useState(now.getFullYear())
   const [commData, setCommData] = useState<any[]>([])
   const [commLoading, setCommLoading] = useState(false)
+
+  // ── Monthly Average tab state
+  const [monthlyMonths, setMonthlyMonths] = useState<MonthlyAverageMonths>(DEFAULT_MONTHLY_AVERAGE_MONTHS)
+  const [monthlyIncludeInactive, setMonthlyIncludeInactive] = useState(false)
+  const [monthlyType, setMonthlyType] = useState('all')
+  const [monthlyState, setMonthlyState] = useState('all')
+  const [monthlySort, setMonthlySort] = useState<{ key: MonthlySortKey; dir: 'asc' | 'desc' }>({ key: 'avg_rm', dir: 'desc' })
+  const [monthlyResult, setMonthlyResult] = useState<MonthlyAverageResult | null>(null)
+  const [monthlyLoading, setMonthlyLoading] = useState(false)
+  const [monthlyError, setMonthlyError] = useState<string | null>(null)
 
   const fetchSales = useCallback(async () => {
     setSalesLoading(true)
@@ -276,6 +336,57 @@ export default function ReportsPage() {
   useEffect(() => { if (activeTab === 'stores') fetchStores() }, [activeTab, fetchStores])
   useEffect(() => { if (activeTab === 'inventory') fetchInventory() }, [activeTab, fetchInventory])
   useEffect(() => { if (activeTab === 'commissions') fetchCommissions() }, [activeTab, fetchCommissions])
+
+  const fetchMonthly = useCallback(async () => {
+    setMonthlyLoading(true)
+    setMonthlyError(null)
+    const res = await fetch(`/api/reports/monthly-average?months=${monthlyMonths}`)
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      setMonthlyError(body.error ?? 'Could not load monthly averages')
+      setMonthlyResult(null)
+    } else {
+      setMonthlyResult(body as MonthlyAverageResult)
+    }
+    setMonthlyLoading(false)
+  }, [monthlyMonths])
+
+  useEffect(() => { if (activeTab === 'monthly') fetchMonthly() }, [activeTab, fetchMonthly])
+
+  const monthlyTypeOptions = useMemo(
+    () => Array.from(new Set((monthlyResult?.rows ?? []).map((r) => r.store_type))).sort(),
+    [monthlyResult]
+  )
+  const monthlyStateOptions = useMemo(
+    () => Array.from(new Set((monthlyResult?.rows ?? []).map((r) => r.state))).sort(),
+    [monthlyResult]
+  )
+  const monthlyRows = useMemo(() => {
+    const rows = (monthlyResult?.rows ?? []).filter((r) =>
+      (monthlyIncludeInactive || r.status === 'active') &&
+      (monthlyType === 'all' || r.store_type === monthlyType) &&
+      (monthlyState === 'all' || r.state === monthlyState)
+    )
+    const dir = monthlySort.dir === 'asc' ? 1 : -1
+    const key = monthlySort.key
+    return [...rows].sort((a, b) => {
+      const va = a[key]
+      const vb = b[key]
+      // Blanks always sort last, whichever way the column runs
+      if (va === null || va === undefined) return vb === null || vb === undefined ? a.store_code.localeCompare(b.store_code) : 1
+      if (vb === null || vb === undefined) return -1
+      const c = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb))
+      return c * dir || a.store_code.localeCompare(b.store_code)
+    })
+  }, [monthlyResult, monthlyIncludeInactive, monthlyType, monthlyState, monthlySort])
+
+  function toggleMonthlySort(key: MonthlySortKey, numeric: boolean) {
+    setMonthlySort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: numeric ? 'desc' : 'asc' }
+    )
+  }
 
   return (
     <div className="space-y-5">
@@ -699,6 +810,138 @@ export default function ReportsPage() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* ── Monthly Average ── */}
+          {activeTab === 'monthly' && (
+            <div className="space-y-5">
+              <div className="flex flex-wrap gap-3 items-end">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Months</label>
+                  <select value={monthlyMonths} onChange={(e) => setMonthlyMonths(Number(e.target.value) as MonthlyAverageMonths)}
+                    className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] bg-white">
+                    {MONTHLY_AVERAGE_OPTIONS.map((n) => (
+                      <option key={n} value={n}>{n} {n === 1 ? 'month' : 'months'}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Store type</label>
+                  <select value={monthlyType} onChange={(e) => setMonthlyType(e.target.value)}
+                    className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] bg-white">
+                    <option value="all">All types</option>
+                    {monthlyTypeOptions.map((t) => (
+                      <option key={t} value={t}>{STORE_TYPE_LABELS[t] || t}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">State</label>
+                  <select value={monthlyState} onChange={(e) => setMonthlyState(e.target.value)}
+                    className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] bg-white">
+                    <option value="all">All states</option>
+                    {monthlyStateOptions.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-gray-700 pb-2">
+                  <input type="checkbox" checked={monthlyIncludeInactive} onChange={(e) => setMonthlyIncludeInactive(e.target.checked)}
+                    className="rounded border-gray-300" />
+                  Include inactive stores
+                </label>
+                <button
+                  onClick={() => monthlyResult && exportMonthlyAverageCSV(monthlyRows, monthlyResult.window.months, monthlyResult.window.last_month)}
+                  disabled={monthlyRows.length === 0}
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-40"
+                >
+                  <Download size={14} /> CSV
+                </button>
+              </div>
+
+              {monthlyResult && (
+                <p className="text-xs text-gray-500">
+                  {monthKeyLabel(monthlyResult.window.month_keys[0])} – {monthKeyLabel(monthlyResult.window.last_month)}
+                  {' · '}last {monthlyResult.window.months} full {monthlyResult.window.months === 1 ? 'month' : 'months'}
+                  {' · '}current month excluded. Sales (RM) is the average per counted month, from each store&apos;s first recorded sale.
+                  {' '}Change compares the last full month with the average of the earlier months in the period
+                  {monthlyResult.window.months === 1 ? ' (for 1 month: the month before it)' : ''}.
+                </p>
+              )}
+
+              {monthlyError ? (
+                <p className="text-sm text-red-600">{monthlyError}</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100 bg-gray-50">
+                        {MONTHLY_COLUMNS.map((col) => {
+                          const active = monthlySort.key === col.key
+                          const label = col.key === 'last_month_rm' && monthlyResult
+                            ? `Last Full Month (RM) · ${monthKeyLabel(monthlyResult.window.last_month)}`
+                            : col.label
+                          return (
+                            <th key={col.key} className={cn('px-4 py-2 text-xs font-semibold text-gray-500 whitespace-nowrap', col.numeric ? 'text-right' : 'text-left')}>
+                              <button onClick={() => toggleMonthlySort(col.key, col.numeric)}
+                                className={cn('inline-flex items-center gap-1 hover:text-gray-800', active && 'text-gray-900')}>
+                                {label}
+                                <span className="text-[10px]">{active ? (monthlySort.dir === 'asc' ? '▲' : '▼') : ''}</span>
+                              </button>
+                            </th>
+                          )
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monthlyLoading ? Array.from({ length: 6 }).map((_, i) => (
+                        <tr key={i} className="border-b border-gray-50">
+                          {MONTHLY_COLUMNS.map((_, j) => (
+                            <td key={j} className="px-4 py-3"><div className="h-4 bg-gray-100 animate-pulse rounded" /></td>
+                          ))}
+                        </tr>
+                      )) : monthlyRows.map((r) => {
+                        const firstWindowMonth = monthlyResult?.window.month_keys[0] ?? ''
+                        return (
+                          <tr key={r.store_id} className={cn('border-b border-gray-50 hover:bg-gray-50/50', r.status !== 'active' && 'text-gray-400')}>
+                            <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{r.store_code}</td>
+                            <td className="px-4 py-2.5 font-medium text-gray-800">
+                              {r.store_name}
+                              {r.status !== 'active' && (
+                                <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">Inactive</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 text-gray-600 text-xs">{STORE_TYPE_LABELS[r.store_type] || r.store_type}</td>
+                            <td className="px-4 py-2.5 text-gray-600">{r.state}</td>
+                            <td className={cn('px-4 py-2.5 text-right', r.open_month === null ? 'text-gray-400 text-xs' : 'font-semibold')}>{r.open_month === null ? NO_SALES_YET : r.avg_rm === null ? '—' : formatCurrency(r.avg_rm)}</td>
+                            <td className="px-4 py-2.5 text-right">{r.avg_pairs === null ? '—' : r.avg_pairs}</td>
+                            <td className="px-4 py-2.5 text-right">{r.months_counted === 0 ? '—' : formatCurrency(r.total_rm)}</td>
+                            <td className="px-4 py-2.5 text-right">
+                              {r.open_month === null ? '—' : r.months_counted}
+                              {r.open_month !== null && r.open_month > firstWindowMonth && (
+                                <span className="block text-[10px] text-gray-400">opened {monthKeyLabel(r.open_month)}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 text-right">{r.months_counted === 0 ? '—' : formatCurrency(r.last_month_rm)}</td>
+                            <td className={cn('px-4 py-2.5 text-right font-semibold',
+                              r.change_pct === null ? 'text-gray-400' : r.change_pct >= 0 ? 'text-green-600' : 'text-red-600')}>
+                              {r.change_pct === null ? '—' : `${r.change_pct > 0 ? '+' : ''}${r.change_pct.toFixed(1)}%`}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                      {!monthlyLoading && monthlyRows.length === 0 && (
+                        <tr>
+                          <td colSpan={MONTHLY_COLUMNS.length} className="px-4 py-10 text-center text-gray-400 text-sm">
+                            {monthlyResult ? 'No stores match these filters' : ''}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>

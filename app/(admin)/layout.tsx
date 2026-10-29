@@ -74,7 +74,7 @@ const NAV_ITEMS = [
     section: 'Analytics',
     items: [
       { label: 'Performance', href: '/admin/performance', icon: TrendingUp },
-      { label: 'Reports', href: '/admin/reports', icon: BarChart2 },
+      { label: 'Monthly Sales', href: '/admin/reports', icon: BarChart2 },
       { label: 'Data Export', href: '/admin/exports', icon: Download },
     ],
   },
@@ -116,7 +116,7 @@ function getPageTitle(pathname: string): string {
     '/admin/gang': 'Xocks Gang',
     '/admin/whatsapp': 'WhatsApp',
     '/admin/performance': 'Performance',
-    '/admin/reports': 'Reports',
+    '/admin/reports': 'Monthly Sales',
     '/admin/oem-calculator': 'OEM Calculator',
     '/admin/settings': 'Settings',
     '/admin/profile': 'My Profile',
