@@ -96,7 +96,11 @@ export async function GET(request: NextRequest) {
 
   const supabase = createAdminClient()
   const resend = new Resend(process.env.RESEND_API_KEY)
-  const from = process.env.RESEND_FROM_EMAIL || 'noreply@xocks.co'
+  // GANG_REPORT_FROM is an interim sender (onboarding@resend.dev) until the
+  // xocks.co domain is verified in Resend — it can only deliver to the
+  // Resend account owner's email, which is where this report goes anyway.
+  const from =
+    process.env.GANG_REPORT_FROM || process.env.RESEND_FROM_EMAIL || 'noreply@xocks.co'
   const sent: string[] = []
 
   for (const period of toSend) {
@@ -110,7 +114,10 @@ export async function GET(request: NextRequest) {
     })
     if (error) {
       console.error(`[cron gang-report] ${period} email failed:`, error)
-      return Response.json({ ok: false, sent, failed: period, error: String(error) }, { status: 500 })
+      return Response.json(
+        { ok: false, sent, failed: period, error: JSON.stringify(error) },
+        { status: 500 },
+      )
     }
     sent.push(period)
   }
