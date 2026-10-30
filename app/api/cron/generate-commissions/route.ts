@@ -15,7 +15,6 @@
 import { type NextRequest } from 'next/server'
 import { after } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { sendCommissionStatementEmail } from '@/lib/email/send-email'
 import { sendPushToStore } from '@/lib/push/send-push'
 import { assignInvoiceNo } from '@/lib/invoice-number'
@@ -90,9 +89,7 @@ export async function GET(request: NextRequest) {
     .eq('status', 'active')
     .order('created_at', { ascending: true })
 
-  // Test accounts never get a commission invoice.
-  const testIds = await loadTestStoreIds(svc)
-  const storeList: StoreRow[] = ((stores ?? []) as StoreRow[]).filter((s) => !isTestStore(testIds, s.id))
+  const storeList: StoreRow[] = (stores ?? []) as StoreRow[]
   let skipped = 0
   let noSales = 0
 

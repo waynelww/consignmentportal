@@ -1,7 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
-import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 
 const GenerateSchema = z.object({
   month: z.number().int().min(1).max(12),
@@ -60,10 +59,7 @@ export async function POST(request: NextRequest) {
 
   let generatedCount = 0
 
-  // Test accounts never get a commission invoice.
-  const testIds = await loadTestStoreIds(supabase)
   for (const store of stores) {
-    if (isTestStore(testIds, store.id)) continue
     // Query sales for this store in the period
     const { data: sales, error: salesErr } = await supabase
       .from('sales')

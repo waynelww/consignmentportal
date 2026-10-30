@@ -197,11 +197,12 @@ and store page). Current test stores: AGK-001 (Wayne Store) and STR-009
 - It is left out of: the admin dashboard (KPIs, charts, Top/Bottom 10, Live
   Activity, Not keying in sales), Monthly Sales (every tab, Sales by staff,
   Monthly Average, CSV exports), the daily low-stock email, the Restock
-  Calculator and predictions (including the bot `restock-calc` endpoint), commission
-  invoices (monthly cron, `commissions/generate`, `commissions/ensure`), the
+  Calculator and predictions (including the bot `restock-calc` endpoint), the
   consignment figures on `/admin/performance`, every `/api/bot/*` store report
   (the single-store `store-performance` endpoint returns 404 for a test store),
   and the admin CSV export (`/api/admin/export`: sales, commissions, stores).
+- Commission invoices are **not** excluded: test stores get the monthly
+  invoice like any other store, so they can be tested end to end.
 - The rule lives in one place: `lib/stores/test-accounts.ts`
   (`loadTestStoreIds` + `isTestStore`). Every report filters with it; do not
   add a second rule.
