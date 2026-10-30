@@ -90,6 +90,8 @@ export interface Store {
   payment_terms_days: number
   status: StoreStatus
   is_test: boolean // test account: works in the store app, left out of reports
+  daily_report_enabled: boolean // internal daily sales report switch (default off)
+  daily_report_recipients: string[] // Xocks team addresses; needed before the switch can be on
   performance_score: number
   consecutive_low_months: number
   qr_code_ref: string

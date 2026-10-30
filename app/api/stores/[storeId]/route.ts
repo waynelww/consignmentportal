@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { DAILY_REPORT_MAX_RECIPIENTS, normalizeRecipients, validateDailyReportSettings } from '@/lib/daily-report/settings'
 
 const UpdateStoreSchema = z.object({
   store_name: z.string().min(1).optional(),
@@ -18,6 +19,8 @@ const UpdateStoreSchema = z.object({
   commission_rate: z.number().min(0).max(100).optional(),
   status: z.enum(['active', 'inactive', 'suspended', 'pending']).optional(),
   is_test: z.boolean().optional(),
+  daily_report_enabled: z.boolean().optional(),
+  daily_report_recipients: z.array(z.string().trim().toLowerCase().email()).max(DAILY_REPORT_MAX_RECIPIENTS).optional(),
   notes: z.string().optional(),
   agreement_signed_at: z.string().optional(),
   agreement_signed_by: z.string().optional(),
@@ -60,9 +63,26 @@ export async function PATCH(
     return Response.json({ error: 'No fields provided for update' }, { status: 400 })
   }
 
+  const update: Record<string, unknown> = { ...parsed.data }
+  if (parsed.data.daily_report_enabled !== undefined || parsed.data.daily_report_recipients !== undefined) {
+    // Check the switch and recipients as they will be after this save, not just the fields sent.
+    const { data: current } = await supabase
+      .from('stores')
+      .select('daily_report_enabled, daily_report_recipients')
+      .eq('id', storeId)
+      .maybeSingle()
+    if (!current) return Response.json({ error: 'Store not found' }, { status: 404 })
+
+    const enabled = parsed.data.daily_report_enabled ?? current.daily_report_enabled
+    const recipients = normalizeRecipients(parsed.data.daily_report_recipients ?? current.daily_report_recipients)
+    const dailyReportError = validateDailyReportSettings(enabled, recipients)
+    if (dailyReportError) return Response.json({ error: dailyReportError }, { status: 400 })
+    update.daily_report_recipients = recipients
+  }
+
   const { data: updated, error: updateErr } = await supabase
     .from('stores')
-    .update({ ...parsed.data, updated_at: new Date().toISOString() })
+    .update({ ...update, updated_at: new Date().toISOString() })
     .eq('id', storeId)
     .select()
     .single()

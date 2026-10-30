@@ -376,3 +376,56 @@ export async function sendMonthlyReportEmail(params: {
     throw err
   }
 }
+
+// ── Daily sales report (22:00 MYT cron and the store page's test send) ──────
+
+export async function sendDailySalesReportEmail(params: {
+  to: string
+  reportDateLabel: string
+  stores: Array<{ storeName: string; storeCode: string; totalUnits: number; totalRevenue: number; totalCommission: number; xocksRevenue: number }>
+  attachments: Array<{ filename: string; content: Uint8Array }>
+  isTest?: boolean
+}): Promise<void> {
+  const storeRows = params.stores
+    .map((s) => `
+      <tr>
+        <td style="padding:8px 0;border-top:1px solid #eee;font-size:14px;color:#111;"><strong>${s.storeName}</strong> <span style="color:#666;">(${s.storeCode})</span></td>
+        <td style="padding:8px 0;border-top:1px solid #eee;font-size:14px;color:#111;text-align:right;">${s.totalUnits} pairs</td>
+        <td style="padding:8px 0;border-top:1px solid #eee;font-size:14px;color:#111;text-align:right;">${formatCurrency(s.totalRevenue)}</td>
+        <td style="padding:8px 0;border-top:1px solid #eee;font-size:14px;color:#111;text-align:right;font-weight:600;">${formatCurrency(s.xocksRevenue)}</td>
+      </tr>`)
+    .join('')
+  const many = params.stores.length > 1
+  const body = `
+    ${h2(`Daily Sales Report — ${params.reportDateLabel}`)}
+    ${p(params.isTest
+      ? 'Test send of today’s report so far. The daily report goes out at 10pm each day.'
+      : `Sales keyed in up to 10pm on ${params.reportDateLabel}.`)}
+    <table cellpadding="0" cellspacing="0" style="margin:8px 0 16px;width:100%;border-collapse:collapse;">
+      <tr>
+        <td style="padding:6px 0;font-size:12px;color:#666;">Store</td>
+        <td style="padding:6px 0;font-size:12px;color:#666;text-align:right;">Pairs</td>
+        <td style="padding:6px 0;font-size:12px;color:#666;text-align:right;">Revenue</td>
+        <td style="padding:6px 0;font-size:12px;color:#666;text-align:right;">Due to Xocks</td>
+      </tr>
+      ${storeRows}
+    </table>
+    ${p(`<span style="color:#666;">Attachment${many ? 's' : ''}: ${many ? `${params.stores.length} PDFs, one per store` : 'the daily sales report PDF'}.</span>`)}
+  `
+  try {
+    await getResend().emails.send({
+      from: FROM,
+      to: params.to,
+      subject: `${params.isTest ? '[TEST] ' : ''}Daily Sales Report — ${params.reportDateLabel}${many ? ` (${params.stores.length} stores)` : ` — ${params.stores[0].storeName}`}`,
+      html: emailWrapper(body),
+      attachments: params.attachments.map((a) => ({
+        filename: a.filename,
+        content: Buffer.from(a.content),
+        contentType: 'application/pdf',
+      })),
+    })
+  } catch (err) {
+    console.error('[sendDailySalesReportEmail] Failed to send email:', err)
+    throw err
+  }
+}

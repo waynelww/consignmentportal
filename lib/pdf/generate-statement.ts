@@ -70,9 +70,12 @@ export async function generateStatementPdf(params: {
   totalRevenue: number
   totalCommission: number
   xocksRevenue: number             // = totalRevenue - totalCommission
-  status: string
+  status?: string                  // invoices only
   paymentReference?: string
   paidAt?: string
+  // Daily sales report (lib/daily-report): same layout, but titled by the
+  // sales date, with no invoice number, status or bank-transfer reminder.
+  daily?: { salesDate: string }    // e.g. "30 October 2026"
 }): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.create()
   let page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
@@ -104,7 +107,7 @@ export async function generateStatementPdf(params: {
     color: rgb(1, 0.85, 0.1),
   })
 
-  const statTitle = 'CONSIGNMENT COMMISSION STATEMENT'
+  const statTitle = params.daily ? 'DAILY SALES REPORT' : 'CONSIGNMENT COMMISSION STATEMENT'
   drawRight(page, statTitle, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - headerBarH + 20, 9, boldFont, rgb(1, 1, 1))
 
   y = PAGE_HEIGHT - headerBarH - 14
@@ -123,7 +126,7 @@ export async function generateStatementPdf(params: {
 
   y -= 13
 
-  page.drawText(`Statement Period: ${periodLabel}`, {
+  page.drawText(params.daily ? `Sales Date: ${params.daily.salesDate}` : `Statement Period: ${periodLabel}`, {
     x: MARGIN,
     y,
     size: 8,
@@ -381,98 +384,100 @@ export async function generateStatementPdf(params: {
 
   y -= 32
 
-  // ── Payment Terms Remark ─────────────────────────────────────────────────────
-  const remarkBoxH = 80
+  if (!params.daily) {
+    // ── Payment Terms Remark ─────────────────────────────────────────────────────
+    const remarkBoxH = 80
 
-  page.drawRectangle({
-    x: MARGIN,
-    y: y - remarkBoxH,
-    width: CONTENT_WIDTH,
-    height: remarkBoxH,
-    color: rgb(1.0, 0.97, 0.92),
-    borderColor: rgb(0.95, 0.6, 0.1),
-    borderWidth: 0.8,
-  })
-
-  const remarkHeaderY = y - 12
-  page.drawText('PAYMENT REMINDER', {
-    x: MARGIN + 8,
-    y: remarkHeaderY,
-    size: 8,
-    font: boldFont,
-    color: rgb(0.7, 0.3, 0),
-  })
-
-  page.drawText(
-    `Please transfer ${fmt(amountDue)} within ${paymentDays} working day${paymentDays > 1 ? 's' : ''} from the date of this statement.`,
-    { x: MARGIN + 8, y: remarkHeaderY - 14, size: 8, font: regularFont, color: rgb(0.2, 0.15, 0) }
-  )
-
-  page.drawText(
-    'Late payment will incur a 10% surcharge on the outstanding amount due.',
-    { x: MARGIN + 8, y: remarkHeaderY - 26, size: 8, font: regularFont, color: rgb(0.5, 0.1, 0) }
-  )
-
-  page.drawText('Bank Transfer Details:', {
-    x: MARGIN + 8,
-    y: remarkHeaderY - 40,
-    size: 8,
-    font: boldFont,
-    color: rgb(0.2, 0.15, 0),
-  })
-  page.drawText('WAYNE GROUP HOLDING SDN BHD  ·  CIMB BANK  ·  8605806682', {
-    x: MARGIN + 105,
-    y: remarkHeaderY - 40,
-    size: 8,
-    font: boldFont,
-    color: rgb(0.1, 0.1, 0.1),
-  })
-
-  const payRefLabel = params.invoiceNo
-    ? `Payment Reference: ${params.invoiceNo} / ${params.storeCode} – ${MONTH_NAMES[params.periodMonth - 1]} ${params.periodYear}`
-    : `Payment Reference: ${params.storeCode} – ${MONTH_NAMES[params.periodMonth - 1]} ${params.periodYear}`
-  page.drawText(payRefLabel, {
-    x: MARGIN + 8,
-    y: remarkHeaderY - 54,
-    size: 7.5,
-    font: boldFont,
-    color: rgb(0.2, 0.2, 0.2),
-  })
-
-  y -= remarkBoxH + 14
-
-  // ── Status ───────────────────────────────────────────────────────────────────
-  const statusColor = params.status === 'paid'
-    ? rgb(0, 0.5, 0.1)
-    : params.status === 'approved'
-      ? rgb(0, 0.3, 0.7)
-      : rgb(0.5, 0.3, 0)
-
-  page.drawText(`Status: ${params.status.toUpperCase()}`, {
-    x: MARGIN,
-    y,
-    size: 9,
-    font: boldFont,
-    color: statusColor,
-  })
-
-  y -= 13
-
-  if (params.paymentReference) {
-    page.drawText(`Payment Reference: ${params.paymentReference}`, {
-      x: MARGIN, y, size: 8, font: regularFont, color: rgb(0.2, 0.2, 0.2),
+    page.drawRectangle({
+      x: MARGIN,
+      y: y - remarkBoxH,
+      width: CONTENT_WIDTH,
+      height: remarkBoxH,
+      color: rgb(1.0, 0.97, 0.92),
+      borderColor: rgb(0.95, 0.6, 0.1),
+      borderWidth: 0.8,
     })
-    y -= 11
-  }
 
-  if (params.paidAt) {
-    page.drawText(`Paid On: ${params.paidAt}`, {
-      x: MARGIN, y, size: 8, font: regularFont, color: rgb(0.2, 0.2, 0.2),
+    const remarkHeaderY = y - 12
+    page.drawText('PAYMENT REMINDER', {
+      x: MARGIN + 8,
+      y: remarkHeaderY,
+      size: 8,
+      font: boldFont,
+      color: rgb(0.7, 0.3, 0),
     })
-    y -= 11
-  }
 
-  y -= 12
+    page.drawText(
+      `Please transfer ${fmt(amountDue)} within ${paymentDays} working day${paymentDays > 1 ? 's' : ''} from the date of this statement.`,
+      { x: MARGIN + 8, y: remarkHeaderY - 14, size: 8, font: regularFont, color: rgb(0.2, 0.15, 0) }
+    )
+
+    page.drawText(
+      'Late payment will incur a 10% surcharge on the outstanding amount due.',
+      { x: MARGIN + 8, y: remarkHeaderY - 26, size: 8, font: regularFont, color: rgb(0.5, 0.1, 0) }
+    )
+
+    page.drawText('Bank Transfer Details:', {
+      x: MARGIN + 8,
+      y: remarkHeaderY - 40,
+      size: 8,
+      font: boldFont,
+      color: rgb(0.2, 0.15, 0),
+    })
+    page.drawText('WAYNE GROUP HOLDING SDN BHD  ·  CIMB BANK  ·  8605806682', {
+      x: MARGIN + 105,
+      y: remarkHeaderY - 40,
+      size: 8,
+      font: boldFont,
+      color: rgb(0.1, 0.1, 0.1),
+    })
+
+    const payRefLabel = params.invoiceNo
+      ? `Payment Reference: ${params.invoiceNo} / ${params.storeCode} – ${MONTH_NAMES[params.periodMonth - 1]} ${params.periodYear}`
+      : `Payment Reference: ${params.storeCode} – ${MONTH_NAMES[params.periodMonth - 1]} ${params.periodYear}`
+    page.drawText(payRefLabel, {
+      x: MARGIN + 8,
+      y: remarkHeaderY - 54,
+      size: 7.5,
+      font: boldFont,
+      color: rgb(0.2, 0.2, 0.2),
+    })
+
+    y -= remarkBoxH + 14
+
+    // ── Status ───────────────────────────────────────────────────────────────────
+    const statusColor = (params.status ?? '') === 'paid'
+      ? rgb(0, 0.5, 0.1)
+      : (params.status ?? '') === 'approved'
+        ? rgb(0, 0.3, 0.7)
+        : rgb(0.5, 0.3, 0)
+
+    page.drawText(`Status: ${(params.status ?? '').toUpperCase()}`, {
+      x: MARGIN,
+      y,
+      size: 9,
+      font: boldFont,
+      color: statusColor,
+    })
+
+    y -= 13
+
+    if (params.paymentReference) {
+      page.drawText(`Payment Reference: ${params.paymentReference}`, {
+        x: MARGIN, y, size: 8, font: regularFont, color: rgb(0.2, 0.2, 0.2),
+      })
+      y -= 11
+    }
+
+    if (params.paidAt) {
+      page.drawText(`Paid On: ${params.paidAt}`, {
+        x: MARGIN, y, size: 8, font: regularFont, color: rgb(0.2, 0.2, 0.2),
+      })
+      y -= 11
+    }
+
+    y -= 12
+  }
 
   // ── Footer ───────────────────────────────────────────────────────────────────
   page.drawLine({

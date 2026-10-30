@@ -14,6 +14,8 @@ import { createClient } from '@/lib/supabase/client'
 import { MALAYSIAN_STATES, generateRef, cn } from '@/lib/utils'
 import type { Product, StoreTypeRow } from '@/types'
 import { useXocksTeam } from '@/components/admin/useXocksTeam'
+import { DailyReportSettings } from '@/components/admin/DailyReportSettings'
+import { validateDailyReportSettings } from '@/lib/daily-report/settings'
 
 // ── Step schemas ──────────────────────────────────────────────────────────────
 
@@ -36,7 +38,12 @@ const step2Schema = z.object({
   commission_rate: z.number().min(1).max(100),
   pairs_per_code: z.number().int().min(1).max(999),
   payment_terms_days: z.number().int().min(1).max(365),
-})
+  daily_report_enabled: z.boolean(),
+  daily_report_recipients: z.array(z.string()),
+}).refine(
+  (d) => validateDailyReportSettings(d.daily_report_enabled, d.daily_report_recipients) === null,
+  { message: 'Add at least one recipient before switching the daily report on', path: ['daily_report_enabled'] },
+)
 
 const step3Schema = z.object({
   login_email: z.string().email('Valid email required'),
@@ -202,7 +209,7 @@ function NewStorePage() {
   // Step 2 form
   const form2 = useForm<Step2Data>({
     resolver: zodResolver(step2Schema),
-    defaultValues: { commission_rate: 30, pairs_per_code: 3, payment_terms_days: 7 },
+    defaultValues: { commission_rate: 30, pairs_per_code: 3, payment_terms_days: 7, daily_report_enabled: false, daily_report_recipients: [] },
   })
   // Step 3 form
   const form3 = useForm<Step3Data>({
@@ -265,8 +272,10 @@ function NewStorePage() {
           setStep1Data(d.step1)
         }
         if (d.step2) {
-          form2.reset(d.step2)
-          setStep2Data(d.step2)
+          // Drafts saved before the daily report existed have no switch or recipients
+          const step2 = { daily_report_enabled: false, daily_report_recipients: [], ...d.step2 }
+          form2.reset(step2)
+          setStep2Data(step2)
         }
         if (d.step3) {
           form3.reset(d.step3)
@@ -390,6 +399,8 @@ function NewStorePage() {
           commission_rate: step2Data.commission_rate,
           pairs_per_code: step2Data.pairs_per_code,
           payment_terms_days: step2Data.payment_terms_days,
+          daily_report_enabled: step2Data.daily_report_enabled,
+          daily_report_recipients: step2Data.daily_report_recipients,
           initial_inventory: selections
             .filter((s) => s.selected)
             .map((s) => ({ product_id: s.product_id, quantity: s.quantity })),
@@ -877,6 +888,16 @@ Welcome aboard! 🧦`
               <p className="text-xs text-gray-400 mt-1">Days the store has to transfer commission after receiving invoice.</p>
               <FieldError message={form2.formState.errors.payment_terms_days?.message} />
             </div>
+
+            <DailyReportSettings
+              enabled={form2.watch('daily_report_enabled') ?? false}
+              recipients={form2.watch('daily_report_recipients') ?? []}
+              onChange={({ enabled, recipients }) => {
+                form2.setValue('daily_report_enabled', enabled, { shouldValidate: true })
+                form2.setValue('daily_report_recipients', recipients, { shouldValidate: true })
+              }}
+              error={form2.formState.errors.daily_report_enabled?.message}
+            />
 
             {/* ── Product picker ── */}
             <div>

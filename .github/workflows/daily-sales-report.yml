@@ -1,0 +1,74 @@
+name: Daily sales report email
+
+# Emails each store's sales for the day (internal Xocks team only; stores never
+# receive it) at 22:00 Malaysia time, every day. Stores with the daily report
+# switch on are sent; test accounts are skipped.
+#
+# The endpoint works in batches of recipients so each call stays under Vercel's
+# 60s limit, so this job calls it repeatedly until next_offset is null.
+#
+# Requires repo secret: CRON_SECRET (same value as the Vercel env var).
+# GitHub emails the repo owner automatically when a run fails.
+
+on:
+  schedule:
+    # 14:00 UTC = 22:00 Malaysia time, every day
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Sales day to report, YYYY-MM-DD (blank = today in Malaysia time)'
+        required: false
+        default: ''
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Send daily reports in batches
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          REPORT_DATE: ${{ github.event.inputs.date }}
+        run: |
+          set -uo pipefail
+          BASE="https://consignmentportal.vercel.app/api/cron/daily-sales-report"
+          DATE_QS=""
+          if [ -n "${REPORT_DATE:-}" ]; then DATE_QS="&date=${REPORT_DATE}"; fi
+
+          offset=0
+          failed_total=0
+          while true; do
+            code="000"
+            for attempt in 1 2 3; do
+              echo "Batch from offset ${offset}, attempt ${attempt}…"
+              code=$(curl -sS -o resp.json -w '%{http_code}' \
+                -H "Authorization: Bearer ${CRON_SECRET}" \
+                --max-time 90 "${BASE}?offset=${offset}${DATE_QS}" || echo "000")
+              echo "HTTP ${code}"
+              [ "$code" = "200" ] && break
+              cat resp.json 2>/dev/null || true
+              echo ""
+              sleep 30
+            done
+            if [ "$code" != "200" ]; then
+              echo "✗ Batch at offset ${offset} failed after 3 attempts — check Vercel logs for /api/cron/daily-sales-report."
+              exit 1
+            fi
+
+            jq '{date, recipients_total, sent, failed, skipped}' resp.json
+            batch_failed=$(jq -r '.failed' resp.json)
+            failed_total=$((failed_total + batch_failed))
+            if [ "$batch_failed" != "0" ]; then
+              jq -r '.results[] | select(.status == "failed") | "FAILED \(.to): \(.error)"' resp.json
+            fi
+
+            next=$(jq -r '.next_offset // empty' resp.json)
+            if [ -z "$next" ]; then break; fi
+            offset=$next
+          done
+          if [ "$failed_total" -gt 0 ]; then
+            echo "✗ ${failed_total} send(s) failed — see the send log on each store page."
+            exit 1
+          fi
+          echo "✓ Daily sales report run finished."

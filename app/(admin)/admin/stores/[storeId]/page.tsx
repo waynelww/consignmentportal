@@ -39,6 +39,9 @@ import type {
 import { toast } from 'sonner'
 import StoreStaffManager from '@/components/admin/StoreStaffManager'
 import { TestBadge } from '@/components/shared/test-badge'
+import { DailyReportSettings } from '@/components/admin/DailyReportSettings'
+import { DailyReportTestCard } from '@/components/admin/DailyReportTestCard'
+import { validateDailyReportSettings } from '@/lib/daily-report/settings'
 
 const TABS = ['overview', 'inventory', 'sales', 'staff', 'delivery-orders', 'commissions'] as const
 type Tab = (typeof TABS)[number]
@@ -431,12 +434,22 @@ export default function StoreDetailPage() {
       shipment_contact: store.shipment_contact ?? '',
       shipment_pic: store.shipment_pic ?? '',
       is_test: store.is_test,
+      daily_report_enabled: store.daily_report_enabled,
+      daily_report_recipients: store.daily_report_recipients ?? [],
     })
     setEditMode(true)
     setTab('overview')
   }
 
   async function saveEdit() {
+    const dailyReportError = validateDailyReportSettings(
+      editFields.daily_report_enabled ?? false,
+      editFields.daily_report_recipients ?? [],
+    )
+    if (dailyReportError) {
+      toast.error(dailyReportError)
+      return
+    }
     setSavingEdit(true)
     const { error } = await supabase
       .from('stores')
@@ -725,6 +738,16 @@ export default function StoreDetailPage() {
                           <span className="block text-xs text-gray-500">Works normally in the store app; left out of every report, KPI, alert and commission invoice.</span>
                         </span>
                       </label>
+                      <DailyReportSettings
+                        enabled={editFields.daily_report_enabled ?? false}
+                        recipients={editFields.daily_report_recipients ?? []}
+                        onChange={({ enabled, recipients }) => setEditFields(f => ({ ...f, daily_report_enabled: enabled, daily_report_recipients: recipients }))}
+                        error={
+                          (editFields.daily_report_enabled ?? false) && (editFields.daily_report_recipients ?? []).length === 0
+                            ? 'Add at least one recipient before switching the daily report on'
+                            : null
+                        }
+                      />
                       <EditField label="Opened by" value={editFields.opened_by_member_id ?? ''} onChange={(v) => setEditFields(f => ({ ...f, opened_by_member_id: v }))} options={openerOptions} />
                       <EditField label="Store Type" value={editFields.store_type ?? ''} onChange={(v) => setEditFields(f => ({ ...f, store_type: v as Store['store_type'] }))} options={storeTypeOptions} />
                       <div className="grid grid-cols-2 gap-3">
@@ -779,6 +802,9 @@ export default function StoreDetailPage() {
                         ['Stock plan', store.on_stock_plan ? `4-month plan (avg RM ${store.avg_monthly_sales ?? '—'}/mo)` : 'Off: pairs per code'],
                         ['Payment Terms', store.payment_terms_days ? `${store.payment_terms_days} working days` : '7 working days (default)'],
                         ['Test account', store.is_test ? 'Yes (left out of reports)' : 'No'],
+                        ['Daily sales report', store.daily_report_enabled
+                          ? `On, emailed at 10pm to ${store.daily_report_recipients.length} recipient${store.daily_report_recipients.length === 1 ? '' : 's'}`
+                          : 'Off'],
                       ].map(([label, value]) => (
                         <div key={label} className="flex gap-2">
                           <dt className="text-xs text-gray-500 w-32 flex-shrink-0">{label}</dt>
@@ -807,6 +833,8 @@ export default function StoreDetailPage() {
                     {savingNotes ? 'Saving...' : 'Save Notes'}
                   </button>
                 </div>
+
+                <DailyReportTestCard storeId={storeId} recipientCount={store.daily_report_recipients?.length ?? 0} />
               </div>
 
               {/* Performance + QR */}
