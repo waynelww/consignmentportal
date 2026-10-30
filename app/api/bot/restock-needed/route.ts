@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { verifyBotAuth } from '@/lib/bot-auth'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { cachedAdminJson } from '@/lib/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { describeCode, embedded } from '@/lib/restock/low-stock'
@@ -17,10 +18,12 @@ export async function GET(request: NextRequest) {
 
   const supabase = createAdminClient()
   const settings = await loadLowStockSettings(supabase)
+  const testIds = await loadTestStoreIds(supabase)
 
   const { data, error } = await supabase
     .from('store_inventory')
     .select(`
+      store_id,
       quantity_on_hand,
       stocked_level,
       plan_level,
@@ -34,7 +37,7 @@ export async function GET(request: NextRequest) {
   const items = (data ?? [])
     .flatMap((r) => {
       const s = embedded(r.stores as never) as { id: string; store_code: string; store_name: string; store_type: string; state: string; city: string; status: string; pairs_per_code: number; on_stock_plan: boolean } | null
-      if (!s || s.status !== 'active') return []
+      if (!s || s.status !== 'active' || isTestStore(testIds, r.store_id)) return []
       const low = describeCode(r, s, settings.pct)
       if (low.status === 'in_stock') return []
       const p = embedded(r.products as never) as { id: string; sku: string; name: string; category: string } | null

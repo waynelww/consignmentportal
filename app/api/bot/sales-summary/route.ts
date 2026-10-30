@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { verifyBotAuth } from '@/lib/bot-auth'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { cachedAdminJson } from '@/lib/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -24,6 +25,7 @@ export async function GET(request: NextRequest) {
       commission_amount,
       xocks_revenue,
       sale_date,
+      store_id,
       stores:store_id ( id, store_name, store_code, store_type, state, city ),
       products:product_id ( id, sku, name, category )
     `)
@@ -32,7 +34,8 @@ export async function GET(request: NextRequest) {
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
-  const rows = sales ?? []
+  const testIds = await loadTestStoreIds(supabase)
+  const rows = (sales ?? []).filter((r) => !isTestStore(testIds, r.store_id))
 
   const totals = rows.reduce(
     (acc, r) => {
