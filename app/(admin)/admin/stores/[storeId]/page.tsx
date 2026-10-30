@@ -427,6 +427,9 @@ export default function StoreDetailPage() {
       commission_rate: store.commission_rate,
       payment_terms_days: store.payment_terms_days ?? 7,
       opened_by_member_id: store.opened_by_member_id ?? '',
+      shipment_address: store.shipment_address ?? '',
+      shipment_contact: store.shipment_contact ?? '',
+      shipment_pic: store.shipment_pic ?? '',
       is_test: store.is_test,
     })
     setEditMode(true)
@@ -735,6 +738,14 @@ export default function StoreDetailPage() {
                         <EditField label="Postcode" value={editFields.postcode ?? ''} onChange={(v) => setEditFields(f => ({ ...f, postcode: v }))} />
                       </div>
                       <EditField label="State" value={editFields.state ?? ''} onChange={(v) => setEditFields(f => ({ ...f, state: v }))} options={stateOptions} />
+                      <div className="rounded-lg bg-gray-50 p-3 space-y-3">
+                        <p className="text-xs font-semibold text-gray-700">Shipment (printed on DOs and packing slips when filled)</p>
+                        <EditField label="Shipment address" value={editFields.shipment_address ?? ''} onChange={(v) => setEditFields(f => ({ ...f, shipment_address: v }))} />
+                        <div className="grid grid-cols-2 gap-3">
+                          <EditField label="Shipment contact" value={editFields.shipment_contact ?? ''} onChange={(v) => setEditFields(f => ({ ...f, shipment_contact: v }))} />
+                          <EditField label="Shipment PIC" value={editFields.shipment_pic ?? ''} onChange={(v) => setEditFields(f => ({ ...f, shipment_pic: v }))} />
+                        </div>
+                      </div>
                       <EditField label="Commission Rate (%)" value={editFields.commission_rate ?? 30} onChange={(v) => setEditFields(f => ({ ...f, commission_rate: Number(v) }))} type="number" />
                       <EditField label="Pairs per code (default stocked level)" value={editFields.pairs_per_code ?? store.pairs_per_code} onChange={(v) => setEditFields(f => ({ ...f, pairs_per_code: Number(v) }))} type="number" />
                       <EditField
@@ -760,6 +771,9 @@ export default function StoreDetailPage() {
                         ['City', store.city],
                         ['State', store.state],
                         ['Postcode', store.postcode],
+                        ['Shipment address', store.shipment_address || '—'],
+                        ['Shipment contact', store.shipment_contact || '—'],
+                        ['Shipment PIC', store.shipment_pic || '—'],
                         ['Commission Rate', `${store.commission_rate}%`],
                         ['Pairs per code', String(store.pairs_per_code)],
                         ['Stock plan', store.on_stock_plan ? `4-month plan (avg RM ${store.avg_monthly_sales ?? '—'}/mo)` : 'Off: pairs per code'],

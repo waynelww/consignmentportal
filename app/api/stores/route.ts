@@ -1,7 +1,10 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { insertWithSequenceCode } from '@/lib/sequence-code'
+import { clean } from '@/lib/onboarding/schemas'
+import { stepLabel } from '@/lib/onboarding/steps'
 
 function randomChars(length: number) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -34,6 +37,15 @@ const CreateStoreSchema = z.object({
     product_id: z.string().uuid(),
     quantity: z.number().int().nonnegative(),
   })).optional().default([]),
+  // Optional shipment details (blank = not set). Shown on DOs and packing slips when filled.
+  shipment_address: z.string().optional(),
+  shipment_contact: z.string().optional(),
+  shipment_pic: z.string().optional(),
+  // Quick create from an onboarding card: the card must be at "Details received"
+  // and not yet linked. Its shipment details are copied from the card, and on
+  // success the card is linked to this store and moved to "Account created".
+  onboarding_card_id: z.string().uuid().optional(),
+  onboarding_moved_by_member_id: z.string().uuid().optional(),
 })
 
 export async function POST(request: NextRequest) {
@@ -69,6 +81,7 @@ export async function POST(request: NextRequest) {
     address, city, state, postcode, store_type,
     bank_name, bank_account_number, bank_account_name,
     commission_rate, payment_terms_days, notes, initial_inventory, opened_by_member_id, pairs_per_code,
+    onboarding_card_id, onboarding_moved_by_member_id,
   } = parsed.data
 
   const { data: opener } = await supabase
@@ -80,6 +93,38 @@ export async function POST(request: NextRequest) {
   if (!opener) {
     return Response.json({ error: 'Choose an active Xocks team member for "Opened by"' }, { status: 400 })
   }
+
+  // Quick create: check the onboarding card before anything is written.
+  const admin = createAdminClient()
+  let card: { id: string; step: string; store_id: string | null; shipment_address: string | null; shipment_contact: string | null; shipment_pic: string | null } | null = null
+  if (onboarding_card_id) {
+    if (!onboarding_moved_by_member_id) {
+      return Response.json({ error: 'Choose who you are for the onboarding card' }, { status: 400 })
+    }
+    const { data: moverOk } = await admin
+      .from('xocks_team_members').select('id').eq('id', onboarding_moved_by_member_id).eq('active', true).maybeSingle()
+    if (!moverOk) {
+      return Response.json({ error: 'Choose an active Xocks team member for the onboarding card' }, { status: 400 })
+    }
+    const { data: found } = await admin
+      .from('onboarding_cards')
+      .select('id, step, store_id, shipment_address, shipment_contact, shipment_pic')
+      .eq('id', onboarding_card_id)
+      .maybeSingle()
+    if (!found) return Response.json({ error: 'Onboarding card not found' }, { status: 404 })
+    if (found.store_id || found.step !== 'details_received') {
+      return Response.json(
+        { error: 'This onboarding card is not waiting for a store (it must be at Details received and not linked yet)' },
+        { status: 409 },
+      )
+    }
+    card = found
+  }
+
+  // A card's shipment details are copied from the card, not taken from the form.
+  const shipment = card
+    ? { address: card.shipment_address, contact: card.shipment_contact, pic: card.shipment_pic }
+    : { address: clean(parsed.data.shipment_address), contact: clean(parsed.data.shipment_contact), pic: clean(parsed.data.shipment_pic) }
 
   // INSERT store — store_code generated from the max existing code, not a
   // count, so it can't collide with a code still in use after a deletion.
@@ -113,6 +158,9 @@ export async function POST(request: NextRequest) {
           qr_code_ref: `${storeCode}-${randomChars(8)}`,
           notes: notes ?? null,
           opened_by_member_id,
+          shipment_address: shipment.address,
+          shipment_contact: shipment.contact,
+          shipment_pic: shipment.pic,
         })
         .select('id')
         .single(),
@@ -149,6 +197,46 @@ export async function POST(request: NextRequest) {
 
   if (profileErr) {
     return Response.json({ error: 'Failed to create profile', details: profileErr.message }, { status: 500 })
+  }
+
+  // Quick create: link the card to the new store and move it to Account created.
+  // The condition re-checks the card, so a card changed meanwhile is not overwritten.
+  if (card && onboarding_moved_by_member_id) {
+    const now = new Date().toISOString()
+    const { data: linkedCard, error: linkErr } = await admin
+      .from('onboarding_cards')
+      .update({
+        store_id: newStore.id,
+        step: 'account_created',
+        step_changed_at: now,
+        updated_by_member_id: onboarding_moved_by_member_id,
+        updated_at: now,
+      })
+      .eq('id', card.id)
+      .eq('step', 'details_received')
+      .is('store_id', null)
+      .select('id')
+      .maybeSingle()
+    if (linkErr || !linkedCard) {
+      return Response.json({
+        error: 'Store created, but the onboarding card could not be linked. Link it from the Onboarding tab.',
+        store_id: newStore.id,
+        details: linkErr?.message,
+      }, { status: 500 })
+    }
+    const { error: historyErr } = await admin.from('onboarding_card_history').insert({
+      card_id: card.id,
+      from_step: 'details_received',
+      to_step: 'account_created',
+      moved_by_member_id: onboarding_moved_by_member_id,
+    })
+    if (historyErr) {
+      return Response.json({
+        error: `Store created and linked, but the ${stepLabel('account_created')} history row failed`,
+        store_id: newStore.id,
+        details: historyErr.message,
+      }, { status: 500 })
+    }
   }
 
   // INSERT initial inventory + delivery order

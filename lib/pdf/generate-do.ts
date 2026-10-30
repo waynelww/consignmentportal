@@ -1,4 +1,5 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
+import { shipmentLines, type ShipmentDetails } from './shipment'
 
 const PAGE_WIDTH = 595
 const PAGE_HEIGHT = 842
@@ -41,6 +42,8 @@ export async function generateDOPdf(params: {
   companyEmail: string
   // false = store-owner copy: quantities only, no internal cost prices
   showCosts?: boolean
+  // Shipment details, printed under DELIVER TO when filled
+  shipment?: ShipmentDetails
   // When present, the "Received by" line is replaced with the drawn signature
   signature?: { pngBase64: string; signedBy: string; signedAt: string }
 }): Promise<Uint8Array> {
@@ -173,6 +176,30 @@ export async function generateDOPdf(params: {
   }
 
   y -= 16
+
+  // ── SHIP TO (only when the store has shipment details) ────────────────────
+  const shipLines = shipmentLines(params.shipment)
+  if (shipLines.length > 0) {
+    page.drawText('SHIP TO:', {
+      x: MARGIN,
+      y,
+      size: 10,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    })
+    y -= 14
+    for (const line of shipLines) {
+      page.drawText(line, {
+        x: MARGIN,
+        y,
+        size: 9,
+        font: regularFont,
+        color: rgb(0.2, 0.2, 0.2),
+      })
+      y -= 12
+    }
+    y -= 16
+  }
 
   // ── Items Table ─────────────────────────────────────────────────────────────
   // Store-owner copy drops the cost columns and spreads the remaining ones out.

@@ -48,7 +48,8 @@ export async function POST(
     .select(`
       *,
       stores:store_id (
-        store_name, store_code, pic_name, address, city, postcode, state, pic_phone
+        store_name, store_code, pic_name, address, city, postcode, state, pic_phone,
+        shipment_address, shipment_contact, shipment_pic
       ),
       delivery_order_items (
         id, quantity, unit_cost,
@@ -74,6 +75,7 @@ export async function POST(
   const store = deliveryOrder.stores as {
     store_name: string; store_code: string; pic_name: string
     address: string; city: string; postcode: string; state: string; pic_phone: string
+    shipment_address: string | null; shipment_contact: string | null; shipment_pic: string | null
   } | null
   if (!store) return Response.json({ error: 'Store data not found' }, { status: 500 })
 
@@ -111,6 +113,7 @@ export async function POST(
     postcode: store.postcode,
     state: store.state,
     picPhone: store.pic_phone,
+    shipment: { address: store.shipment_address, contact: store.shipment_contact, pic: store.shipment_pic },
     courier: deliveryOrder.courier ?? undefined,
     trackingNumber: deliveryOrder.tracking_number ?? undefined,
     dispatchDate: deliveryOrder.dispatch_date ? fmtDate(deliveryOrder.dispatch_date) : undefined,

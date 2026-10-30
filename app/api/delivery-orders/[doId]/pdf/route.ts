@@ -40,7 +40,10 @@ export async function GET(
         city,
         postcode,
         state,
-        pic_phone
+        pic_phone,
+        shipment_address,
+        shipment_contact,
+        shipment_pic
       ),
       delivery_order_items (
         id,
@@ -80,6 +83,7 @@ export async function GET(
     const slipStore = deliveryOrder.stores as {
       store_name: string; address: string | null; city: string | null; postcode: string | null
       state: string | null; pic_name: string | null; pic_phone: string | null
+      shipment_address: string | null; shipment_contact: string | null; shipment_pic: string | null
     } | null
     if (!slipStore) return Response.json({ error: 'Store data not found' }, { status: 500 })
     type SlipItemRaw = { quantity: number; products: { name: string; sku: string; category: string | null } | null }
@@ -93,6 +97,7 @@ export async function GET(
       state: slipStore.state,
       picName: slipStore.pic_name,
       picPhone: slipStore.pic_phone,
+      shipment: { address: slipStore.shipment_address, contact: slipStore.shipment_contact, pic: slipStore.shipment_pic },
       items: ((deliveryOrder.delivery_order_items as SlipItemRaw[]) ?? [])
         .map((i) => ({
           sku: i.products?.sku ?? '-',
@@ -155,6 +160,9 @@ export async function GET(
     postcode: string
     state: string
     pic_phone: string
+    shipment_address: string | null
+    shipment_contact: string | null
+    shipment_pic: string | null
   } | null
 
   if (!store) {
@@ -203,6 +211,7 @@ export async function GET(
     postcode: store.postcode,
     state: store.state,
     picPhone: store.pic_phone,
+    shipment: { address: store.shipment_address, contact: store.shipment_contact, pic: store.shipment_pic },
     courier: deliveryOrder.courier ?? undefined,
     trackingNumber: deliveryOrder.tracking_number ?? undefined,
     dispatchDate,

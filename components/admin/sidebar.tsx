@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Store, Package, ArchiveX, PackageCheck,
-  Truck, Banknote, BarChart2, Settings, User, LogOut, Menu, X
+  Truck, Banknote, BarChart2, Settings, User, LogOut, Menu, X, UserPlus
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -24,6 +24,7 @@ const navGroups = [
       { href: '/admin/stores', icon: Store, label: 'Stores' },
       { href: '/admin/products', icon: Package, label: 'Products' },
       { href: '/admin/stock', icon: ArchiveX, label: 'Stock' },
+      { href: '/admin/onboarding', icon: UserPlus, label: 'Onboarding' },
     ],
   },
   {

@@ -1,4 +1,5 @@
 import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from 'pdf-lib'
+import { shipmentLines, type ShipmentDetails } from './shipment'
 
 // 4 x 6 inch packing slip for a restock DO (label-printer friendly).
 // Generated on the fly from the DO's existing data — nothing is stored.
@@ -35,6 +36,8 @@ export interface SlipParams {
   state?: string | null
   picName?: string | null
   picPhone?: string | null
+  // Shipment details, printed as a SHIP TO block when filled
+  shipment?: ShipmentDetails | null
   items: SlipItem[]
 }
 
@@ -152,6 +155,7 @@ export async function buildPackingSlip(p: SlipParams): Promise<{ bytes: Uint8Arr
   const cityLine = [[p.postcode, p.city].filter(Boolean).join(' '), p.state].filter(Boolean).join(', ')
   if (cityLine) addrLines.push(...wrap(safe(cityLine), reg, 7.5, CW))
   const contact = [p.picName, p.picPhone].map((s) => (s ?? '').trim()).filter(Boolean).join(' · ')
+  const shipLines = shipmentLines(p.shipment).flatMap((line) => wrap(safe(line), reg, 7.5, CW))
   const footer2 = wrap(FOOTER_LINE_2, reg, 6, CW)
 
   // Header + deliver-to block, ending in the thick rule above the table
@@ -168,6 +172,11 @@ export async function buildPackingSlip(p: SlipParams): Promise<{ bytes: Uint8Arr
     for (const line of addrLines) { text(page, line, M, y - 7, reg, 7.5); y -= 9 }
     if (contact) {
       for (const line of wrap(safe(`Contact: ${contact}`), reg, 7.5, CW)) { text(page, line, M, y - 7, reg, 7.5); y -= 9 }
+    }
+    if (shipLines.length > 0) {
+      text(page, 'SHIP TO', M, y - 6, bold, 6.5)
+      y -= 9
+      for (const line of shipLines) { text(page, line, M, y - 7, reg, 7.5); y -= 9 }
     }
     y -= 4
     hline(page, M, M + CW, y, 1.5)
@@ -188,6 +197,7 @@ export async function buildPackingSlip(p: SlipParams): Promise<{ bytes: Uint8Arr
     y -= wrap(safe(p.storeName), bold, 9, CW).length * 11
     y -= addrLines.length * 9
     if (contact) y -= wrap(safe(`Contact: ${contact}`), reg, 7.5, CW).length * 9
+    if (shipLines.length > 0) y -= 9 + shipLines.length * 9
     return y - 4
   })()
   const rowsTop = topY - HEAD_ROW
