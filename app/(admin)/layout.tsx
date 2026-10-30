@@ -29,6 +29,7 @@ import {
   Target,
   TrendingUp,
   MessageCircle,
+  UserPlus,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -42,6 +43,12 @@ const NAV_ITEMS = [
     section: 'Overview',
     items: [
       { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
+    ],
+  },
+  {
+    section: 'Onboarding',
+    items: [
+      { label: 'Onboarding', href: '/admin/onboarding', icon: UserPlus },
     ],
   },
   {
@@ -103,6 +110,7 @@ function getPageTitle(pathname: string): string {
     '/admin/store-types': 'Store Types',
     '/admin/products': 'Products',
     '/admin/stock': 'Stock',
+    '/admin/onboarding': 'Onboarding',
     '/admin/restocks': 'Restock Queue',
     '/admin/predictions': 'Restock Predictions',
     '/admin/restock-calculator': 'Restock Calculator',
