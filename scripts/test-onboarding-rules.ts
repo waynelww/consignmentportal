@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import {
   isRedCard, isOffBoard, nextStep, needsStoreLink, todayMYT, daysOnStep,
-  compareOldestFirst, type OnboardingCardTiming,
+  compareOldestFirst, type OnboardingCardTiming, CLOSE_REASONS, isCloseReason, closeReasonLabel,
 } from '../lib/onboarding/steps'
 import { shipmentLines } from '../lib/pdf/shipment'
 import { buildPackingSlip, type SlipItem } from '../lib/pdf/generate-slip'
@@ -79,6 +79,18 @@ assert.equal(isOffBoard(card({ step: 'delivered' }), now), false)
 const older = { step_changed_at: '2026-10-20T00:00:00Z' }
 const newer = { step_changed_at: '2026-10-29T00:00:00Z' }
 assert.deepEqual([newer, older].sort(compareOldestFirst), [older, newer])
+
+// ── Closed (removed from board): never red, whatever the dates say ───────
+assert.equal(isRedCard(card({ follow_up_date: '2026-10-01', closed_at: '2026-10-29T00:00:00Z' }), now), false)
+assert.equal(isRedCard(card({ step_changed_at: longOnStep, closed_at: '2026-10-29T00:00:00Z' }), now), false)
+
+// ── Close reasons ────────────────────────────────────────────────────────
+assert.deepEqual(CLOSE_REASONS.map((r) => r.key), ['deal_rejected', 'no_response', 'not_a_fit', 'other'])
+assert.equal(isCloseReason('deal_rejected'), true)
+assert.equal(isCloseReason('bored'), false)
+assert.equal(isCloseReason(null), false)
+assert.equal(closeReasonLabel('no_response'), 'No response')
+assert.equal(closeReasonLabel(null), '')
 
 // ── Shipment block (DOs and packing slips) ───────────────────────────────
 assert.deepEqual(shipmentLines(null), [])

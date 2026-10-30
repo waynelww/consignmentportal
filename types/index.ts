@@ -1,4 +1,4 @@
-import type { OnboardingStep } from '@/lib/onboarding/steps'
+import type { CloseReason, OnboardingStep } from '@/lib/onboarding/steps'
 
 export type UserRole = 'super_admin' | 'ops_manager' | 'store_owner'
 
@@ -450,6 +450,11 @@ export interface OnboardingCard {
   handler_member_id: string | null
   store_id: string | null
   updated_by_member_id: string | null
+  // Removed from the board (nothing is deleted); reopening clears these.
+  closed_at: string | null
+  close_reason: CloseReason | null
+  close_note: string | null
+  closed_by_member_id: string | null
   created_at: string
   updated_at: string
 }
@@ -466,11 +471,14 @@ export interface OnboardingHistoryRow {
 /** An onboarding card as the API returns it, with the handler and linked store names joined in. */
 export type OnboardingCardRow = OnboardingCard & {
   handler: { name: string } | null
+  closer: { name: string } | null
   store: { store_code: string; store_name: string } | null
 }
 
 export interface OnboardingHistoryEntry {
   id: string
+  event: 'moved' | 'closed' | 'reopened'
+  note: string | null
   from_step: OnboardingStep | null
   to_step: OnboardingStep
   moved_at: string

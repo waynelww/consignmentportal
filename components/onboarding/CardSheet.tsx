@@ -7,7 +7,7 @@ import { X, Loader2, Search } from 'lucide-react'
 import { cn, formatMYDate, formatMYTime } from '@/lib/utils'
 import {
   ONBOARDING_STEPS, stepLabel, nextStep, needsStoreLink, daysOnStep, isRedCard,
-  type OnboardingStep,
+  closeReasonLabel, type OnboardingStep,
 } from '@/lib/onboarding/steps'
 import { callOnboardingApi } from '@/components/onboarding/api'
 import type { OnboardingCardRow, OnboardingHistoryEntry, XocksTeamMember, Store } from '@/types'
@@ -20,6 +20,8 @@ interface CardSheetProps {
   onClose: () => void
   onMove: (card: OnboardingCardRow, to: OnboardingStep) => Promise<void>
   onCreateStore: (card: OnboardingCardRow) => void
+  onRemove: (card: OnboardingCardRow) => void
+  onReopen: (card: OnboardingCardRow) => void
   onChanged: () => Promise<void>
 }
 
@@ -58,7 +60,7 @@ function draftFrom(card: OnboardingCardRow): Draft {
 }
 
 /** Side panel for one card: details, step, store link, follow-up, handler and history. */
-export function CardSheet({ card, members, workingAs, now, onClose, onMove, onCreateStore, onChanged }: CardSheetProps) {
+export function CardSheet({ card, members, workingAs, now, onClose, onMove, onCreateStore, onRemove, onReopen, onChanged }: CardSheetProps) {
   const [draft, setDraft] = useState<Draft>(() => draftFrom(card))
   const [history, setHistory] = useState<OnboardingHistoryEntry[]>([])
   const [saving, setSaving] = useState(false)
@@ -85,6 +87,7 @@ export function CardSheet({ card, members, workingAs, now, onClose, onMove, onCr
   }, [card.id, card.step_changed_at])
 
   const linked = !!card.store_id
+  const closed = !!card.closed_at
   const red = isRedCard(card, now)
   const next = nextStep(card.step)
   const set = (key: keyof Draft) => (value: string) => setDraft((d) => ({ ...d, [key]: value }))
@@ -156,7 +159,8 @@ export function CardSheet({ card, members, workingAs, now, onClose, onMove, onCr
             <h2 className="text-lg font-bold text-gray-900 truncate">{card.store_name}</h2>
             <p className="text-xs text-gray-500 mt-0.5">
               {stepLabel(card.step)} · {daysOnStep(card.step_changed_at, now)} day(s) on this step
-              {red && <span className="ml-2 font-semibold text-red-600">Needs follow-up</span>}
+              {red && !closed && <span className="ml-2 font-semibold text-red-600">Needs follow-up</span>}
+              {closed && <span className="ml-2 font-semibold text-gray-700">Removed from board</span>}
             </p>
           </div>
           <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-700" aria-label="Close">
@@ -165,6 +169,22 @@ export function CardSheet({ card, members, workingAs, now, onClose, onMove, onCr
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
+          {closed && (
+            <section className="rounded-lg border border-gray-300 bg-gray-50 p-3 space-y-2">
+              <p className="text-sm font-semibold text-gray-800">Removed from the board</p>
+              <p className="text-xs text-gray-600">
+                {closeReasonLabel(card.close_reason)} · {card.closed_at && formatMYDate(card.closed_at)} · by {card.closer?.name ?? 'unknown'}
+              </p>
+              {card.close_note && <p className="text-xs text-gray-600">{card.close_note}</p>}
+              <button
+                onClick={() => onReopen(card)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#0A0A0A] text-[#FFD700]"
+              >
+                Reopen
+              </button>
+            </section>
+          )}
+
           {/* Step */}
           <section className="space-y-2">
             <h3 className="text-sm font-semibold text-gray-800">Step</h3>
@@ -172,19 +192,20 @@ export function CardSheet({ card, members, workingAs, now, onClose, onMove, onCr
               <select
                 value={moveTo}
                 onChange={(e) => setMoveTo(e.target.value as OnboardingStep)}
+                disabled={closed}
                 className={cn(input, 'flex-1')}
               >
                 {ONBOARDING_STEPS.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
               </select>
               <button
                 onClick={() => onMove(card, moveTo)}
-                disabled={moveTo === card.step}
+                disabled={closed || moveTo === card.step}
                 className="px-3 py-2 text-sm font-semibold rounded-lg bg-[#0A0A0A] text-[#FFD700] disabled:opacity-40"
               >
                 Move
               </button>
             </div>
-            {next && (
+            {next && !closed && (
               <button
                 onClick={() => onMove(card, next)}
                 className="text-sm font-medium text-gray-700 underline underline-offset-2"
@@ -195,12 +216,20 @@ export function CardSheet({ card, members, workingAs, now, onClose, onMove, onCr
             {card.step === 'first_sale' && card.first_sale_at && (
               <p className="text-xs text-gray-500">First sale on {formatMYDate(card.first_sale_at)}. It leaves the board 7 days after this, and stays searchable.</p>
             )}
-            {!linked && card.step === 'details_received' && (
+            {!linked && !closed && card.step === 'details_received' && (
               <button
                 onClick={() => onCreateStore(card)}
                 className="w-full py-2 text-sm font-semibold rounded-lg bg-[#FFD700] text-black"
               >
                 Create store from these details
+              </button>
+            )}
+            {!closed && (
+              <button
+                onClick={() => onRemove(card)}
+                className="w-full py-2 text-sm font-semibold rounded-lg border border-red-300 text-red-700"
+              >
+                Remove store (deal rejected)
               </button>
             )}
           </section>
@@ -334,8 +363,11 @@ export function CardSheet({ card, members, workingAs, now, onClose, onMove, onCr
                 {history.map((h) => (
                   <li key={h.id} className="text-xs text-gray-700 border-l-2 border-gray-200 pl-3">
                     <span className="font-medium">
-                      {h.from_step ? `${stepLabel(h.from_step)} → ${stepLabel(h.to_step)}` : `Added at ${stepLabel(h.to_step)}`}
+                      {h.event === 'closed' && `Removed from board at ${stepLabel(h.to_step)}`}
+                      {h.event === 'reopened' && `Reopened at ${stepLabel(h.to_step)}`}
+                      {h.event === 'moved' && (h.from_step ? `${stepLabel(h.from_step)} → ${stepLabel(h.to_step)}` : `Added at ${stepLabel(h.to_step)}`)}
                     </span>
+                    {h.note && <span className="block text-gray-600">{h.note}</span>}
                     <span className="block text-gray-500">
                       {formatMYTime(h.moved_at)} · by {h.mover?.name ?? 'unknown'}
                     </span>

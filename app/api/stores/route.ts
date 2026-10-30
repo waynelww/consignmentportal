@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
 
   // Quick create: check the onboarding card before anything is written.
   const admin = createAdminClient()
-  let card: { id: string; step: string; store_id: string | null; shipment_address: string | null; shipment_contact: string | null; shipment_pic: string | null } | null = null
+  let card: { id: string; step: string; store_id: string | null; closed_at: string | null; shipment_address: string | null; shipment_contact: string | null; shipment_pic: string | null } | null = null
   if (onboarding_card_id) {
     if (!onboarding_moved_by_member_id) {
       return Response.json({ error: 'Choose who you are for the onboarding card' }, { status: 400 })
@@ -108,11 +108,11 @@ export async function POST(request: NextRequest) {
     }
     const { data: found } = await admin
       .from('onboarding_cards')
-      .select('id, step, store_id, shipment_address, shipment_contact, shipment_pic')
+      .select('id, step, store_id, closed_at, shipment_address, shipment_contact, shipment_pic')
       .eq('id', onboarding_card_id)
       .maybeSingle()
     if (!found) return Response.json({ error: 'Onboarding card not found' }, { status: 404 })
-    if (found.store_id || found.step !== 'details_received') {
+    if (found.store_id || found.closed_at || found.step !== 'details_received') {
       return Response.json(
         { error: 'This onboarding card is not waiting for a store (it must be at Details received and not linked yet)' },
         { status: 409 },

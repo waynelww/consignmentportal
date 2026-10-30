@@ -296,7 +296,7 @@ function NewStorePage() {
       .then((res) => {
         const c = res?.card
         if (!c) throw new Error(res?.error ?? 'Onboarding card not found')
-        if (c.store_id || c.step !== 'details_received') {
+        if (c.store_id || c.closed_at || c.step !== 'details_received') {
           throw new Error('This onboarding card is not waiting for a store (it must be at Details received and not linked yet)')
         }
         form1.reset({
