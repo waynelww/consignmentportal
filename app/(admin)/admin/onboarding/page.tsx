@@ -3,16 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Plus, Loader2, MessageCircle, Search, Flame } from 'lucide-react'
+import { Plus, Loader2, MessageCircle, Search, Flame, Archive } from 'lucide-react'
 import { PageHeader } from '@/components/shared/page-header'
 import { useXocksTeam } from '@/components/admin/useXocksTeam'
 import { CardSheet } from '@/components/onboarding/CardSheet'
+import { CloseCardDialog } from '@/components/onboarding/CloseCardDialog'
 import { callOnboardingApi } from '@/components/onboarding/api'
 import { cn, formatMYDate } from '@/lib/utils'
 import { normalizePhone } from '@/lib/gang/phone'
 import {
   ONBOARDING_STEPS, stepLabel, nextStep, needsStoreLink, daysOnStep, isRedCard, isOffBoard,
-  compareOldestFirst, todayMYT, type OnboardingStep,
+  compareOldestFirst, todayMYT, closeReasonLabel, type OnboardingStep,
 } from '@/lib/onboarding/steps'
 import type { OnboardingCardRow } from '@/types'
 
@@ -48,7 +49,9 @@ export default function OnboardingPage() {
   const [cards, setCards] = useState<OnboardingCardRow[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [followUpOnly, setFollowUpOnly] = useState(false)
+  // One view at a time: the board, the follow-up list, or the closed list.
+  const [view, setView] = useState<'board' | 'followUp' | 'closed'>('board')
+  const [closingCard, setClosingCard] = useState<OnboardingCardRow | null>(null)
   const [workingAs, setWorkingAs] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -80,16 +83,24 @@ export default function OnboardingPage() {
 
   const selected = cards.find((c) => c.id === selectedId) ?? null
 
-  const redCount = useMemo(() => cards.filter((c) => isRedCard(c, now)).length, [cards, now])
+  const memberName = members.find((m) => m.id === workingAs)?.name ?? null
+  const openCards = useMemo(() => cards.filter((c) => !c.closed_at), [cards])
+  const closedCount = cards.length - openCards.length
+  const redCount = useMemo(() => openCards.filter((c) => isRedCard(c, now)).length, [openCards, now])
 
-  // What to show: a flat list when searching or filtering, otherwise the board.
+  // What to show: a flat list for the follow-up and closed views or while searching; otherwise the board.
   const searching = search.trim().length > 0
   const listCards = useMemo(() => {
-    const base = cards.filter((c) => matchesSearch(c, search))
-    if (followUpOnly) return base.filter((c) => isRedCard(c, now)).sort(compareOldestFirst)
+    if (view === 'closed') {
+      return cards
+        .filter((c) => c.closed_at && matchesSearch(c, search))
+        .sort((a, b) => (b.closed_at ?? '').localeCompare(a.closed_at ?? ''))
+    }
+    const base = openCards.filter((c) => matchesSearch(c, search))
+    if (view === 'followUp') return base.filter((c) => isRedCard(c, now)).sort(compareOldestFirst)
     return base.sort(compareOldestFirst)
-  }, [cards, search, followUpOnly, now])
-  const showList = searching || followUpOnly
+  }, [cards, openCards, search, view, now])
+  const showList = searching || view !== 'board'
 
   async function moveCard(card: OnboardingCardRow, to: OnboardingStep) {
     if (!workingAs) { toast.error('Pick who you are at the top of the board first'); return }
@@ -111,6 +122,17 @@ export default function OnboardingPage() {
       toast.error(err instanceof Error ? err.message : 'Could not move card')
     } finally {
       setBusyId(null)
+    }
+  }
+
+  async function reopenCard(card: OnboardingCardRow) {
+    if (!workingAs) { toast.error('Pick who you are at the top of the board first'); return }
+    try {
+      await callOnboardingApi(`/api/onboarding/cards/${card.id}/reopen`, 'POST', { by_member_id: workingAs })
+      toast.success(`${card.store_name} is back on the board at ${stepLabel(card.step)}`)
+      await loadCards()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not reopen the card')
     }
   }
 
@@ -195,6 +217,38 @@ export default function OnboardingPage() {
             </button>
           )}
         </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); setClosingCard(card) }}
+          className="mt-2 w-full py-1.5 text-xs font-semibold rounded-lg border border-red-300 text-red-700 bg-white"
+        >
+          Remove store (deal rejected)
+        </button>
+      </div>
+    )
+  }
+
+  function renderClosedCard(card: OnboardingCardRow) {
+    return (
+      <div
+        key={card.id}
+        onClick={() => setSelectedId(card.id)}
+        className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm cursor-pointer hover:shadow transition-shadow"
+      >
+        <p className="font-semibold text-sm text-gray-900">{card.store ? card.store.store_name : card.store_name}</p>
+        <p className="text-xs text-gray-500">{card.pic_name} · {card.pic_phone}</p>
+        <p className="mt-1 text-xs text-gray-700">
+          <span className="font-medium">{closeReasonLabel(card.close_reason)}</span>
+          {card.closed_at && <> · {formatMYDate(card.closed_at)}</>}
+          {' · by '}{card.closer?.name ?? 'unknown'}
+        </p>
+        {card.close_note && <p className="text-xs text-gray-500 mt-0.5">{card.close_note}</p>}
+        <p className="text-xs text-gray-500">Was at {stepLabel(card.step)}</p>
+        <button
+          onClick={(e) => { e.stopPropagation(); reopenCard(card) }}
+          className="mt-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#0A0A0A] text-[#FFD700]"
+        >
+          Reopen
+        </button>
       </div>
     )
   }
@@ -226,13 +280,22 @@ export default function OnboardingPage() {
           />
         </div>
         <button
-          onClick={() => setFollowUpOnly((v) => !v)}
+          onClick={() => setView((v) => (v === 'followUp' ? 'board' : 'followUp'))}
           className={cn(
             'inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg border',
-            followUpOnly ? 'bg-red-600 text-white border-red-600' : 'bg-white text-red-700 border-red-300',
+            view === 'followUp' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-red-700 border-red-300',
           )}
         >
           <Flame className="h-4 w-4" /> Follow up today ({redCount})
+        </button>
+        <button
+          onClick={() => setView((v) => (v === 'closed' ? 'board' : 'closed'))}
+          className={cn(
+            'inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg border',
+            view === 'closed' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-700 border-gray-300',
+          )}
+        >
+          <Archive className="h-4 w-4" /> Closed ({closedCount})
         </button>
         <label className="flex items-center gap-2 text-sm text-gray-600">
           Working as
@@ -259,17 +322,19 @@ export default function OnboardingPage() {
       ) : showList ? (
         <div className="space-y-2 max-w-2xl">
           <p className="text-xs text-gray-500">
-            {followUpOnly && !searching
-              ? 'Cards that need follow-up today or earlier, oldest first. Red: follow-up date today or earlier, or with no follow-up date, more than 24 hours on the same step.'
-              : 'Search results, including finished stores.'}
+            {view === 'closed'
+              ? 'Removed from the board. Nothing is deleted. Reopen a store to put it back at the step it was on.'
+              : view === 'followUp' && !searching
+                ? 'Cards that need follow-up today or earlier, oldest first. Red: follow-up date today or earlier, or with no follow-up date, more than 24 hours on the same step.'
+                : 'Search results (open cards). Finished stores stay in search while they are on the board.'}
           </p>
           {listCards.length === 0 && <p className="text-sm text-gray-500 py-6">Nothing here.</p>}
-          {listCards.map((c) => renderCard(c, { showStep: true }))}
+          {listCards.map((c) => (view === 'closed' ? renderClosedCard(c) : renderCard(c, { showStep: true })))}
         </div>
       ) : (
         <div className="flex gap-3 overflow-x-auto pb-4">
           {ONBOARDING_STEPS.map((s) => {
-            const inColumn = cards
+            const inColumn = openCards
               .filter((c) => c.step === s.key && !isOffBoard(c, now))
               .sort(compareOldestFirst)
             return (
@@ -305,7 +370,23 @@ export default function OnboardingPage() {
           onClose={() => setSelectedId(null)}
           onMove={(card, to) => moveCard(card, to)}
           onCreateStore={createStore}
+          onRemove={(card) => setClosingCard(card)}
+          onReopen={reopenCard}
           onChanged={loadCards}
+        />
+      )}
+
+      {closingCard && (
+        <CloseCardDialog
+          card={closingCard}
+          closingAsName={memberName}
+          workingAs={workingAs}
+          onClose={() => setClosingCard(null)}
+          onDone={async () => {
+            setClosingCard(null)
+            setSelectedId(null)
+            await loadCards()
+          }}
         />
       )}
 

@@ -15,6 +15,24 @@ export const ONBOARDING_STEPS = [
 
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number]['key']
 
+/** Why a store was removed from the board. Stored as the key. */
+export const CLOSE_REASONS = [
+  { key: 'deal_rejected', label: 'Deal rejected' },
+  { key: 'no_response', label: 'No response' },
+  { key: 'not_a_fit', label: 'Not a fit' },
+  { key: 'other', label: 'Other' },
+] as const
+
+export type CloseReason = (typeof CLOSE_REASONS)[number]['key']
+
+export function isCloseReason(value: unknown): value is CloseReason {
+  return typeof value === 'string' && CLOSE_REASONS.some((r) => r.key === value)
+}
+
+export function closeReasonLabel(reason: string | null): string {
+  return CLOSE_REASONS.find((r) => r.key === reason)?.label ?? (reason ?? '')
+}
+
 export const FIRST_STEP: OnboardingStep = 'reached_out'
 export const LAST_STEP: OnboardingStep = 'first_sale'
 
@@ -68,6 +86,7 @@ export interface OnboardingCardTiming {
   step_changed_at: string
   follow_up_date: string | null
   first_sale_at: string | null
+  closed_at?: string | null
 }
 
 /**
@@ -77,7 +96,7 @@ export interface OnboardingCardTiming {
  * with no follow-up date is red after more than 24 hours on the same step.
  */
 export function isRedCard(card: OnboardingCardTiming, now: Date): boolean {
-  if (card.step === LAST_STEP) return false
+  if (card.closed_at || card.step === LAST_STEP) return false
   if (card.follow_up_date) return card.follow_up_date <= todayMYT(now)
   const onStepMs = now.getTime() - new Date(card.step_changed_at).getTime()
   return onStepMs > STALE_STEP_MS

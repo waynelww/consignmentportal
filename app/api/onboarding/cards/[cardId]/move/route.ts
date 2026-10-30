@@ -49,6 +49,10 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (cardErr) return Response.json({ error: cardErr.message }, { status: 500 })
   if (!card) return Response.json({ error: 'Card not found' }, { status: 404 })
 
+  if (card.closed_at) {
+    return Response.json({ error: 'This card is removed from the board. Reopen it before moving it.' }, { status: 409 })
+  }
+
   const fromStep = card.step as OnboardingStep
   if (fromStep === toStep) {
     return Response.json({ error: `Card is already at ${stepLabel(toStep)}` }, { status: 400 })

@@ -45,3 +45,15 @@ export const MoveCardSchema = z.object({
   // Required when moving to Account created (or later) on a card not yet linked.
   store_id: uuid.optional(),
 })
+
+export const CloseCardSchema = z.object({
+  ...byMember,
+  reason: z.enum(['deal_rejected', 'no_response', 'not_a_fit', 'other']),
+  note: optionalText(500),
+  // Also mark the linked store inactive. The store is never deleted.
+  set_store_inactive: z.boolean().optional(),
+})
+
+export const ReopenCardSchema = z.object({
+  ...byMember,
+})

@@ -7,6 +7,7 @@ import { CreateCardSchema, clean } from '@/lib/onboarding/schemas'
 const CARD_SELECT = `
   *,
   handler:xocks_team_members!handler_member_id(name),
+  closer:xocks_team_members!closed_by_member_id(name),
   store:stores!store_id(store_code, store_name)
 `
 

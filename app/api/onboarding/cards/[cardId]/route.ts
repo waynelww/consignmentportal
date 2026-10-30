@@ -9,6 +9,7 @@ type Params = { params: Promise<{ cardId: string }> }
 const CARD_SELECT = `
   *,
   handler:xocks_team_members!handler_member_id(name),
+  closer:xocks_team_members!closed_by_member_id(name),
   store:stores!store_id(store_code, store_name)
 `
 
@@ -29,7 +30,7 @@ export async function GET(_request: NextRequest, { params }: Params) {
 
   const { data: history, error: historyErr } = await supabase
     .from('onboarding_card_history')
-    .select('id, from_step, to_step, moved_at, mover:xocks_team_members!moved_by_member_id(name)')
+    .select('id, event, note, from_step, to_step, moved_at, mover:xocks_team_members!moved_by_member_id(name)')
     .eq('card_id', cardId)
     .order('moved_at', { ascending: true })
   if (historyErr) return Response.json({ error: historyErr.message }, { status: 500 })
