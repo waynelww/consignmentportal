@@ -19,12 +19,17 @@ const navGroups = [
     ],
   },
   {
+    label: 'Onboarding',
+    items: [
+      { href: '/admin/onboarding', icon: UserPlus, label: 'Onboarding' },
+    ],
+  },
+  {
     label: 'Network',
     items: [
       { href: '/admin/stores', icon: Store, label: 'Stores' },
       { href: '/admin/products', icon: Package, label: 'Products' },
       { href: '/admin/stock', icon: ArchiveX, label: 'Stock' },
-      { href: '/admin/onboarding', icon: UserPlus, label: 'Onboarding' },
     ],
   },
   {

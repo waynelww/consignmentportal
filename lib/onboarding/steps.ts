@@ -71,15 +71,16 @@ export interface OnboardingCardTiming {
 }
 
 /**
- * Red = needs chasing. Only open cards can be red: a card on First sale is
- * finished. Open when it has sat on the same step for more than 24 hours, or
- * its follow-up date (Malaysia date) has passed.
+ * Red = needs chasing. Only open cards can be red (a card on First sale is
+ * finished). A card with a follow-up date is red when that date (Malaysia
+ * date) is today or earlier; a future date keeps it from turning red. A card
+ * with no follow-up date is red after more than 24 hours on the same step.
  */
 export function isRedCard(card: OnboardingCardTiming, now: Date): boolean {
   if (card.step === LAST_STEP) return false
+  if (card.follow_up_date) return card.follow_up_date <= todayMYT(now)
   const onStepMs = now.getTime() - new Date(card.step_changed_at).getTime()
-  if (onStepMs > STALE_STEP_MS) return true
-  return card.follow_up_date !== null && card.follow_up_date < todayMYT(now)
+  return onStepMs > STALE_STEP_MS
 }
 
 /** Finished cards (First sale) drop off the board after 7 days; they stay searchable. */

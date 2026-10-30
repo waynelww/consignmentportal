@@ -45,8 +45,18 @@ assert.equal(isRedCard(card({ step_changed_at: new Date(now.getTime() - 25 * HOU
 
 // ── Red: follow-up date has passed (not today, not in the future) ────────
 assert.equal(isRedCard(card({ follow_up_date: '2026-10-29' }), now), true)
-assert.equal(isRedCard(card({ follow_up_date: '2026-10-30' }), now), false)
+assert.equal(isRedCard(card({ follow_up_date: '2026-10-30' }), now), true) // due today counts
 assert.equal(isRedCard(card({ follow_up_date: '2026-11-02' }), now), false)
+
+// ── With a follow-up date, the date decides; the 24-hour rule does not apply ──
+const longOnStep = new Date(now.getTime() - 25 * HOUR).toISOString()
+assert.equal(isRedCard(card({ step_changed_at: longOnStep, follow_up_date: '2026-11-02' }), now), false)
+assert.equal(isRedCard(card({ step_changed_at: longOnStep, follow_up_date: '2026-10-30' }), now), true)
+assert.equal(isRedCard(card({ step_changed_at: new Date(now.getTime() - HOUR).toISOString(), follow_up_date: '2026-10-29' }), now), true)
+
+// ── Without a follow-up date: red only after more than 24h on the same step ──
+assert.equal(isRedCard(card({ step_changed_at: new Date(now.getTime() - 23 * HOUR).toISOString(), follow_up_date: null }), now), false)
+assert.equal(isRedCard(card({ step_changed_at: longOnStep, follow_up_date: null }), now), true)
 
 // ── First sale is never red ──────────────────────────────────────────────
 assert.equal(isRedCard(card({

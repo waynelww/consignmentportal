@@ -124,7 +124,7 @@ export default function OnboardingPage() {
     const red = isRedCard(card, now)
     const next = nextStep(card.step)
     const busy = busyId === card.id
-    const followUpPassed = card.follow_up_date !== null && card.follow_up_date < todayMYT(now)
+    const followUpDue = card.follow_up_date !== null && card.follow_up_date <= todayMYT(now)
     return (
       <div
         key={card.id}
@@ -166,7 +166,7 @@ export default function OnboardingPage() {
           <p>
             {daysOnStep(card.step_changed_at, now)} day(s) on this step
             {card.follow_up_date && (
-              <span className={cn('ml-2', followUpPassed && 'font-semibold text-red-600')}>
+              <span className={cn('ml-2', followUpDue && 'font-semibold text-red-600')}>
                 · Follow up {formatMYDate(card.follow_up_date)}
               </span>
             )}
@@ -260,7 +260,7 @@ export default function OnboardingPage() {
         <div className="space-y-2 max-w-2xl">
           <p className="text-xs text-gray-500">
             {followUpOnly && !searching
-              ? 'Cards that need follow-up, oldest first. Red = more than 24 hours on the same step, or the follow-up date has passed.'
+              ? 'Cards that need follow-up today or earlier, oldest first. Red: follow-up date today or earlier, or with no follow-up date, more than 24 hours on the same step.'
               : 'Search results, including finished stores.'}
           </p>
           {listCards.length === 0 && <p className="text-sm text-gray-500 py-6">Nothing here.</p>}
