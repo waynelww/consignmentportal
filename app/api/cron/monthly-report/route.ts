@@ -5,6 +5,7 @@
  *
  * Emails the PDF and the Excel file to the monthly_report_email setting.
  * The recipient is never hard-coded; the run fails if the setting is blank.
+ * Every attempt, successful or not, is written to monthly_report_sends.
  */
 import { type NextRequest } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -13,6 +14,7 @@ import { buildMonthlyReportFiles } from '@/lib/monthly-report'
 import { previousMonthOf, monthLabel, parseYearMonth } from '@/lib/monthly-report/months'
 import { todayMYT } from '@/lib/sales/last-sale'
 import { summaryForEmail } from '@/lib/monthly-report/email-summary'
+import { recordReportSend, errorText } from '@/lib/monthly-report/send-log'
 
 export const maxDuration = 300
 
@@ -29,30 +31,40 @@ export async function GET(request: NextRequest) {
 
   const db = await createServiceClient()
   const { data: row } = await db.from('settings').select('value').eq('key', 'monthly_report_email').maybeSingle()
-  const to = row?.value?.trim()
+  const to = row?.value?.trim() || null
   if (!to) {
-    console.error('[cron monthly-report] monthly_report_email setting is empty; nothing sent')
-    return Response.json({ error: 'Setting monthly_report_email is empty' }, { status: 500 })
+    const error = 'Setting monthly_report_email is empty'
+    console.error(`[cron monthly-report] ${error}; nothing sent`)
+    await recordReportSend(db, { month_covered: ym, kind: 'monthly', recipient: null, status: 'failed', error })
+    return Response.json({ error }, { status: 500 })
   }
 
-  const files = await buildMonthlyReportFiles(db, ym)
-  const { summary, actionCounts } = summaryForEmail(files.report)
-  await sendMonthlyReportEmail({
-    to,
-    monthLabel: monthLabel(ym),
-    baseName: files.baseName,
-    pdf: files.pdf,
-    xlsx: files.xlsx,
-    summary,
-    actionCounts,
-  })
+  try {
+    const files = await buildMonthlyReportFiles(db, ym)
+    const { summary, actionCounts } = summaryForEmail(files.report)
+    await sendMonthlyReportEmail({
+      to,
+      monthLabel: monthLabel(ym),
+      baseName: files.baseName,
+      pdf: files.pdf,
+      xlsx: files.xlsx,
+      summary,
+      actionCounts,
+    })
+    await recordReportSend(db, { month_covered: ym, kind: 'monthly', recipient: to, status: 'sent' })
 
-  return Response.json({
-    ok: true,
-    month: ym,
-    to,
-    stores_in_scope: files.report.stores.length,
-    sales: files.report.headline.sales.value,
-    actions: actionCounts,
-  })
+    return Response.json({
+      ok: true,
+      month: ym,
+      to,
+      stores_in_scope: files.report.stores.length,
+      sales: files.report.headline.sales.value,
+      actions: actionCounts,
+    })
+  } catch (err) {
+    const error = errorText(err)
+    console.error('[cron monthly-report] send failed:', error)
+    await recordReportSend(db, { month_covered: ym, kind: 'monthly', recipient: to, status: 'failed', error })
+    return Response.json({ error: 'Monthly report failed to send', detail: error }, { status: 500 })
+  }
 }
