@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { cachedAdminJson } from '@/lib/cache'
 
 export async function GET(request: NextRequest) {
@@ -38,12 +39,15 @@ export async function GET(request: NextRequest) {
   const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 
   // Fetch all active stores
-  const { data: stores, error: storesErr } = await supabase
+  const { data: allStores, error: storesErr } = await supabase
     .from('stores')
     .select('id, store_code, store_name, city, state, commission_rate, performance_score, consecutive_low_months, status')
     .order('store_code', { ascending: true })
 
   if (storesErr) return Response.json({ error: storesErr.message }, { status: 500 })
+
+  const testIds = await loadTestStoreIds(supabase)
+  const stores = (allStores ?? []).filter((s) => !isTestStore(testIds, s.id))
 
   if (!stores || stores.length === 0) {
     return Response.json({ stores: [] })

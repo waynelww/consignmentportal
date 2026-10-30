@@ -185,6 +185,28 @@ Rule lives only in `lib/restock/low-stock.ts` (pinned by
   not touch `store_inventory` quantities. `restock_threshold` is no longer
   read and can be dropped in a later migration.
 
+## Test accounts (`stores.is_test`)
+
+Stores used for staff training and system testing are flagged with the
+"Test account" toggle on the store edit page (badge `TEST` on the Stores list
+and store page). Current test stores: AGK-001 (Wayne Store) and STR-009
+(Vaernand store); the flag is set in `supabase/migrations/20261030_store_is_test.sql`.
+
+- A test store works normally in the store app (staff picker, sales,
+  inventory) and still shows in the Stores list.
+- It is left out of: the admin dashboard (KPIs, charts, Top/Bottom 10, Live
+  Activity, Not keying in sales), Monthly Sales (every tab, Sales by staff,
+  Monthly Average, CSV exports), the daily low-stock email, the Restock
+  Calculator and predictions (including the bot `restock-calc` endpoint), the
+  consignment figures on `/admin/performance`, every `/api/bot/*` store report
+  (the single-store `store-performance` endpoint returns 404 for a test store),
+  and the admin CSV export (`/api/admin/export`: sales, commissions, stores).
+- Commission invoices are **not** excluded: test stores get the monthly
+  invoice like any other store, so they can be tested end to end.
+- The rule lives in one place: `lib/stores/test-accounts.ts`
+  (`loadTestStoreIds` + `isTestStore`). Every report filters with it; do not
+  add a second rule.
+
 ## Automation inventory (GitHub Actions + webhooks)
 
 - `monthly-invoices.yml` — 1st + 2nd of month, generates commission invoices.

@@ -38,6 +38,7 @@ import type {
 } from '@/types'
 import { toast } from 'sonner'
 import StoreStaffManager from '@/components/admin/StoreStaffManager'
+import { TestBadge } from '@/components/shared/test-badge'
 
 const TABS = ['overview', 'inventory', 'sales', 'staff', 'delivery-orders', 'commissions'] as const
 type Tab = (typeof TABS)[number]
@@ -426,6 +427,7 @@ export default function StoreDetailPage() {
       commission_rate: store.commission_rate,
       payment_terms_days: store.payment_terms_days ?? 7,
       opened_by_member_id: store.opened_by_member_id ?? '',
+      is_test: store.is_test,
     })
     setEditMode(true)
     setTab('overview')
@@ -627,6 +629,7 @@ export default function StoreDetailPage() {
               <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-500">
                 {store.store_code}
               </span>
+              {store.is_test && <TestBadge />}
               <span
                 className={cn(
                   'px-2.5 py-0.5 rounded-full text-xs font-medium capitalize',
@@ -707,6 +710,18 @@ export default function StoreDetailPage() {
                   {editMode ? (
                     <div className="space-y-3">
                       <EditField label="Store Name" value={editFields.store_name ?? ''} onChange={(v) => setEditFields(f => ({ ...f, store_name: v }))} />
+                      <label className="flex items-start gap-2 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={editFields.is_test ?? false}
+                          onChange={(e) => setEditFields(f => ({ ...f, is_test: e.target.checked }))}
+                        />
+                        <span>
+                          Test account
+                          <span className="block text-xs text-gray-500">Works normally in the store app; left out of every report, KPI, alert and commission invoice.</span>
+                        </span>
+                      </label>
                       <EditField label="Opened by" value={editFields.opened_by_member_id ?? ''} onChange={(v) => setEditFields(f => ({ ...f, opened_by_member_id: v }))} options={openerOptions} />
                       <EditField label="Store Type" value={editFields.store_type ?? ''} onChange={(v) => setEditFields(f => ({ ...f, store_type: v as Store['store_type'] }))} options={storeTypeOptions} />
                       <div className="grid grid-cols-2 gap-3">
@@ -749,6 +764,7 @@ export default function StoreDetailPage() {
                         ['Pairs per code', String(store.pairs_per_code)],
                         ['Stock plan', store.on_stock_plan ? `4-month plan (avg RM ${store.avg_monthly_sales ?? '—'}/mo)` : 'Off: pairs per code'],
                         ['Payment Terms', store.payment_terms_days ? `${store.payment_terms_days} working days` : '7 working days (default)'],
+                        ['Test account', store.is_test ? 'Yes (left out of reports)' : 'No'],
                       ].map(([label, value]) => (
                         <div key={label} className="flex gap-2">
                           <dt className="text-xs text-gray-500 w-32 flex-shrink-0">{label}</dt>

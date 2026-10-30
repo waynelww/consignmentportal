@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { verifyBotAuth } from '@/lib/bot-auth'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { cachedAdminJson } from '@/lib/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -20,6 +21,7 @@ export async function GET(request: NextRequest) {
       quantity,
       total_amount,
       sale_date,
+      store_id,
       stores:store_id ( store_type, state ),
       products:product_id ( sku, name, category )
     `)
@@ -32,7 +34,8 @@ export async function GET(request: NextRequest) {
   const skuByState: Record<string, Record<string, Bucket>> = {}
   const categoryByStoreType: Record<string, Record<string, Bucket>> = {}
 
-  for (const r of sales ?? []) {
+  const testIds = await loadTestStoreIds(supabase)
+  for (const r of (sales ?? []).filter((x) => !isTestStore(testIds, x.store_id))) {
     const s = r.stores as { store_type?: string; state?: string } | null
     const p = r.products as { name?: string; sku?: string; category?: string } | null
     const storeType = s?.store_type ?? 'unknown'

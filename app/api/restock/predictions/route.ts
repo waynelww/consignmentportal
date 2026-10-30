@@ -2,6 +2,7 @@
 import { type NextRequest } from 'next/server'
 import { createClient as createSSRClient } from '@/lib/supabase/server'
 import { createClient } from '@supabase/supabase-js'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 
 function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -86,8 +87,11 @@ export async function GET(request: NextRequest) {
 
   if (storeId) salesQuery = salesQuery.eq('store_id', storeId)
 
-  const { data: sales, error: salesErr } = await salesQuery
+  const { data: salesAll, error: salesErr } = await salesQuery
   if (salesErr) return Response.json({ error: salesErr.message }, { status: 500 })
+
+  const testIds = await loadTestStoreIds(admin)
+  const sales = (salesAll ?? []).filter((s) => !isTestStore(testIds, s.store_id))
 
   // Aggregate: total sold per (store, product) over 3 months → avg monthly velocity
   const velocity: Record<string, Record<string, number>> = {}
@@ -101,7 +105,8 @@ export async function GET(request: NextRequest) {
     .from('store_inventory')
     .select('store_id, product_id, quantity_on_hand')
   if (storeId) invQuery = invQuery.eq('store_id', storeId)
-  const { data: inventory } = await invQuery
+  const { data: inventoryAll } = await invQuery
+  const inventory = (inventoryAll ?? []).filter((i) => !isTestStore(testIds, i.store_id))
 
   const invMap: Record<string, Record<string, number>> = {}
   for (const i of inventory ?? []) {

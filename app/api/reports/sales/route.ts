@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { cachedAdminJson } from '@/lib/cache'
 
 export async function GET(request: NextRequest) {
@@ -55,9 +56,11 @@ export async function GET(request: NextRequest) {
   const { data: sales, error } = await query
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
+  const testIds = await loadTestStoreIds(supabase)
+  const liveSales = (sales ?? []).filter((s) => !isTestStore(testIds, s.store_id))
   const filteredSales = state
-    ? (sales ?? []).filter((s) => (s.stores as unknown as { state: string } | null)?.state === state)
-    : (sales ?? [])
+    ? liveSales.filter((s) => (s.stores as unknown as { state: string } | null)?.state === state)
+    : liveSales
 
   // Aggregate by day
   const dailyMap = new Map<string, { date: string; pairs: number; revenue: number }>()

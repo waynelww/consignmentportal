@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { verifyBotAuth } from '@/lib/bot-auth'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { cachedAdminJson } from '@/lib/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -16,6 +17,7 @@ export async function GET(request: NextRequest) {
     .from('commission_periods')
     .select(`
       id,
+      store_id,
       period_month,
       period_year,
       total_units_sold,
@@ -35,7 +37,8 @@ export async function GET(request: NextRequest) {
   const { data, error } = await query
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
-  const rows = data ?? []
+  const testIds = await loadTestStoreIds(supabase)
+  const rows = (data ?? []).filter((r) => !isTestStore(testIds, r.store_id))
 
   const byStatus: Record<string, { count: number; total_commission_rm: number; total_units: number }> = {}
   const outstandingByStore: Record<string, { store_name: string; store_code: string; periods: number; commission_owed_rm: number }> = {}

@@ -17,6 +17,7 @@ const UpdateStoreSchema = z.object({
   bank_account_name: z.string().optional(),
   commission_rate: z.number().min(0).max(100).optional(),
   status: z.enum(['active', 'inactive', 'suspended', 'pending']).optional(),
+  is_test: z.boolean().optional(),
   notes: z.string().optional(),
   agreement_signed_at: z.string().optional(),
   agreement_signed_by: z.string().optional(),

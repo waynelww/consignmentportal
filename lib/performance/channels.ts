@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 
 // Channel adapters for the performance dashboard. Every sales source is
 // reduced to the same shape so the summary route can compose them; adding a
@@ -225,6 +226,7 @@ export async function aggShopify(
 
 interface SaleRow {
   sale_date: string
+  store_id: string
   quantity: number
   total_amount: number
   xocks_revenue: number
@@ -252,13 +254,17 @@ export async function aggConsignment(db: SupabaseClient, start: string, end: str
   const rows = await pageAll<SaleRow>((from, to) =>
     db
       .from('sales')
-      .select('sale_date, quantity, total_amount, xocks_revenue, sale_group_id, store:stores(store_code, store_name), product:products(sku, name)')
+      .select('sale_date, store_id, quantity, total_amount, xocks_revenue, sale_group_id, store:stores(store_code, store_name), product:products(sku, name)')
       .gte('sale_date', start)
       .lte('sale_date', end)
       .order('sale_date', { ascending: true })
       .order('id', { ascending: true })
       .range(from, to) as unknown as PromiseLike<{ data: SaleRow[] | null; error: { message: string } | null }>,
   )
+
+  // Test accounts are left out of the consignment channel and store ranking.
+  const testIds = await loadTestStoreIds(db)
+  const liveRows = rows.filter((r) => !isTestStore(testIds, r.store_id))
 
   const channel = emptyChannel('consignment')
   const storeMap = new Map<string, StoreAgg>()
@@ -267,7 +273,7 @@ export async function aggConsignment(db: SupabaseClient, start: string, end: str
   let ungrouped = 0
   let xocksRevenue = 0
 
-  for (const r of rows) {
+  for (const r of liveRows) {
     // Rows without a sale_group_id predate multi-item checkouts — count each
     // as its own transaction.
     const orderKey = r.sale_group_id ?? `ungrouped:${ungrouped++}`

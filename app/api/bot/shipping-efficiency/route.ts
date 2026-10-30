@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { verifyBotAuth } from '@/lib/bot-auth'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { cachedAdminJson } from '@/lib/cache'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -22,7 +23,9 @@ export async function GET(request: NextRequest) {
 
   if (storesErr) return Response.json({ error: storesErr.message }, { status: 500 })
 
-  const storeIds = (stores ?? []).map((s) => s.id)
+  const testIds = await loadTestStoreIds(supabase)
+  const liveStores = (stores ?? []).filter((s) => !isTestStore(testIds, s.id))
+  const storeIds = liveStores.map((s) => s.id)
   if (storeIds.length === 0) return Response.json({ stores: [], period_days: days })
 
   const [{ data: sales }, { data: restocks }] = await Promise.all([
@@ -55,7 +58,7 @@ export async function GET(request: NextRequest) {
     if (r.dispatch_date) restocksByStore[r.store_id].dates.push(r.dispatch_date)
   }
 
-  const out = (stores ?? []).map((store) => {
+  const out = liveStores.map((store) => {
     const sales = salesByStore[store.id] ?? { units: 0, revenue: 0, xocks_revenue: 0 }
     const restock = restocksByStore[store.id] ?? { count: 0, total_pairs: 0, dates: [] }
 

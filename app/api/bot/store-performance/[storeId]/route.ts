@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { verifyBotAuth } from '@/lib/bot-auth'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // GET /api/bot/store-performance/[storeId]
@@ -23,6 +24,8 @@ export async function GET(
     .single()
 
   if (storeErr || !store) return Response.json({ error: 'Store not found' }, { status: 404 })
+  const testIds = await loadTestStoreIds(supabase)
+  if (isTestStore(testIds, store.id)) return Response.json({ error: 'Test account: not reported' }, { status: 404 })
 
   const [d30, d60, d90] = [30, 60, 90].map(daysAgo)
 

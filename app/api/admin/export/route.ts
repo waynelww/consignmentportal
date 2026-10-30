@@ -8,6 +8,7 @@
  */
 import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 
 const PAGE = 1000
 
@@ -55,6 +56,9 @@ export async function GET(request: NextRequest) {
   const type = searchParams.get('type') ?? 'sales'
   const month = searchParams.get('month') // YYYY-MM
 
+  // Test accounts are left out of every export that is store-based.
+  const testIds = await loadTestStoreIds(supabase)
+
   if (type === 'sales') {
     let monthSuffix = 'all-time'
     const rows: Record<string, unknown>[] = []
@@ -75,7 +79,7 @@ export async function GET(request: NextRequest) {
 
       const { data, error } = await q
       if (error) return Response.json({ error: error.message }, { status: 500 })
-      for (const r of (data ?? []) as Record<string, unknown>[]) {
+      for (const r of ((data ?? []) as Record<string, unknown>[]).filter((x) => !isTestStore(testIds, x.store_id as string))) {
         const store = r.store as { store_code?: string; store_name?: string } | null
         const product = r.product as { sku?: string; name?: string } | null
         const staff = r.staff as { name?: string } | null
@@ -114,7 +118,7 @@ export async function GET(request: NextRequest) {
       .order('period_year', { ascending: false })
       .order('period_month', { ascending: false })
     if (error) return Response.json({ error: error.message }, { status: 500 })
-    const rows = ((data ?? []) as Record<string, unknown>[]).map((r) => {
+    const rows = ((data ?? []) as Record<string, unknown>[]).filter((r) => !isTestStore(testIds, r.store_id as string)).map((r) => {
       const store = r.store as { store_code?: string; store_name?: string } | null
       const rcptRaw = r.receipt
       const rcpt = (Array.isArray(rcptRaw) ? rcptRaw[0] : rcptRaw) as { status?: string; bank_reference?: string; created_at?: string } | null
@@ -144,7 +148,7 @@ export async function GET(request: NextRequest) {
   if (type === 'stores') {
     const { data, error } = await supabase.from('stores').select('*').order('store_code')
     if (error) return Response.json({ error: error.message }, { status: 500 })
-    const rows = (data ?? []) as Record<string, unknown>[]
+    const rows = ((data ?? []) as Record<string, unknown>[]).filter((r) => !isTestStore(testIds, r.id as string))
     const cols = rows.length ? Object.keys(rows[0]) : ['id']
     return csvResponse(toCsv(rows, cols), 'xcms-stores.csv')
   }

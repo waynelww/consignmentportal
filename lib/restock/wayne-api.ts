@@ -4,6 +4,7 @@ import {
   calcStore, malaysiaToday, parseWayneSettings, resolvePeriod,
   WAYNE_SETTING_KEYS, type CalcProduct, type CalcSale, type PeriodMonths, type WayneResult, type WayneSettings,
 } from '@/lib/restock/wayne-calc'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 
 // Shared loaders for the Restock Calculator routes (admin + bot). All maths
 // lives in lib/restock/wayne-calc.ts; this file only fetches inputs.
@@ -30,7 +31,8 @@ export async function listActiveStores(db?: SupabaseClient) {
   const client = db ?? (await createServiceClient())
   const { data, error } = await client.from('stores').select('id, store_code, store_name').eq('status', 'active').order('store_name')
   if (error) throw new Error(error.message)
-  return (data ?? []) as { id: string; store_code: string; store_name: string }[]
+  const testIds = await loadTestStoreIds(client)
+  return ((data ?? []) as { id: string; store_code: string; store_name: string }[]).filter((s) => !isTestStore(testIds, s.id))
 }
 
 // PostgREST caps responses (1000 rows by default) — page through.
@@ -67,7 +69,8 @@ export async function runWayneCalc(opts: { months: PeriodMonths; storeIds?: stri
   if (opts.storeCodes?.length) storeQ = storeQ.in('store_code', opts.storeCodes)
   const { data: stores, error: storeErr } = await storeQ
   if (storeErr) throw new Error(storeErr.message)
-  const storeList = (stores ?? []) as { id: string; store_code: string; store_name: string }[]
+  const testIds = await loadTestStoreIds(db)
+  const storeList = ((stores ?? []) as { id: string; store_code: string; store_name: string }[]).filter((s) => !isTestStore(testIds, s.id))
 
   const perStore = await Promise.all(storeList.map(async (store) => {
     const [first, last, inventory] = await Promise.all([

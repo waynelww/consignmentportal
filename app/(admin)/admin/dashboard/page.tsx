@@ -26,6 +26,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMYDate, timeAgo } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { DashboardKPIs, SalesTrendPoint, StorePerformanceRow, Sale } from '@/types'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 
 function SkeletonCard() {
   return (
@@ -104,6 +105,8 @@ export default function DashboardPage() {
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
 
+    // Test accounts are left out of every KPI, chart, table and feed below.
+    const testIds = await loadTestStoreIds(supabase)
     const [
       storesRes,
       salesMTDRes,
@@ -116,31 +119,31 @@ export default function DashboardPage() {
       storePerformanceRes,
       activityRes,
     ] = await Promise.all([
-      supabase.from('stores').select('id', { count: 'exact' }).eq('status', 'active'),
-      supabase.from('sales').select('quantity, xocks_revenue').gte('sale_date', startOfMonth),
+      supabase.from('stores').select('id').eq('status', 'active'),
+      supabase.from('sales').select('store_id, quantity, xocks_revenue').gte('sale_date', startOfMonth),
       supabase
         .from('commission_periods')
-        .select('commission_amount')
+        .select('store_id, commission_amount')
         .in('status', ['pending', 'approved']),
       // Low Stock card: codes low or out under the low-stock rule (active stores only).
       supabase
         .from('store_inventory')
-        .select('quantity_on_hand, stocked_level, plan_level, store:stores(pairs_per_code, on_stock_plan, status)'),
+        .select('store_id, quantity_on_hand, stocked_level, plan_level, store:stores(pairs_per_code, on_stock_plan, status)'),
       supabase
         .from('restock_requests')
-        .select('id', { count: 'exact' })
+        .select('id, store_id')
         .eq('status', 'pending'),
       supabase
         .from('delivery_orders')
-        .select('id', { count: 'exact' })
+        .select('id, store_id')
         .eq('status', 'dispatched'),
       supabase
         .from('stores')
-        .select('id', { count: 'exact' })
+        .select('id')
         .gte('consecutive_low_months', 2),
       supabase
         .from('sales')
-        .select('sale_date, quantity, xocks_revenue')
+        .select('store_id, sale_date, quantity, xocks_revenue')
         .gte('sale_date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
         .order('sale_date', { ascending: true }),
       supabase
@@ -150,17 +153,17 @@ export default function DashboardPage() {
         .order('performance_score', { ascending: false }),
       supabase
         .from('sales')
-        .select('id, created_at, quantity, total_amount, payment_method, stores(store_name), products(name), staff:store_staff_id(name)')
+        .select('id, store_id, created_at, quantity, total_amount, payment_method, stores(store_name), products(name), staff:store_staff_id(name)')
         .order('created_at', { ascending: false })
-        .limit(20),
+        .limit(100),
     ])
 
-    const salesMTD = salesMTDRes.data || []
+    const salesMTD = (salesMTDRes.data || []).filter((s: { store_id: string }) => !isTestStore(testIds, s.store_id))
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const totalPairs = salesMTD.reduce((a: number, s: any) => a + (s.quantity || 0), 0)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const revenueMTD = salesMTD.reduce((a: number, s: any) => a + (s.xocks_revenue || 0), 0)
-    const commissionsDue = (commissionsRes.data || []).reduce(
+    const commissionsDue = (commissionsRes.data || []).filter((c: { store_id: string }) => !isTestStore(testIds, c.store_id)).reduce(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (a: number, c: any) => a + (c.commission_amount || 0),
       0
@@ -168,26 +171,26 @@ export default function DashboardPage() {
 
     const lowSettings = await loadLowStockSettings(supabase)
     let lowStockCount = 0
-    for (const row of (lowStockRes.data ?? []) as { quantity_on_hand: number; stocked_level: number | null; plan_level: number | null; store: { pairs_per_code: number; on_stock_plan: boolean; status: string } | null }[]) {
+    for (const row of (lowStockRes.data ?? []) as { store_id: string; quantity_on_hand: number; stocked_level: number | null; plan_level: number | null; store: { pairs_per_code: number; on_stock_plan: boolean; status: string } | null }[]) {
       const store = embedded(row.store as never) as { pairs_per_code: number; on_stock_plan: boolean; status: string } | null
-      if (!store || store.status !== 'active') continue
+      if (!store || store.status !== 'active' || isTestStore(testIds, row.store_id)) continue
       if (describeCode(row, store, lowSettings.pct).status !== 'in_stock') lowStockCount++
     }
 
     setKpis({
-      active_stores: storesRes.count || 0,
+      active_stores: (storesRes.data || []).filter((s: { id: string }) => !isTestStore(testIds, s.id)).length,
       total_sales_mtd: totalPairs,
       revenue_mtd: revenueMTD,
       commissions_due: commissionsDue,
       low_stock_alerts: lowStockCount,
-      pending_restocks: pendingRestocksRes.count || 0,
-      dos_in_transit: dosRes.count || 0,
-      at_risk_stores: atRiskRes.count || 0,
+      pending_restocks: (pendingRestocksRes.data || []).filter((r: { store_id: string }) => !isTestStore(testIds, r.store_id)).length,
+      dos_in_transit: (dosRes.data || []).filter((d: { store_id: string }) => !isTestStore(testIds, d.store_id)).length,
+      at_risk_stores: (atRiskRes.data || []).filter((s: { id: string }) => !isTestStore(testIds, s.id)).length,
     })
 
     // Build trend data (group by date)
     const trendMap: Record<string, { pairs_sold: number; revenue: number }> = {}
-    for (const row of trendRes.data || []) {
+    for (const row of (trendRes.data || []).filter((r: { store_id: string }) => !isTestStore(testIds, r.store_id))) {
       const day = row.sale_date.slice(0, 10)
       if (!trendMap[day]) trendMap[day] = { pairs_sold: 0, revenue: 0 }
       trendMap[day].pairs_sold += row.quantity || 0
@@ -201,7 +204,7 @@ export default function DashboardPage() {
 
     // Store performance
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const stores: any[] = storePerformanceRes.data || []
+    const stores: any[] = (storePerformanceRes.data || []).filter((s: { id: string }) => !isTestStore(testIds, s.id))
     const storeIds = stores.map((s) => s.id)
     let saleMTDByStore: Record<string, { pairs: number; revenue: number }> = {}
     if (storeIds.length > 0) {
@@ -257,7 +260,10 @@ export default function DashboardPage() {
     setNotKeying(followUp)
 
     // Activity feed
-    const acts: ActivityItem[] = (activityRes.data || []).map((row: any) => ({
+    const acts: ActivityItem[] = (activityRes.data || [])
+      .filter((row: any) => !isTestStore(testIds, row.store_id))
+      .slice(0, 20)
+      .map((row: any) => ({
       id: row.id,
       created_at: row.created_at,
       store_name: row.stores?.store_name || '—',
@@ -284,6 +290,8 @@ export default function DashboardPage() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         async (payload: any) => {
           const sale = payload.new as Sale & { store_id: string; product_id: string }
+          // Test accounts stay out of Live Activity
+          if (isTestStore(await loadTestStoreIds(supabase), sale.store_id)) return
           const [{ data: storeData }, { data: productData }, { data: staffData }] = await Promise.all([
             supabase.from('stores').select('store_name').eq('id', sale.store_id).single(),
             supabase.from('products').select('name').eq('id', sale.product_id).single(),

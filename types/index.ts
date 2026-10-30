@@ -87,6 +87,7 @@ export interface Store {
   commission_rate: number
   payment_terms_days: number
   status: StoreStatus
+  is_test: boolean // test account: works in the store app, left out of reports
   performance_score: number
   consecutive_low_months: number
   qr_code_ref: string
