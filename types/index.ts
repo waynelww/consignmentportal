@@ -1,3 +1,5 @@
+import type { OnboardingStep } from '@/lib/onboarding/steps'
+
 export type UserRole = 'super_admin' | 'ops_manager' | 'store_owner'
 
 export type StoreType =
@@ -96,6 +98,11 @@ export interface Store {
   agreement_signed_by: string | null
   notes: string | null
   opened_by_member_id: string | null
+  // Where to ship stock, when it differs from the store address. Shown on DOs
+  // and packing slips when filled.
+  shipment_address: string | null
+  shipment_contact: string | null
+  shipment_pic: string | null
   created_at: string
   updated_at: string
 }
@@ -420,4 +427,52 @@ export interface StorePerformanceRow {
   revenue: number
   performance_score: number
   consecutive_low_months: number
+}
+
+/** One store being onboarded (Admin → Onboarding). Exists before its store does. */
+export interface OnboardingCard {
+  id: string
+  store_name: string
+  pic_name: string
+  pic_phone: string
+  company_name: string | null
+  company_address: string | null
+  company_email: string | null
+  shipment_address: string | null
+  shipment_contact: string | null
+  shipment_pic: string | null
+  store_type: string | null
+  notes: string | null
+  step: OnboardingStep
+  step_changed_at: string
+  first_sale_at: string | null
+  follow_up_date: string | null // YYYY-MM-DD
+  handler_member_id: string | null
+  store_id: string | null
+  updated_by_member_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface OnboardingHistoryRow {
+  id: string
+  card_id: string
+  from_step: OnboardingStep | null
+  to_step: OnboardingStep
+  moved_by_member_id: string
+  moved_at: string
+}
+
+/** An onboarding card as the API returns it, with the handler and linked store names joined in. */
+export type OnboardingCardRow = OnboardingCard & {
+  handler: { name: string } | null
+  store: { store_code: string; store_name: string } | null
+}
+
+export interface OnboardingHistoryEntry {
+  id: string
+  from_step: OnboardingStep | null
+  to_step: OnboardingStep
+  moved_at: string
+  mover: { name: string } | null
 }

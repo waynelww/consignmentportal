@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, Store, Package, ArchiveX, PackageCheck,
-  Truck, Banknote, BarChart2, Settings, User, LogOut, Menu, X
+  Truck, Banknote, BarChart2, Settings, User, LogOut, Menu, X, UserPlus
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -16,6 +16,12 @@ const navGroups = [
     label: 'Overview',
     items: [
       { href: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    ],
+  },
+  {
+    label: 'Onboarding',
+    items: [
+      { href: '/admin/onboarding', icon: UserPlus, label: 'Onboarding' },
     ],
   },
   {

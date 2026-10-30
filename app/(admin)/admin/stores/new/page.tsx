@@ -103,6 +103,10 @@ function NewStorePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialDraftId = searchParams.get('draft')
+  // Quick create from an onboarding card: ?card=<card id>&by=<team member id>
+  const onboardingCardId = searchParams.get('card')
+  const onboardingBy = searchParams.get('by')
+  const [cardContext, setCardContext] = useState<{ id: string; by: string; label: string } | null>(null)
 
   // Track the draft id once we save (so subsequent saves update the same row)
   const [draftId, setDraftId] = useState<string | null>(initialDraftId)
@@ -283,6 +287,33 @@ function NewStorePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialDraftId])
 
+  // Prefill the step 1 details from the onboarding card. Aisyah still checks them,
+  // picks the store type, Opened by and pairs per code, and saves.
+  useEffect(() => {
+    if (!onboardingCardId || !onboardingBy) return
+    fetch(`/api/onboarding/cards/${onboardingCardId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        const c = res?.card
+        if (!c) throw new Error(res?.error ?? 'Onboarding card not found')
+        if (c.store_id || c.step !== 'details_received') {
+          throw new Error('This onboarding card is not waiting for a store (it must be at Details received and not linked yet)')
+        }
+        form1.reset({
+          store_name: c.company_name || c.store_name,
+          pic_name: c.pic_name,
+          pic_phone: c.pic_phone,
+          email: c.company_email ?? '',
+          address: c.company_address ?? '',
+          notes: c.notes ?? '',
+        })
+        setCardContext({ id: c.id, by: onboardingBy, label: c.store_name })
+        toast.success(`Prefilled from onboarding card: ${c.store_name}`)
+      })
+      .catch((err) => toast.error(err instanceof Error ? err.message : 'Could not load the onboarding card'))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onboardingCardId, onboardingBy])
+
   // Hydration queue for selections (applies once products load)
   const [pendingSelectionsHydrate, setPendingSelectionsHydrate] = useState<
     { product_id: string; selected: boolean; quantity: number }[] | null
@@ -364,6 +395,9 @@ function NewStorePage() {
             .map((s) => ({ product_id: s.product_id, quantity: s.quantity })),
           email: data.login_email,
           password: tempPassword,
+          ...(cardContext
+            ? { onboarding_card_id: cardContext.id, onboarding_moved_by_member_id: cardContext.by }
+            : {}),
         }),
       })
 
@@ -519,6 +553,11 @@ Welcome aboard! 🧦`
 
   return (
     <div className="max-w-2xl mx-auto pb-32">
+      {cardContext && (
+        <div className="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-gray-800">
+          Creating the store from onboarding card <strong>{cardContext.label}</strong>. Check the details, pick the store type, Opened by and pairs per code, then save. Saving links the card and moves it to Account created.
+        </div>
+      )}
       {/* Back link + Save Draft */}
       <div className="mb-4 flex items-center justify-between gap-3">
         <Link href="/admin/stores" className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 transition-colors">
