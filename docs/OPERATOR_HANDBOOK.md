@@ -213,6 +213,7 @@ and store page). Current test stores: AGK-001 (Wayne Store) and STR-009
 - `monthly-report.yml` — 1st of month 09:30 MYT, emails last month's report
   (PDF + Excel) to `monthly_report_email`. See "Monthly report" below.
 - `low-stock-summary.yml` — daily 09:00 MYT low-stock email (see Low stock).
+- `daily-sales-report.yml` — daily 22:00 MYT internal sales PDFs, batched (see Daily sales report).
 - `nightly-backup.yml` — nightly database backup.
 - `sync-shopify-orders.yml` — every 2h, pulls Shopify orders for the
   performance dashboard.
@@ -280,6 +281,44 @@ hard-coded). Settings → General → Monthly Report has **Send test report**
   test send). Nothing is stored; each run rebuilds from the live database.
 - Seed rows: `supabase/migrations/20261030_monthly_report_settings.sql`
   (must be applied before the first run, or the cron refuses to send).
+
+## Daily sales report (internal only)
+
+Every day at 22:00 MYT, each store whose **Daily sales report** switch is on
+is emailed as a PDF of that day's sales. Recipients are Xocks team addresses in
+`store_daily_report_settings` (one row per store), which only admins can read,
+so store users never see them. The switch defaults to off and can't be on
+without at least one recipient (also enforced by a DB check).
+
+- Set on the new-store form (step 2) and the store page (Edit Store). The store
+  page's **Send test report** emails today's sales so far (up to now) to the
+  saved recipients, and lists the last sends.
+- One email per recipient address with one PDF per store that had sales that
+  day. Stores with no sales that day are skipped. Test accounts are excluded
+  from the daily run (`lib/stores/test-accounts.ts`).
+- "Sales that day" = `sales.sale_date` = that day, keyed in before 22:00 MYT.
+  Entries keyed after 22:00 are not in that day's report.
+- PDF: the commission invoice layout (`lib/pdf/generate-statement.ts`, daily
+  mode): titled "Daily Sales Report", with the sales date in place of the
+  invoice number. Sales only: product, code, quantity, price, amount, keyed in
+  by, with totals for pairs and sales (RM). No commission figures, payout box,
+  amount to transfer, XCSM number or bank details. The email shows pairs and
+  sales per store, nothing else.
+- Code: `lib/daily-report/` (`settings.ts` rules and dates, `aggregate.ts`
+  maths and grouping, `report.ts` reads and PDF, `deliver.ts` sending and
+  logging, `send-log.ts`). Pinned by `npx tsx scripts/test-daily-report.ts`.
+- Endpoint: `/api/cron/daily-sales-report`, CRON_SECRET-gated, batched by
+  recipient (`?offset=&limit=`, max 10 per call, `?date=YYYY-MM-DD` to re-run a
+  day). The workflow loops through `next_offset` and fails the run if any send
+  failed. A failed batch is retried whole, so a retry can re-email addresses
+  that already got theirs before the timeout. Check the send log before re-running.
+- Log: `daily_report_sends` (one row per store per recipient per attempt, kind
+  `daily` or `test`), shown as "Last sends" on the store page. Migration
+  `supabase/migrations/20261101_daily_sales_report.sql` (creates the settings
+  table, backfills one row per store, creates the log) must be applied before
+  the first run.
+- Settings writes go through `PUT /api/stores/[storeId]/daily-report` (admin
+  check, then the service role). Missing settings row = off.
 
 ## Code map (the non-obvious parts)
 

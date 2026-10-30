@@ -5,6 +5,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { insertWithSequenceCode } from '@/lib/sequence-code'
 import { clean } from '@/lib/onboarding/schemas'
 import { stepLabel } from '@/lib/onboarding/steps'
+import { DAILY_REPORT_MAX_RECIPIENTS, normalizeRecipients, validateDailyReportSettings } from '@/lib/daily-report/settings'
+import { saveDailyReportConfig } from '@/lib/daily-report/config'
 
 function randomChars(length: number) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -30,6 +32,9 @@ const CreateStoreSchema = z.object({
   pairs_per_code: z.number().int().min(1).max(999).default(3),
   payment_terms_days: z.number().int().min(1).max(365).optional().default(7),
   notes: z.string().optional(),
+  // Daily sales report (internal): off by default; on needs a recipient.
+  daily_report_enabled: z.boolean().optional().default(false),
+  daily_report_recipients: z.array(z.string().trim().toLowerCase().email()).max(DAILY_REPORT_MAX_RECIPIENTS).optional().default([]),
   // Who at Xocks opened the store. Required for new stores (the shared admin
   // login can't tell us); must be an active Xocks team member (checked below).
   opened_by_member_id: z.string().uuid('Choose who opened this store'),
@@ -82,7 +87,13 @@ export async function POST(request: NextRequest) {
     bank_name, bank_account_number, bank_account_name,
     commission_rate, payment_terms_days, notes, initial_inventory, opened_by_member_id, pairs_per_code,
     onboarding_card_id, onboarding_moved_by_member_id,
+    daily_report_enabled,
   } = parsed.data
+  const dailyReportRecipients = normalizeRecipients(parsed.data.daily_report_recipients)
+  const dailyReportError = validateDailyReportSettings(daily_report_enabled, dailyReportRecipients)
+  if (dailyReportError) {
+    return Response.json({ error: dailyReportError }, { status: 400 })
+  }
 
   const { data: opener } = await supabase
     .from('xocks_team_members')
@@ -197,6 +208,22 @@ export async function POST(request: NextRequest) {
 
   if (profileErr) {
     return Response.json({ error: 'Failed to create profile', details: profileErr.message }, { status: 500 })
+  }
+
+  // Daily sales report settings (admin-only table). A missing row would mean off,
+  // so a failure here is reported rather than silently dropping the recipients.
+  const dailyError = await saveDailyReportConfig(
+    serviceClient,
+    newStore.id,
+    { enabled: daily_report_enabled, recipients: dailyReportRecipients },
+    user.id,
+  ).catch((err: Error) => err.message)
+  if (dailyError) {
+    return Response.json({
+      error: 'Store created, but the daily sales report settings could not be saved. Set them on the store page.',
+      store_id: newStore.id,
+      details: dailyError,
+    }, { status: 500 })
   }
 
   // Quick create: link the card to the new store and move it to Account created.
