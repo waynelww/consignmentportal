@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildSalesByStaff, type SaleForStaffReport } from '@/lib/reports/sales-by-staff'
 
@@ -54,8 +55,12 @@ export async function GET(request: NextRequest) {
     if (!data || data.length < PAGE) break
   }
 
+  // Test accounts are left out of every report
+  const testIds = await loadTestStoreIds(supabase)
+  const live = raw.filter((r) => !isTestStore(testIds, r.store_id))
+
   // Login names for admin-keyed sales
-  const recorderIds = Array.from(new Set(raw.filter((r) => !r.store_staff_id && r.recorded_by).map((r) => r.recorded_by as string)))
+  const recorderIds = Array.from(new Set(live.filter((r) => !r.store_staff_id && r.recorded_by).map((r) => r.recorded_by as string)))
   const recorderNames = new Map<string, string>()
   if (recorderIds.length > 0) {
     const { data: profiles } = await createAdminClient()
@@ -65,7 +70,7 @@ export async function GET(request: NextRequest) {
     for (const p of profiles ?? []) recorderNames.set(p.id, p.full_name)
   }
 
-  const sales: SaleForStaffReport[] = raw.map((r) => ({
+  const sales: SaleForStaffReport[] = live.map((r) => ({
     store_id: r.store_id,
     store_code: r.stores?.store_code ?? '',
     store_name: r.stores?.store_name ?? 'Unknown store',

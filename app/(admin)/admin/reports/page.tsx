@@ -15,6 +15,7 @@ import {
   Legend,
 } from 'recharts'
 import { createClient } from '@/lib/supabase/client'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { formatCurrency, formatMYDate, formatMonthYear, cn, STORE_TYPE_LABELS } from '@/lib/utils'
 import type { Store } from '@/types'
 import type { StoreStaffReport } from '@/lib/reports/sales-by-staff'
@@ -170,7 +171,8 @@ export default function ReportsPage() {
       .gte('sale_date', salesFrom)
       .lte('sale_date', salesTo)
 
-    const rows = data || []
+    const testIds = await loadTestStoreIds(supabase)
+    const rows = (data || []).filter((r: { store_id: string }) => !isTestStore(testIds, r.store_id))
 
     // Daily trend
     const dailyMap: Record<string, { pairs: number; revenue: number }> = {}
@@ -222,16 +224,19 @@ export default function ReportsPage() {
 
   const fetchStores = useCallback(async () => {
     setStoreLoading(true)
-    const { data: stores } = await supabase
+    const testIds = await loadTestStoreIds(supabase)
+    const { data: allStores } = await supabase
       .from('stores')
       .select('id, store_name, city, state, store_type, performance_score, consecutive_low_months')
       .eq('status', 'active')
+    const stores = (allStores || []).filter((s: { id: string }) => !isTestStore(testIds, s.id))
 
-    const { data: sales } = await supabase
+    const { data: allSales } = await supabase
       .from('sales')
       .select('store_id, quantity, xocks_revenue')
       .gte('sale_date', storeFrom)
       .lte('sale_date', storeTo)
+    const sales = (allSales || []).filter((s: { store_id: string }) => !isTestStore(testIds, s.store_id))
 
     const salesByStore: Record<string, { pairs: number; revenue: number }> = {}
     for (const s of sales || []) {
@@ -268,7 +273,8 @@ export default function ReportsPage() {
       total: number; stores: number; zero_stores: number; below_threshold: number
     }> = {}
 
-    for (const inv of data || []) {
+    const testIds = await loadTestStoreIds(supabase)
+    for (const inv of (data || []).filter((i: { store_id: string }) => !isTestStore(testIds, i.store_id))) {
       const pid = inv.product_id
       const prod = inv.products as any
       if (!productMap[pid]) {
@@ -294,8 +300,9 @@ export default function ReportsPage() {
       .eq('period_year', commYear)
       .order('commission_amount', { ascending: false })
 
+    const testIds = await loadTestStoreIds(supabase)
     setCommData(
-      (data || []).map((c: any) => ({
+      (data || []).filter((c: any) => !isTestStore(testIds, c.store_id)).map((c: any) => ({
         id: c.id,
         store_name: c.store?.store_name || '—',
         city: c.store?.city || '—',
@@ -331,7 +338,11 @@ export default function ReportsPage() {
     if (activeTab !== 'sales') return
     fetchSalesByStaff()
     supabase.from('stores').select('id, store_code, store_name').order('store_code')
-      .then((res: { data: unknown }) => setSbsStores((res.data ?? []) as { id: string; store_code: string; store_name: string }[]))
+      .then(async (res: { data: unknown }) => {
+        const testIds = await loadTestStoreIds(supabase)
+        const stores = (res.data ?? []) as { id: string; store_code: string; store_name: string }[]
+        setSbsStores(stores.filter((s) => !isTestStore(testIds, s.id)))
+      })
   }, [activeTab, fetchSalesByStaff])
   useEffect(() => { if (activeTab === 'stores') fetchStores() }, [activeTab, fetchStores])
   useEffect(() => { if (activeTab === 'inventory') fetchInventory() }, [activeTab, fetchInventory])

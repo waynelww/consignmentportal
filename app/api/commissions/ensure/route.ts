@@ -7,6 +7,7 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { assignInvoiceNo } from '@/lib/invoice-number'
 
 const Schema = z.object({
@@ -54,6 +55,11 @@ export async function POST(request: NextRequest) {
   }
 
   const svc = await createServiceClient()
+
+  // Test accounts never get a commission invoice.
+  if (isTestStore(await loadTestStoreIds(svc), targetStoreId)) {
+    return Response.json({ error: 'Test account: commission invoices are not generated', test_account: true }, { status: 400 })
+  }
 
   // Check if period already exists
   const { data: existing } = await svc

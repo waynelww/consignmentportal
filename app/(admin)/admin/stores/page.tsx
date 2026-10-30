@@ -51,6 +51,7 @@ import { loadLowStockSettings } from '@/lib/restock/low-stock-settings'
 import { fetchLastSaleDates, monthStartMYT, storeSaleAge } from '@/lib/sales/last-sale'
 import { fetchPairsSinceByStore } from '@/lib/sales/pairs'
 import { SaleAgeBadge } from '@/components/shared/sale-age-badge'
+import { TestBadge } from '@/components/shared/test-badge'
 export default function StoresPage() {
   const [stores, setStores] = useState<StoreRow[]>([])
   const [total, setTotal] = useState(0)
@@ -482,7 +483,7 @@ export default function StoresPage() {
                 : stores.map((store) => (
                     <tr key={store.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                       <td className="px-4 py-3 font-mono text-xs text-gray-500">{store.store_code}</td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{store.store_name}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900">{store.store_name}{store.is_test && <TestBadge />}</td>
                       <td className="px-4 py-3 text-gray-600">{store.pic_name}</td>
                       <td className="px-4 py-3 text-gray-600">
                         {store.city}, {store.state}

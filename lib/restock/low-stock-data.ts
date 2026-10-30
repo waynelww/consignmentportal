@@ -6,6 +6,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { allocateByShare } from './wayne-calc'
 import { fetchAll, runWayneCalc } from './wayne-api'
 import { loadLowStockSettings } from './low-stock-settings'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import {
   storeStockSummary, codeStatus, stockedLevel, lowThreshold,
   type LowStockSettings, type StockRowFields, type StockStatus, type StockStoreFields, type StoreStockSummary,
@@ -100,7 +101,10 @@ export async function loadStockSnapshot(db: SupabaseClient, settings: LowStockSe
     .eq('status', 'active')
   if (error) throw new Error(error.message)
 
-  const storeById = new Map((stores ?? []).map((s) => [s.id as string, s as { id: string; store_code: string; store_name: string } & StockStoreFields]))
+  const testIds = await loadTestStoreIds(db)
+  const storeById = new Map((stores ?? [])
+    .filter((s) => !isTestStore(testIds, s.id as string))
+    .map((s) => [s.id as string, s as { id: string; store_code: string; store_name: string } & StockStoreFields]))
 
   const inv = await fetchAll<{
     store_id: string; product_id: string; quantity_on_hand: number; stocked_level: number | null; plan_level: number | null

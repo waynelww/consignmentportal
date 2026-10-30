@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { malaysiaToday } from '@/lib/restock/wayne-calc'
 import {
   buildMonthlyAverage, isMonthlyAverageMonths, DEFAULT_MONTHLY_AVERAGE_MONTHS,
@@ -49,11 +50,12 @@ export async function GET(request: NextRequest) {
     if (!data || data.length < PAGE) break
   }
 
+  const testIds = await loadTestStoreIds(supabase)
   const result = buildMonthlyAverage({
     asOf: malaysiaToday(),
     months,
-    stores: (stores ?? []) as MonthlyAverageStore[],
-    sales,
+    stores: ((stores ?? []) as MonthlyAverageStore[]).filter((s) => !isTestStore(testIds, s.id)),
+    sales: sales.filter((s) => !isTestStore(testIds, s.store_id)),
   })
 
   return Response.json(result)
