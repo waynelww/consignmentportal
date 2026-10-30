@@ -285,9 +285,10 @@ hard-coded). Settings → General → Monthly Report has **Send test report**
 ## Daily sales report (internal only)
 
 Every day at 22:00 MYT, each store whose **Daily sales report** switch is on
-is emailed as a PDF of that day's sales. Recipients are Xocks team addresses
-(`stores.daily_report_recipients`), never the store. The switch defaults to off
-and can't be on without at least one recipient (also enforced by a DB check).
+is emailed as a PDF of that day's sales. Recipients are Xocks team addresses in
+`store_daily_report_settings` (one row per store), which only admins can read,
+so store users never see them. The switch defaults to off and can't be on
+without at least one recipient (also enforced by a DB check).
 
 - Set on the new-store form (step 2) and the store page (Edit Store). The store
   page's **Send test report** emails today's sales so far (up to now) to the
@@ -299,7 +300,10 @@ and can't be on without at least one recipient (also enforced by a DB check).
   Entries keyed after 22:00 are not in that day's report.
 - PDF: the commission invoice layout (`lib/pdf/generate-statement.ts`, daily
   mode): titled "Daily Sales Report", with the sales date in place of the
-  invoice number. No XCSM number, no status and no bank-transfer details.
+  invoice number. Sales only: product, code, quantity, price, amount, keyed in
+  by, with totals for pairs and sales (RM). No commission figures, payout box,
+  amount to transfer, XCSM number or bank details. The email shows pairs and
+  sales per store, nothing else.
 - Code: `lib/daily-report/` (`settings.ts` rules and dates, `aggregate.ts`
   maths and grouping, `report.ts` reads and PDF, `deliver.ts` sending and
   logging, `send-log.ts`). Pinned by `npx tsx scripts/test-daily-report.ts`.
@@ -310,11 +314,11 @@ and can't be on without at least one recipient (also enforced by a DB check).
   that already got theirs before the timeout. Check the send log before re-running.
 - Log: `daily_report_sends` (one row per store per recipient per attempt, kind
   `daily` or `test`), shown as "Last sends" on the store page. Migration
-  `supabase/migrations/20261101_daily_sales_report.sql` must be applied before
+  `supabase/migrations/20261101_daily_sales_report.sql` (creates the settings
+  table, backfills one row per store, creates the log) must be applied before
   the first run.
-- Store users can read `daily_report_recipients` through their own store row
-  (the stores table has no column-level hiding). Keep the recipients to team
-  addresses.
+- Settings writes go through `PUT /api/stores/[storeId]/daily-report` (admin
+  check, then the service role). Missing settings row = off.
 
 ## Code map (the non-obvious parts)
 

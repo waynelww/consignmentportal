@@ -79,8 +79,6 @@ export async function deliverDailyReports(
           storeCode: store.store_code,
           totalUnits: report.totals.totalUnits,
           totalRevenue: report.totals.totalRevenue,
-          totalCommission: report.totals.totalCommission,
-          xocksRevenue: report.totals.xocksRevenue,
         })),
         attachments: withSales.map(({ store, pdf }) => ({
           filename: `Daily-Sales-${params.date}-${store.store_code}.pdf`,

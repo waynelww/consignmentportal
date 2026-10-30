@@ -222,6 +222,8 @@ export async function generateStatementPdf(params: {
   const C_PRICE_R  = MARGIN + 380     // Unit Price — right-aligned (70pt column)
   const C_REV_R    = MARGIN + 445     // Revenue — right-aligned (65pt column)
   const C_COMM_R   = MARGIN + 495     // Commission — right-aligned (50pt, = page right edge)
+  // Daily report: no commission column, so Amount sits at the page edge
+  const AMOUNT_R   = params.daily ? C_COMM_R : C_REV_R
 
   // Vertical separator x positions (drawn between columns)
   const SEP_AFTER_PROD  = MARGIN + 135
@@ -230,6 +232,9 @@ export async function generateStatementPdf(params: {
   const SEP_AFTER_UNITS = MARGIN + 310
   const SEP_AFTER_PRICE = MARGIN + 380
   const SEP_AFTER_REV   = MARGIN + 445
+  const ROW_SEPS = params.daily
+    ? [SEP_AFTER_PROD, SEP_AFTER_SKU, SEP_AFTER_STAFF, SEP_AFTER_UNITS, SEP_AFTER_PRICE]
+    : [SEP_AFTER_PROD, SEP_AFTER_SKU, SEP_AFTER_STAFF, SEP_AFTER_UNITS, SEP_AFTER_PRICE, SEP_AFTER_REV]
 
   const ROW_H = 18
   const CELL_PAD = 4
@@ -254,8 +259,8 @@ export async function generateStatementPdf(params: {
   page.drawText('Keyed in by',  { x: C_STAFF_L + CELL_PAD, y: headerY, size: 7.5, font: boldFont, color: hc })
   drawRight(page, 'Units',      C_UNITS_R - CELL_PAD, headerY, 7.5, boldFont, hc)
   drawRight(page, 'Unit Price', C_PRICE_R - CELL_PAD, headerY, 7.5, boldFont, hc)
-  drawRight(page, 'Revenue',    C_REV_R   - CELL_PAD, headerY, 7.5, boldFont, hc)
-  drawRight(page, 'Commission', C_COMM_R  - CELL_PAD, headerY, 7.5, boldFont, hc)
+  drawRight(page, params.daily ? 'Amount' : 'Revenue', AMOUNT_R - CELL_PAD, headerY, 7.5, boldFont, hc)
+  if (!params.daily) drawRight(page, 'Commission', C_COMM_R - CELL_PAD, headerY, 7.5, boldFont, hc)
 
   y -= ROW_H
 
@@ -274,7 +279,7 @@ export async function generateStatementPdf(params: {
 
     // Column separator lines — drawn on the current page directly
     const rowTop = y + 4
-    for (const sx of [SEP_AFTER_PROD, SEP_AFTER_SKU, SEP_AFTER_STAFF, SEP_AFTER_UNITS, SEP_AFTER_PRICE, SEP_AFTER_REV]) {
+    for (const sx of ROW_SEPS) {
       page.drawLine({ start: { x: sx, y: rowTop }, end: { x: sx, y: rowTop - ROW_H }, thickness: 0.4, color: SEP_COLOR })
     }
 
@@ -287,8 +292,8 @@ export async function generateStatementPdf(params: {
     page.drawText(fitText(item.keyedInBy,   staffMaxW, 7.5, regularFont), { x: C_STAFF_L + CELL_PAD, y: rowY, size: 7.5, font: regularFont, color: rc })
     drawRight(page, String(item.unitsSold), C_UNITS_R - CELL_PAD, rowY, 7.5, regularFont, rc)
     drawRight(page, fmt(item.unitPrice),    C_PRICE_R - CELL_PAD, rowY, 7.5, regularFont, rc)
-    drawRight(page, fmt(item.revenue),      C_REV_R   - CELL_PAD, rowY, 7.5, regularFont, rc)
-    drawRight(page, fmt(item.commission),   C_COMM_R  - CELL_PAD, rowY, 7.5, regularFont, rc)
+    drawRight(page, fmt(item.revenue),      AMOUNT_R  - CELL_PAD, rowY, 7.5, regularFont, rc)
+    if (!params.daily) drawRight(page, fmt(item.commission), C_COMM_R - CELL_PAD, rowY, 7.5, regularFont, rc)
 
     y -= ROW_H
 
@@ -312,77 +317,80 @@ export async function generateStatementPdf(params: {
   const totY = y - 11
   page.drawText('TOTAL', { x: C_PROD_L + CELL_PAD, y: totY, size: 7.5, font: boldFont, color: tc })
   drawRight(page, String(params.totalUnits),   C_UNITS_R - CELL_PAD, totY, 7.5, boldFont, tc)
-  drawRight(page, fmt(params.totalRevenue),    C_REV_R   - CELL_PAD, totY, 7.5, boldFont, tc)
-  drawRight(page, fmt(params.totalCommission), C_COMM_R  - CELL_PAD, totY, 7.5, boldFont, tc)
+  drawRight(page, fmt(params.totalRevenue),    AMOUNT_R  - CELL_PAD, totY, 7.5, boldFont, tc)
+  if (!params.daily) drawRight(page, fmt(params.totalCommission), C_COMM_R - CELL_PAD, totY, 7.5, boldFont, tc)
 
   y -= ROW_H + 18
 
-  // ── Payout Calculation ───────────────────────────────────────────────────────
-  page.drawText('PAYOUT CALCULATION', {
-    x: MARGIN,
-    y,
-    size: 8,
-    font: boldFont,
-    color: rgb(0, 0, 0),
-  })
-
-  y -= 5
-
   const amountDue = params.xocksRevenue  // totalRevenue - totalCommission
 
-  const payoutRows: Array<{ label: string; value: string; isTotal?: boolean; isMinus?: boolean }> = [
-    { label: 'Total Sales Revenue',                                       value: fmt(params.totalRevenue) },
-    { label: `Store Commission (${params.commissionRate.toFixed(0)}%)`,   value: `– ${fmt(params.totalCommission)}`, isMinus: true },
-  ]
+  if (!params.daily) {
+    // ── Payout Calculation ───────────────────────────────────────────────────────
+    page.drawText('PAYOUT CALCULATION', {
+      x: MARGIN,
+      y,
+      size: 8,
+      font: boldFont,
+      color: rgb(0, 0, 0),
+    })
 
-  const payoutBoxH = payoutRows.length * 16 + 10 + 4 + 22  // rows + divider + total line
+    y -= 5
 
-  page.drawRectangle({
-    x: MARGIN,
-    y: y - payoutBoxH,
-    width: CONTENT_WIDTH,
-    height: payoutBoxH,
-    color: rgb(0.97, 0.98, 1.0),
-    borderColor: rgb(0.72, 0.75, 0.95),
-    borderWidth: 0.8,
-  })
 
-  y -= 8
+    const payoutRows: Array<{ label: string; value: string; isTotal?: boolean; isMinus?: boolean }> = [
+      { label: 'Total Sales Revenue',                                       value: fmt(params.totalRevenue) },
+      { label: `Store Commission (${params.commissionRate.toFixed(0)}%)`,   value: `– ${fmt(params.totalCommission)}`, isMinus: true },
+    ]
 
-  const labelX = MARGIN + 8
-  const valueRX = PAGE_WIDTH - MARGIN - 8  // right edge for numbers
+    const payoutBoxH = payoutRows.length * 16 + 10 + 4 + 22  // rows + divider + total line
 
-  for (const row of payoutRows) {
-    const fc = row.isMinus ? rgb(0.7, 0.1, 0.1) : rgb(0.15, 0.15, 0.35)
-    page.drawText(row.label, { x: labelX, y, size: 8.5, font: regularFont, color: fc })
-    drawRight(page, row.value, valueRX, y, 8.5, row.isMinus ? regularFont : regularFont, fc)
-    y -= 16
+    page.drawRectangle({
+      x: MARGIN,
+      y: y - payoutBoxH,
+      width: CONTENT_WIDTH,
+      height: payoutBoxH,
+      color: rgb(0.97, 0.98, 1.0),
+      borderColor: rgb(0.72, 0.75, 0.95),
+      borderWidth: 0.8,
+    })
+
+    y -= 8
+
+    const labelX = MARGIN + 8
+    const valueRX = PAGE_WIDTH - MARGIN - 8  // right edge for numbers
+
+    for (const row of payoutRows) {
+      const fc = row.isMinus ? rgb(0.7, 0.1, 0.1) : rgb(0.15, 0.15, 0.35)
+      page.drawText(row.label, { x: labelX, y, size: 8.5, font: regularFont, color: fc })
+      drawRight(page, row.value, valueRX, y, 8.5, row.isMinus ? regularFont : regularFont, fc)
+      y -= 16
+    }
+
+    // Divider line
+    page.drawLine({
+      start: { x: MARGIN + 8, y: y + 10 },
+      end: { x: PAGE_WIDTH - MARGIN - 8, y: y + 10 },
+      thickness: 0.6,
+      color: rgb(0.6, 0.6, 0.8),
+    })
+
+    y -= 4
+
+    // Total row — highlighted
+    page.drawRectangle({
+      x: MARGIN + 4,
+      y: y - 18,
+      width: CONTENT_WIDTH - 8,
+      height: 20,
+      color: rgb(0.08, 0.08, 0.15),
+      borderWidth: 0,
+    })
+
+    page.drawText('Amount to Transfer to Xocks', { x: labelX, y: y - 12, size: 9, font: boldFont, color: rgb(1, 1, 1) })
+    drawRight(page, fmt(amountDue), valueRX, y - 12, 10, boldFont, rgb(1, 0.85, 0.1))
+
+    y -= 32
   }
-
-  // Divider line
-  page.drawLine({
-    start: { x: MARGIN + 8, y: y + 10 },
-    end: { x: PAGE_WIDTH - MARGIN - 8, y: y + 10 },
-    thickness: 0.6,
-    color: rgb(0.6, 0.6, 0.8),
-  })
-
-  y -= 4
-
-  // Total row — highlighted
-  page.drawRectangle({
-    x: MARGIN + 4,
-    y: y - 18,
-    width: CONTENT_WIDTH - 8,
-    height: 20,
-    color: rgb(0.08, 0.08, 0.15),
-    borderWidth: 0,
-  })
-
-  page.drawText('Amount to Transfer to Xocks', { x: labelX, y: y - 12, size: 9, font: boldFont, color: rgb(1, 1, 1) })
-  drawRight(page, fmt(amountDue), valueRX, y - 12, 10, boldFont, rgb(1, 0.85, 0.1))
-
-  y -= 32
 
   if (!params.daily) {
     // ── Payment Terms Remark ─────────────────────────────────────────────────────

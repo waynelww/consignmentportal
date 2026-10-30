@@ -42,6 +42,7 @@ import { TestBadge } from '@/components/shared/test-badge'
 import { DailyReportSettings } from '@/components/admin/DailyReportSettings'
 import { DailyReportTestCard } from '@/components/admin/DailyReportTestCard'
 import { validateDailyReportSettings } from '@/lib/daily-report/settings'
+import { OFF_CONFIG, type DailyReportConfig } from '@/lib/daily-report/config'
 
 const TABS = ['overview', 'inventory', 'sales', 'staff', 'delivery-orders', 'commissions'] as const
 type Tab = (typeof TABS)[number]
@@ -214,6 +215,9 @@ export default function StoreDetailPage() {
   const [savingLevels, setSavingLevels] = useState(false)
   const [allCodesLevel, setAllCodesLevel] = useState('')
   const [recalcing, setRecalcing] = useState(false)
+  // Daily sales report: saved config (admin-only table) and the draft in the edit form
+  const [dailyConfig, setDailyConfig] = useState<DailyReportConfig | null>(null)
+  const [dailyDraft, setDailyDraft] = useState<DailyReportConfig>(OFF_CONFIG)
   const supabase = createClient()
 
   function setTab(tab: Tab) {
@@ -231,6 +235,12 @@ export default function StoreDetailPage() {
         setNotes(data.notes || '')
       }
       setLowPct((await loadLowStockSettings(supabase)).pct)
+      const { data: daily } = await supabase
+        .from('store_daily_report_settings')
+        .select('enabled, recipients')
+        .eq('store_id', storeId)
+        .maybeSingle()
+      setDailyConfig({ enabled: daily?.enabled ?? false, recipients: daily?.recipients ?? [] })
       setLoading(false)
     }
     load()
@@ -434,18 +444,14 @@ export default function StoreDetailPage() {
       shipment_contact: store.shipment_contact ?? '',
       shipment_pic: store.shipment_pic ?? '',
       is_test: store.is_test,
-      daily_report_enabled: store.daily_report_enabled,
-      daily_report_recipients: store.daily_report_recipients ?? [],
     })
+    setDailyDraft(dailyConfig ?? OFF_CONFIG)
     setEditMode(true)
     setTab('overview')
   }
 
   async function saveEdit() {
-    const dailyReportError = validateDailyReportSettings(
-      editFields.daily_report_enabled ?? false,
-      editFields.daily_report_recipients ?? [],
-    )
+    const dailyReportError = validateDailyReportSettings(dailyDraft.enabled, dailyDraft.recipients)
     if (dailyReportError) {
       toast.error(dailyReportError)
       return
@@ -459,15 +465,28 @@ export default function StoreDetailPage() {
         updated_at: new Date().toISOString(),
       })
       .eq('id', storeId)
-    setSavingEdit(false)
     if (error) {
+      setSavingEdit(false)
       toast.error('Failed to save changes')
+      return
+    }
+    // The daily report settings live in an admin-only table, saved through the API
+    const dailyRes = await fetch(`/api/stores/${storeId}/daily-report`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dailyDraft),
+    })
+    const dailyBody = await dailyRes.json().catch(() => ({}))
+    setSavingEdit(false)
+    if (!dailyRes.ok) {
+      toast.error(dailyBody?.error ?? 'Store saved, but the daily report settings were not saved')
     } else {
       toast.success('Store updated!')
-      setEditMode(false)
-      const { data } = await supabase.from('stores').select(STORE_WITH_OPENER).eq('id', storeId).single()
-      if (data) { setStore(data as StoreWithOpener); setNotes(data.notes || '') }
+      setDailyConfig(dailyBody.config ?? dailyDraft)
     }
+    setEditMode(false)
+    const { data } = await supabase.from('stores').select(STORE_WITH_OPENER).eq('id', storeId).single()
+    if (data) { setStore(data as StoreWithOpener); setNotes(data.notes || '') }
   }
 
   async function adjustStock() {
@@ -739,11 +758,11 @@ export default function StoreDetailPage() {
                         </span>
                       </label>
                       <DailyReportSettings
-                        enabled={editFields.daily_report_enabled ?? false}
-                        recipients={editFields.daily_report_recipients ?? []}
-                        onChange={({ enabled, recipients }) => setEditFields(f => ({ ...f, daily_report_enabled: enabled, daily_report_recipients: recipients }))}
+                        enabled={dailyDraft.enabled}
+                        recipients={dailyDraft.recipients}
+                        onChange={setDailyDraft}
                         error={
-                          (editFields.daily_report_enabled ?? false) && (editFields.daily_report_recipients ?? []).length === 0
+                          dailyDraft.enabled && dailyDraft.recipients.length === 0
                             ? 'Add at least one recipient before switching the daily report on'
                             : null
                         }
@@ -802,8 +821,8 @@ export default function StoreDetailPage() {
                         ['Stock plan', store.on_stock_plan ? `4-month plan (avg RM ${store.avg_monthly_sales ?? '—'}/mo)` : 'Off: pairs per code'],
                         ['Payment Terms', store.payment_terms_days ? `${store.payment_terms_days} working days` : '7 working days (default)'],
                         ['Test account', store.is_test ? 'Yes (left out of reports)' : 'No'],
-                        ['Daily sales report', store.daily_report_enabled
-                          ? `On, emailed at 10pm to ${store.daily_report_recipients.length} recipient${store.daily_report_recipients.length === 1 ? '' : 's'}`
+                        ['Daily sales report', dailyConfig?.enabled
+                          ? `On, emailed at 10pm to ${dailyConfig.recipients.length} recipient${dailyConfig.recipients.length === 1 ? '' : 's'}`
                           : 'Off'],
                       ].map(([label, value]) => (
                         <div key={label} className="flex gap-2">
@@ -834,7 +853,7 @@ export default function StoreDetailPage() {
                   </button>
                 </div>
 
-                <DailyReportTestCard storeId={storeId} recipientCount={store.daily_report_recipients?.length ?? 0} />
+                <DailyReportTestCard storeId={storeId} recipientCount={dailyConfig?.recipients.length ?? 0} />
               </div>
 
               {/* Performance + QR */}

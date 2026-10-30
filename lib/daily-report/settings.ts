@@ -11,6 +11,8 @@ export const DAILY_REPORT_CUTOFF_HOUR_MYT = 22
 export const DAILY_REPORT_MAX_RECIPIENTS = 20
 
 const recipientSchema = z.string().trim().toLowerCase().email()
+/** A saved recipient list: emails, at most the cap. */
+export const recipientListSchema = z.array(recipientSchema).max(DAILY_REPORT_MAX_RECIPIENTS)
 
 /** Normalised email (trimmed, lower-cased), or null when it is not an email. */
 export function parseRecipient(raw: string): string | null {

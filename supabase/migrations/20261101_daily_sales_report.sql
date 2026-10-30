@@ -1,19 +1,41 @@
 -- Daily sales report (internal only): per-store switch and recipient list, and
--- the send log. Additive only: two new columns on stores and one new table.
+-- the send log. Additive only: two new tables, nothing on stores changes.
 -- Rows in daily_report_sends are never edited or deleted by the app.
+--
+-- Settings live in their own table, not on stores, so store users (who can read
+-- their own store row) cannot see the Xocks recipient addresses. Only admins can
+-- read it; the app writes it through the service role in admin-checked API routes.
 --
 -- NOT APPLIED YET. Paste into the Supabase SQL editor for project
 -- mhdyurnrmpjxsjbhbxrp after the operator has approved it.
 
--- Switch (default OFF) and the Xocks-team recipients for this store's report.
-ALTER TABLE public.stores
-  ADD COLUMN IF NOT EXISTS daily_report_enabled    BOOLEAN NOT NULL DEFAULT FALSE,
-  ADD COLUMN IF NOT EXISTS daily_report_recipients TEXT[]  NOT NULL DEFAULT '{}';
+-- One row per store. Missing row = off. The switch cannot be on without at
+-- least one recipient.
+CREATE TABLE IF NOT EXISTS public.store_daily_report_settings (
+  store_id   UUID PRIMARY KEY REFERENCES public.stores(id) ON DELETE CASCADE,
+  enabled    BOOLEAN NOT NULL DEFAULT FALSE,
+  recipients TEXT[] NOT NULL DEFAULT '{}',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  CONSTRAINT store_daily_report_needs_recipient
+    CHECK (NOT enabled OR cardinality(recipients) >= 1)
+);
 
--- The switch cannot be on without at least one recipient.
-ALTER TABLE public.stores DROP CONSTRAINT IF EXISTS stores_daily_report_needs_recipient;
-ALTER TABLE public.stores ADD CONSTRAINT stores_daily_report_needs_recipient
-  CHECK (NOT daily_report_enabled OR cardinality(daily_report_recipients) >= 1);
+ALTER TABLE public.store_daily_report_settings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS store_daily_report_settings_admin_read ON public.store_daily_report_settings;
+CREATE POLICY store_daily_report_settings_admin_read ON public.store_daily_report_settings
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+      WHERE p.id = auth.uid() AND p.role IN ('super_admin', 'ops_manager')
+    )
+  );
+
+-- Existing stores start with the switch off, one row each.
+INSERT INTO public.store_daily_report_settings (store_id)
+SELECT id FROM public.stores
+ON CONFLICT (store_id) DO NOTHING;
 
 -- Send log: one row per store per recipient per attempt (daily cron or the
 -- store page's "Send test report"). store_code and store_name are copied in so

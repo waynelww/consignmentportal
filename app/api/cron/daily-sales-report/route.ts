@@ -48,13 +48,30 @@ export async function GET(request: NextRequest) {
   const db = await createServiceClient()
   const testIds = await loadTestStoreIds(db)
 
-  const { data, error } = await db
-    .from('stores')
-    .select('id, store_code, store_name, pic_name, address, city, state, commission_rate, daily_report_recipients')
-    .eq('daily_report_enabled', true)
+  const { data: enabledRows, error: settingsErr } = await db
+    .from('store_daily_report_settings')
+    .select('store_id, recipients')
+    .eq('enabled', true)
+  if (settingsErr) return Response.json({ error: 'Could not load settings', detail: settingsErr.message }, { status: 500 })
+
+  const recipientsByStore = new Map<string, string[]>()
+  for (const row of enabledRows ?? []) {
+    recipientsByStore.set(row.store_id as string, (row.recipients as string[]) ?? [])
+  }
+  const storeIds = [...recipientsByStore.keys()].filter((id) => !isTestStore(testIds, id))
+
+  const { data, error } = storeIds.length === 0
+    ? { data: [], error: null }
+    : await db
+        .from('stores')
+        .select('id, store_code, store_name, pic_name, address, city, state, commission_rate')
+        .in('id', storeIds)
   if (error) return Response.json({ error: 'Could not load stores', detail: error.message }, { status: 500 })
 
-  const stores = (data ?? []).filter((s) => !isTestStore(testIds, s.id as string)) as Array<DailyStoreFields & { daily_report_recipients: string[] }>
+  const stores: Array<DailyStoreFields & { daily_report_recipients: string[] }> = (data ?? []).map((s) => ({
+    ...(s as DailyStoreFields),
+    daily_report_recipients: recipientsByStore.get(s.id as string) ?? [],
+  }))
   const groups = groupStoresByRecipient(stores)
   const batch = groups.slice(offset, offset + batchSize)
 

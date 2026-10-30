@@ -6,6 +6,7 @@ import { insertWithSequenceCode } from '@/lib/sequence-code'
 import { clean } from '@/lib/onboarding/schemas'
 import { stepLabel } from '@/lib/onboarding/steps'
 import { DAILY_REPORT_MAX_RECIPIENTS, normalizeRecipients, validateDailyReportSettings } from '@/lib/daily-report/settings'
+import { saveDailyReportConfig } from '@/lib/daily-report/config'
 
 function randomChars(length: number) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -171,8 +172,6 @@ export async function POST(request: NextRequest) {
           shipment_address: shipment.address,
           shipment_contact: shipment.contact,
           shipment_pic: shipment.pic,
-          daily_report_enabled,
-          daily_report_recipients: dailyReportRecipients,
         })
         .select('id')
         .single(),
@@ -209,6 +208,22 @@ export async function POST(request: NextRequest) {
 
   if (profileErr) {
     return Response.json({ error: 'Failed to create profile', details: profileErr.message }, { status: 500 })
+  }
+
+  // Daily sales report settings (admin-only table). A missing row would mean off,
+  // so a failure here is reported rather than silently dropping the recipients.
+  const dailyError = await saveDailyReportConfig(
+    serviceClient,
+    newStore.id,
+    { enabled: daily_report_enabled, recipients: dailyReportRecipients },
+    user.id,
+  ).catch((err: Error) => err.message)
+  if (dailyError) {
+    return Response.json({
+      error: 'Store created, but the daily sales report settings could not be saved. Set them on the store page.',
+      store_id: newStore.id,
+      details: dailyError,
+    }, { status: 500 })
   }
 
   // Quick create: link the card to the new store and move it to Account created.

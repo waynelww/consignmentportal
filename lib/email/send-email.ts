@@ -382,7 +382,7 @@ export async function sendMonthlyReportEmail(params: {
 export async function sendDailySalesReportEmail(params: {
   to: string
   reportDateLabel: string
-  stores: Array<{ storeName: string; storeCode: string; totalUnits: number; totalRevenue: number; totalCommission: number; xocksRevenue: number }>
+  stores: Array<{ storeName: string; storeCode: string; totalUnits: number; totalRevenue: number }>
   attachments: Array<{ filename: string; content: Uint8Array }>
   isTest?: boolean
 }): Promise<void> {
@@ -391,8 +391,7 @@ export async function sendDailySalesReportEmail(params: {
       <tr>
         <td style="padding:8px 0;border-top:1px solid #eee;font-size:14px;color:#111;"><strong>${s.storeName}</strong> <span style="color:#666;">(${s.storeCode})</span></td>
         <td style="padding:8px 0;border-top:1px solid #eee;font-size:14px;color:#111;text-align:right;">${s.totalUnits} pairs</td>
-        <td style="padding:8px 0;border-top:1px solid #eee;font-size:14px;color:#111;text-align:right;">${formatCurrency(s.totalRevenue)}</td>
-        <td style="padding:8px 0;border-top:1px solid #eee;font-size:14px;color:#111;text-align:right;font-weight:600;">${formatCurrency(s.xocksRevenue)}</td>
+        <td style="padding:8px 0;border-top:1px solid #eee;font-size:14px;color:#111;text-align:right;font-weight:600;">${formatCurrency(s.totalRevenue)}</td>
       </tr>`)
     .join('')
   const many = params.stores.length > 1
@@ -405,8 +404,7 @@ export async function sendDailySalesReportEmail(params: {
       <tr>
         <td style="padding:6px 0;font-size:12px;color:#666;">Store</td>
         <td style="padding:6px 0;font-size:12px;color:#666;text-align:right;">Pairs</td>
-        <td style="padding:6px 0;font-size:12px;color:#666;text-align:right;">Revenue</td>
-        <td style="padding:6px 0;font-size:12px;color:#666;text-align:right;">Due to Xocks</td>
+        <td style="padding:6px 0;font-size:12px;color:#666;text-align:right;">Sales</td>
       </tr>
       ${storeRows}
     </table>
