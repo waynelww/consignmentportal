@@ -1,0 +1,41 @@
+name: Monthly report email
+
+# Emails last month's XCMS report (PDF + Excel) at 09:30 Malaysia time on the
+# 1st, half an hour after the 09:00 invoice run (monthly-invoices.yml), so the
+# report sees the invoices it is about. Recipient = the monthly_report_email
+# setting; the endpoint refuses to send if that setting is blank.
+#
+# Requires repo secret: CRON_SECRET (same value as the Vercel env var).
+# GitHub emails the repo owner automatically when a run fails.
+
+on:
+  schedule:
+    # 01:30 UTC = 09:30 Malaysia time, 1st of the month
+    - cron: '30 1 1 * *'
+  workflow_dispatch: {}
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Call monthly-report endpoint (3 attempts)
+        run: |
+          set -u
+          URL="https://consignmentportal.vercel.app/api/cron/monthly-report"
+          for attempt in 1 2 3; do
+            echo "Attempt ${attempt}…"
+            code=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              --max-time 300 "$URL" || echo "000")
+            echo "HTTP ${code}"
+            cat /tmp/resp.json || true
+            echo ""
+            if [ "$code" = "200" ]; then
+              echo "✓ Monthly report sent."
+              exit 0
+            fi
+            sleep 90
+          done
+          echo "✗ All attempts failed — check Vercel logs for /api/cron/monthly-report."
+          exit 1

@@ -210,6 +210,8 @@ and store page). Current test stores: AGK-001 (Wayne Store) and STR-009
 ## Automation inventory (GitHub Actions + webhooks)
 
 - `monthly-invoices.yml` — 1st + 2nd of month, generates commission invoices.
+- `monthly-report.yml` — 1st of month 09:30 MYT, emails last month's report
+  (PDF + Excel) to `monthly_report_email`. See "Monthly report" below.
 - `low-stock-summary.yml` — daily 09:00 MYT low-stock email (see Low stock).
 - `nightly-backup.yml` — nightly database backup.
 - `sync-shopify-orders.yml` — every 2h, pulls Shopify orders for the
@@ -256,6 +258,28 @@ Node 22 is the known-good version.
   receipts; admin reviews in Payments.
 - **Gang draw** — tickets are scoped to the current Malaysia-time month
   (`draw_month`); winners drawn manually, announced on WhatsApp end of month.
+
+## Monthly report (PDF + Excel)
+
+Emailed on the 1st at 09:30 MYT to the `monthly_report_email` setting (never
+hard-coded). Settings → General → Monthly Report has **Send test report**
+(last month's files to info@xocks.co) and **Download PDF**.
+
+- Rule module: `lib/monthly-report/` — `compute.ts` (all numbers, bands,
+  action cards, watch list; pure), `load.ts` (database reads), `pdf.ts`,
+  `excel.ts`, `index.ts`. Pinned by `npx tsx scripts/test-monthly-report.ts`.
+- Scope: active stores that are not test accounts (`lib/stores/test-accounts.ts`).
+  Invoices and Xocks revenue come from `commission_periods` (same numbers as the
+  invoices). Store counts for the prior month use today's `status` (no status
+  history is kept), so "active stores" last month is an approximation.
+- Sales bands: `monthly_report_band_high` (250) and `monthly_report_band_mid`
+  (100) settings rows; the restock % is `low_stock_pct`; "not keying in" uses
+  `sales_reminder_days`.
+- Endpoints: `/api/cron/monthly-report` (CRON_SECRET, `?month=YYYY-MM` to
+  re-run a month) and `/api/admin/monthly-report` (admins: GET download, POST
+  test send). Nothing is stored; each run rebuilds from the live database.
+- Seed rows: `supabase/migrations/20261030_monthly_report_settings.sql`
+  (must be applied before the first run, or the cron refuses to send).
 
 ## Code map (the non-obvious parts)
 

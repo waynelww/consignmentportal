@@ -333,3 +333,46 @@ export async function sendAtRiskAlertEmail(params: {
     console.error('[sendAtRiskAlertEmail] Failed to send email:', err)
   }
 }
+
+// ── Monthly report (1st of the month, and the admin "Send test report") ────
+
+export async function sendMonthlyReportEmail(params: {
+  to: string
+  monthLabel: string
+  baseName: string
+  pdf: Uint8Array
+  xlsx: Buffer
+  summary: Array<[string, string]>
+  actionCounts: Array<[string, number]>
+  isTest?: boolean
+}): Promise<void> {
+  const summaryRows = params.summary
+    .map(([label, value]) => infoRow(label, value))
+    .join('')
+  const actionRows = params.actionCounts
+    .map(([label, n]) => infoRow(label, `${n} store${n === 1 ? '' : 's'}`))
+    .join('')
+  const body = `
+    ${h2(`XCMS Monthly Report — ${params.monthLabel}`)}
+    ${p(params.isTest ? 'Test send of last month’s report. The same two files go out on the 1st of each month.' : 'Your monthly report is attached: the PDF for reading, and the Excel file for the store-level detail.')}
+    <table cellpadding="0" cellspacing="0" style="margin:8px 0 16px;width:100%;border-collapse:collapse;">${summaryRows}</table>
+    ${p('<strong>Action plan</strong>')}
+    <table cellpadding="0" cellspacing="0" style="margin:0 0 8px;width:100%;border-collapse:collapse;">${actionRows}</table>
+    ${p('<span style="color:#666;">Attachments: the PDF report (3 pages) and the Excel workbook (Summary, Existing Stores, New Stores, Stores by Sales, Watch List).</span>')}
+  `
+  try {
+    await getResend().emails.send({
+      from: FROM,
+      to: params.to,
+      subject: `${params.isTest ? '[TEST] ' : ''}XCMS Monthly Report — ${params.monthLabel}`,
+      html: emailWrapper(body),
+      attachments: [
+        { filename: `${params.baseName}.pdf`, content: Buffer.from(params.pdf), contentType: 'application/pdf' },
+        { filename: `${params.baseName}.xlsx`, content: params.xlsx, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+      ],
+    })
+  } catch (err) {
+    console.error('[sendMonthlyReportEmail] Failed to send email:', err)
+    throw err
+  }
+}
