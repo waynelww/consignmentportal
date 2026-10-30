@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import type { Setting, Profile } from '@/types'
 import { toast } from 'sonner'
 import XocksTeamManager from '@/components/admin/XocksTeamManager'
+import MonthlyReportCard from '@/components/admin/MonthlyReportCard'
 import { SALES_REMINDER_SETTING_KEY, SALES_REMINDER_DEFAULT_DAYS } from '@/lib/sales/last-sale'
 
 type SettingsTab = 'general' | 'users' | 'notifications' | 'team'
@@ -280,6 +281,9 @@ export default function SettingsPage() {
                       />
                     </div>
                   </div>
+
+                  {/* Monthly report — test send and PDF download (emailed on the 1st by GitHub Action) */}
+                  <MonthlyReportCard />
 
                   {/* Company info section — always shown for invoice purposes */}
                   <div>

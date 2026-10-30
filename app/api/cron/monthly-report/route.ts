@@ -1,0 +1,70 @@
+/**
+ * GET /api/cron/monthly-report
+ * Driven by .github/workflows/monthly-report.yml on the 1st at 09:30 MYT,
+ * after the 09:00 invoice run. Reports on the month before (or ?month=YYYY-MM).
+ *
+ * Emails the PDF and the Excel file to the monthly_report_email setting.
+ * The recipient is never hard-coded; the run fails if the setting is blank.
+ * Every attempt, successful or not, is written to monthly_report_sends.
+ */
+import { type NextRequest } from 'next/server'
+import { createServiceClient } from '@/lib/supabase/server'
+import { sendMonthlyReportEmail } from '@/lib/email/send-email'
+import { buildMonthlyReportFiles } from '@/lib/monthly-report'
+import { previousMonthOf, monthLabel, parseYearMonth } from '@/lib/monthly-report/months'
+import { todayMYT } from '@/lib/sales/last-sale'
+import { summaryForEmail } from '@/lib/monthly-report/email-summary'
+import { recordReportSend, errorText } from '@/lib/monthly-report/send-log'
+
+export const maxDuration = 300
+
+export async function GET(request: NextRequest) {
+  const authHeader = request.headers.get('authorization')
+  const keyParam = request.nextUrl.searchParams.get('key')
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}` && keyParam !== process.env.CRON_SECRET) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const requested = request.nextUrl.searchParams.get('month')
+  const ym = requested ?? previousMonthOf(todayMYT())
+  if (!parseYearMonth(ym)) return Response.json({ error: 'month must be YYYY-MM' }, { status: 400 })
+
+  const db = await createServiceClient()
+  const { data: row } = await db.from('settings').select('value').eq('key', 'monthly_report_email').maybeSingle()
+  const to = row?.value?.trim() || null
+  if (!to) {
+    const error = 'Setting monthly_report_email is empty'
+    console.error(`[cron monthly-report] ${error}; nothing sent`)
+    await recordReportSend(db, { month_covered: ym, kind: 'monthly', recipient: null, status: 'failed', error })
+    return Response.json({ error }, { status: 500 })
+  }
+
+  try {
+    const files = await buildMonthlyReportFiles(db, ym)
+    const { summary, actionCounts } = summaryForEmail(files.report)
+    await sendMonthlyReportEmail({
+      to,
+      monthLabel: monthLabel(ym),
+      baseName: files.baseName,
+      pdf: files.pdf,
+      xlsx: files.xlsx,
+      summary,
+      actionCounts,
+    })
+    await recordReportSend(db, { month_covered: ym, kind: 'monthly', recipient: to, status: 'sent' })
+
+    return Response.json({
+      ok: true,
+      month: ym,
+      to,
+      stores_in_scope: files.report.stores.length,
+      sales: files.report.headline.sales.value,
+      actions: actionCounts,
+    })
+  } catch (err) {
+    const error = errorText(err)
+    console.error('[cron monthly-report] send failed:', error)
+    await recordReportSend(db, { month_covered: ym, kind: 'monthly', recipient: to, status: 'failed', error })
+    return Response.json({ error: 'Monthly report failed to send', detail: error }, { status: 500 })
+  }
+}
