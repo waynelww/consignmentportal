@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase/server'
 import { MEMBER_COOKIE, MEMBER_MAX_AGE, PIN_PATTERN, cookieOptions, hasGate, hashSecret, memberToken } from '@/lib/hr/portal-session'
 import { logHr } from '@/lib/hr/audit'
+import { claimPin, membersWithPin } from '@/lib/hr/pins'
 import { TEAM_NAME_DUPLICATE } from '@/lib/xocks-team/access'
 import { isValidJoinDate } from '@/lib/hr/rules'
 import { todayMYT } from '@/lib/sales/last-sale'
@@ -11,9 +12,12 @@ import { todayMYT } from '@/lib/sales/last-sale'
 export async function GET(request: NextRequest) {
   const db = await createServiceClient()
   if (!(await hasGate(request, db))) return Response.json({ error: 'Locked' }, { status: 401 })
-  const { data, error } = await db.from('xocks_team_members').select('id, name, hr_pin_hash, join_date').eq('active', true).order('name')
+  const [{ data, error }, pinned] = await Promise.all([
+    db.from('xocks_team_members').select('id, name, join_date').eq('active', true).order('name'),
+    membersWithPin(db),
+  ])
   if (error) return Response.json({ error: error.message }, { status: 500 })
-  return Response.json({ members: (data ?? []).map((m) => ({ id: m.id, name: m.name, has_pin: !!m.hr_pin_hash, has_join_date: !!m.join_date })) })
+  return Response.json({ members: (data ?? []).map((m) => ({ id: m.id, name: m.name, has_pin: pinned.has(m.id), has_join_date: !!m.join_date })) })
 }
 
 /** POST /api/hr-portal/members { name, pin, join_date } — a new person adds their name, PIN and join date, and is signed in. */
@@ -30,9 +34,10 @@ export async function POST(request: NextRequest) {
 
   const pinHash = hashSecret(parsed.data.pin)
   const { data, error } = await db.from('xocks_team_members')
-    .insert({ name: parsed.data.name, hr_pin_hash: pinHash, join_date: parsed.data.join_date }).select('id, name').single()
+    .insert({ name: parsed.data.name, join_date: parsed.data.join_date }).select('id, name').single()
   if (error?.code === '23505') return Response.json({ error: TEAM_NAME_DUPLICATE }, { status: 409 })
   if (error || !data) return Response.json({ error: 'Could not add your name', details: error?.message }, { status: 500 })
+  await claimPin(db, data.id, pinHash)
 
   await logHr(db, request, { type: 'staff', memberId: data.id, label: data.name }, 'member.added', { type: 'member', id: data.id },
     { join_date: parsed.data.join_date })

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { isHrAdminEmail } from './admins'
 
 type AuthResult =
   | { ok: true; userId: string; label: string }
@@ -7,8 +8,9 @@ type AuthResult =
 /**
  * HR Admin (/admin/hr/manage and /api/hr/*): approvals, penalties,
  * entitlements, holidays, PIN resets, settings and the activity log.
- * super_admin only. Staff never sign in to XCMS for HR; they use the /hr
- * link (lib/hr/portal-session.ts).
+ * The XCMS login must be super_admin AND be on the HR admin list
+ * (lib/hr/admins.ts, by email). Staff never sign in to XCMS for HR; they use
+ * the /hr link (lib/hr/portal-session.ts).
  */
 export async function authoriseHrAdmin(): Promise<AuthResult> {
   const supabase = await createClient()
@@ -19,7 +21,9 @@ export async function authoriseHrAdmin(): Promise<AuthResult> {
     .select('role, full_name')
     .eq('id', user.id)
     .single()
-  if (profile?.role !== 'super_admin') return { ok: false, status: 403, error: 'Forbidden: HR admin only' }
+  if (profile?.role !== 'super_admin' || !isHrAdminEmail(user.email)) {
+    return { ok: false, status: 403, error: 'Forbidden: HR admin only' }
+  }
   return { ok: true, userId: user.id, label: `Admin (${profile.full_name || user.email || 'owner'})` }
 }
 

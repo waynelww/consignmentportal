@@ -6,6 +6,7 @@ import {
   MEMBER_COOKIE, MEMBER_MAX_AGE, PIN_PATTERN, cookieOptions, hasGate, hashSecret, memberToken, verifySecret,
 } from '@/lib/hr/portal-session'
 import { logHr } from '@/lib/hr/audit'
+import { claimPin, getPinHash } from '@/lib/hr/pins'
 import { isValidJoinDate } from '@/lib/hr/rules'
 import { todayMYT } from '@/lib/sales/last-sale'
 
@@ -28,11 +29,11 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? 'Validation error' }, { status: 400 })
   const { member_id, pin, join_date } = parsed.data
 
-  const { data: m } = await db.from('xocks_team_members').select('id, name, active, hr_pin_hash, join_date').eq('id', member_id).maybeSingle()
+  const { data: m } = await db.from('xocks_team_members').select('id, name, active, join_date').eq('id', member_id).maybeSingle()
   if (!m?.active) return Response.json({ error: 'Name not found' }, { status: 404 })
   const actor = { type: 'staff' as const, memberId: m.id, label: m.name }
 
-  let pinHash = m.hr_pin_hash as string | null
+  let pinHash = await getPinHash(db, m.id)
   if (!pinHash) {
     const needsJoinDate = !m.join_date
     if (needsJoinDate && !isValidJoinDate(join_date, todayMYT())) {
@@ -40,10 +41,8 @@ export async function POST(request: NextRequest) {
     }
     pinHash = hashSecret(pin)
     // Only claim the PIN if it is still unset (two phones racing → one wins).
-    const { data: set } = await db.from('xocks_team_members')
-      .update({ hr_pin_hash: pinHash, ...(needsJoinDate ? { join_date } : {}) })
-      .eq('id', m.id).is('hr_pin_hash', null).select('id')
-    if (!set?.length) return Response.json({ error: 'A PIN was just set for this name. Enter that PIN.' }, { status: 409 })
+    if (!(await claimPin(db, m.id, pinHash))) return Response.json({ error: 'A PIN was just set for this name. Enter that PIN.' }, { status: 409 })
+    if (needsJoinDate) await db.from('xocks_team_members').update({ join_date }).eq('id', m.id).is('join_date', null)
     await logHr(db, request, actor, 'pin.created', { type: 'member', id: m.id })
     if (needsJoinDate) await logHr(db, request, actor, 'join_date.set', { type: 'member', id: m.id }, { join_date })
   } else {

@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/server'
+import { membersWithPin } from '@/lib/hr/pins'
 import { authoriseHrAdmin } from '@/lib/hr/access'
 import { loadHrSettings } from '@/lib/hr/settings'
 import { monthRange, parseYearMonth } from '@/lib/monthly-report/months'
@@ -21,9 +22,10 @@ export async function GET(request: NextRequest) {
   if (!parseYearMonth(ym)) return Response.json({ error: 'month must be YYYY-MM' }, { status: 400 })
   const { start, end } = monthRange(ym)
 
-  const supabase = await createClient()
-  const [members, pendingClaims, pendingLeaves, claims, leaves, penalties, holidays, settings, pendingWork, work] = await Promise.all([
-    supabase.from('xocks_team_members').select(`${MEMBER_COLUMNS}, hr_pin_hash`).order('name'),
+  // HR tables have no read policies; the HR admin check above is the gate.
+  const supabase = await createServiceClient()
+  const [members, pendingClaims, pendingLeaves, claims, leaves, penalties, holidays, settings, pinned, pendingWork, work] = await Promise.all([
+    supabase.from('xocks_team_members').select(MEMBER_COLUMNS).order('name'),
     supabase.from('hr_claims').select(CLAIM_COLUMNS).eq('status', 'pending').order('created_at'),
     supabase.from('hr_leaves').select(LEAVE_COLUMNS).eq('status', 'pending').order('created_at'),
     supabase.from('hr_claims').select(CLAIM_COLUMNS).gte('claim_date', start).lte('claim_date', end).order('claim_date', { ascending: false }),
@@ -31,6 +33,7 @@ export async function GET(request: NextRequest) {
     supabase.from('hr_penalties').select(PENALTY_COLUMNS).gte('penalty_date', start).lte('penalty_date', end).order('penalty_date', { ascending: false }),
     supabase.from('hr_public_holidays').select('id, holiday_date, name').gte('holiday_date', `${todayMYT().slice(0, 4)}-01-01`).order('holiday_date'),
     loadHrSettings(supabase),
+    membersWithPin(supabase),
     supabase.from('hr_rest_day_work').select(WORK_COLUMNS).eq('status', 'pending').order('created_at'),
     supabase.from('hr_rest_day_work').select(WORK_COLUMNS).gte('work_date', start).lte('work_date', end).order('work_date', { ascending: false }),
   ])
@@ -40,7 +43,7 @@ export async function GET(request: NextRequest) {
   return Response.json({
     month: ym,
     // Only whether a PIN is set ever leaves the server, never the hash.
-    members: (members.data ?? []).map(({ hr_pin_hash, ...m }) => ({ ...numMember(m), has_pin: !!hr_pin_hash })),
+    members: (members.data ?? []).map((m) => ({ ...numMember(m), has_pin: pinned.has(m.id) })),
     pending_claims: (pendingClaims.data ?? []).map(numClaim),
     pending_leaves: (pendingLeaves.data ?? []).map(numLeave),
     claims: (claims.data ?? []).map(numClaim),

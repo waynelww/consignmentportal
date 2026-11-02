@@ -1,4 +1,5 @@
-// Settings the HR module reads. Rows live in public.settings; missing or
+// Settings the HR module reads. Rows live in hr_secrets (server-only), not
+// public.settings, so ops logins can neither read nor change them; missing or
 // invalid values fall back to defaults. The report recipient has no default
 // on purpose: the cron refuses to send without it.
 
@@ -29,8 +30,9 @@ export function parseHrSettings(rows: { key: string; value: string | null }[]): 
   }
 }
 
+/** db must be a service-role client: hr_secrets has no policies. */
 export async function loadHrSettings(db: SupabaseClient): Promise<HrSettings> {
-  const { data } = await db.from('settings').select('key, value').in('key', Object.values(HR_SETTING_KEYS))
+  const { data } = await db.from('hr_secrets').select('key, value').in('key', Object.values(HR_SETTING_KEYS))
   return parseHrSettings(data ?? [])
 }
 

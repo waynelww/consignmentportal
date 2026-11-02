@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase/server'
 import { authoriseHrAdmin } from '@/lib/hr/access'
 import { logHr } from '@/lib/hr/audit'
+import { clearPin } from '@/lib/hr/pins'
 import { MEMBER_COLUMNS, numMember } from '@/lib/hr/types'
 import { isValidJoinDate, statutoryEntitlements } from '@/lib/hr/rules'
 import { todayMYT } from '@/lib/sales/last-sale'
@@ -58,10 +59,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   const patch: Record<string, unknown> = { ...days }
-  if (reset_pin) patch.hr_pin_hash = null
   if (join_date !== undefined) patch.join_date = join_date
   if (custom_entitlement !== undefined) patch.custom_entitlement = custom_entitlement
-  const { data, error } = await svc.from('xocks_team_members').update(patch).eq('id', memberId).select(MEMBER_COLUMNS).single()
+  if (reset_pin) await clearPin(svc, memberId)
+  const { data, error } = Object.keys(patch).length > 0
+    ? await svc.from('xocks_team_members').update(patch).eq('id', memberId).select(MEMBER_COLUMNS).single()
+    : { data: before, error: null }
   if (error) return Response.json({ error: 'Update failed', details: error.message }, { status: 500 })
 
   const actor = { type: 'admin' as const, label: auth.label }

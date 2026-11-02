@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import {
   hashSecret, verifySecret, gateToken, memberToken, hasGate, portalMember, GATE_COOKIE, MEMBER_COOKIE, PIN_PATTERN,
 } from '../lib/hr/portal-session'
+import { isHrAdminEmail } from '../lib/hr/admins'
 
 // Read lazily by the signing code, so setting it here is enough.
 process.env.HR_PORTAL_SECRET = 'test-secret'
@@ -32,7 +33,12 @@ function db(passwordHash: string | null, member: Record<string, unknown> | null)
     c.maybeSingle = async () => ({ data: row })
     return c
   }
-  return { from: (t: string) => chain(t === 'hr_secrets' ? (passwordHash === null ? null : { value: passwordHash }) : member) } as never
+  const row = (t: string) => {
+    if (t === 'hr_secrets') return passwordHash === null ? null : { value: passwordHash }
+    if (t === 'hr_member_pins') return member?.hr_pin_hash ? { pin_hash: member.hr_pin_hash } : null
+    return member
+  }
+  return { from: (t: string) => chain(row(t)) } as never
 }
 
 const pw = hashSecret('HRXocks-test')

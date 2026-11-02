@@ -37,9 +37,10 @@ export async function PUT(request: NextRequest) {
   if (upserts.length === 0 && s.portal_password === undefined) return Response.json({ error: 'Nothing to update' }, { status: 400 })
 
   const svc = await createServiceClient()
-  if (upserts.length > 0) {
-    const { error } = await svc.from('settings').upsert(upserts, { onConflict: 'key' })
-    if (error) return Response.json({ error: 'Save failed', details: error.message }, { status: 500 })
+  try {
+    for (const u of upserts) await setHrSecret(svc, u.key, u.value)
+  } catch (err) {
+    return Response.json({ error: 'Save failed', details: err instanceof Error ? err.message : String(err) }, { status: 500 })
   }
   if (s.portal_password !== undefined) {
     // Server-only table: the hash never sits where store accounts could read it.

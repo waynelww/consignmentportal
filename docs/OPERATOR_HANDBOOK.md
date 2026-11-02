@@ -398,7 +398,7 @@ account for HR; they use the **staff link `/hr`**.
   pinned by `npx tsx scripts/test-hr-portal-session.ts`; routes `/api/hr-portal/*`.
   Staff only ever see and cancel their own records; the person always comes
   from the PIN session, never the request body.
-- **HR Admin** `/admin/hr/manage` (**super_admin only**, `lib/hr/access.ts`):
+- **HR Admin** `/admin/hr/manage` (**wayne@xocks.co only**: super_admin AND on the email list in `lib/hr/admins.ts`; checked in `lib/hr/access.ts` for every `/api/hr/*` route):
   approve/reject, mark claims paid, log late penalties (manual, default
   `hr_late_penalty_default`), PIN status + reset, per-person entitlements
   (`annual_leave_days`, `mc_days`), public holidays, link password, settings,
@@ -419,6 +419,13 @@ account for HR; they use the **staff link `/hr`**.
   holidays and refuses normal working days); each approved row earns 1 or 0.5
   days. Leave type `replacement` draws on it (all-time balance, no expiry),
   and the API refuses more than the remaining balance.
+- **Lockdown (migration 20261107)**: no HR table has a read policy; RLS on
+  and revoked from anon/authenticated, so ops_manager and store logins can't
+  read HR data even directly. Every read/write goes through the API with the
+  service role after the HR-admin or PIN check. PIN hashes live in
+  `hr_member_pins`; HR settings (`hr_report_email`, `hr_late_penalty_default`,
+  `hr_work_days`) and the link password hash live in `hr_secrets` — not in
+  `public.settings`, which every login can read and ops can write.
 - **Activity log** `hr_audit_log` (`lib/hr/audit.ts`): every link unlock,
   wrong password/PIN, sign-in, submission, cancel and admin change, with
   actor, IP and device. Admin actions done *to* a person carry

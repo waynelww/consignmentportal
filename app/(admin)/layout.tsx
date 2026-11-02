@@ -36,6 +36,7 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
 import type { Profile } from '@/types'
+import { isHrAdminEmail } from '@/lib/hr/admins'
 import { toast } from 'sonner'
 import dynamic from 'next/dynamic'
 const AiAssistant = dynamic(() => import('@/components/AiAssistant'), { ssr: false })
@@ -84,7 +85,7 @@ const NAV_ITEMS = [
     section: 'HR',
     items: [
       { label: 'Staff HR link', href: '/hr', icon: Briefcase },
-      { label: 'HR Admin', href: '/admin/hr/manage', icon: ClipboardCheck, superAdminOnly: true },
+      { label: 'HR Admin', href: '/admin/hr/manage', icon: ClipboardCheck, hrAdminOnly: true },
     ],
   },
   {
@@ -151,6 +152,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const pathname = usePathname()
   const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const supabase = createClient()
@@ -158,6 +160,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return
+      setUserEmail(user.email ?? null)
       supabase
         .from('profiles')
         .select('*')
@@ -208,7 +211,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               )}
               <ul className="space-y-1">
                 {section.items
-                  .filter((item) => !('superAdminOnly' in item && item.superAdminOnly) || profile?.role === 'super_admin')
+                  .filter((item) => !('hrAdminOnly' in item && item.hrAdminOnly) || (profile?.role === 'super_admin' && isHrAdminEmail(userEmail)))
                   .map(({ label, href, icon: Icon }) => {
                   // '/hr' is inside '/admin/hr/manage', so the staff link needs an exact match.
                   const active = href === '/hr' ? pathname === href : pathname.includes(href)

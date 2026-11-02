@@ -1,7 +1,7 @@
 // Sessions for the staff HR link (/hr). No Supabase account involved:
 //   1. Link password (shared, hash in hr_secrets.hr_portal_password_hash) →
 //      cookie xcms_hr_gate, 30 days.
-//   2. Name + personal PIN (hash in xocks_team_members.hr_pin_hash) →
+//   2. Name + personal PIN (hash in hr_member_pins, server-only) →
 //      cookie xcms_hr_member, 12 hours.
 // Cookies are HMAC-signed and carry a short fingerprint of the hash they were
 // issued against, so changing the link password or resetting a PIN signs out
@@ -11,6 +11,7 @@ import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from
 import type { NextRequest } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { HR_SECRET_KEYS, getHrSecret } from './secrets'
+import { getPinHash } from './pins'
 
 export const GATE_COOKIE = 'xcms_hr_gate'
 export const MEMBER_COOKIE = 'xcms_hr_member'
@@ -113,7 +114,10 @@ export async function portalMember(req: NextRequest, db: SupabaseClient): Promis
   if (!(await hasGate(req, db))) return null
   const token = unsign<MemberToken>(req.cookies.get(MEMBER_COOKIE)?.value)
   if (token?.t !== 'member') return null
-  const { data } = await db.from('xocks_team_members').select('id, name, active, hr_pin_hash').eq('id', token.m).maybeSingle()
-  if (!data?.active || !data.hr_pin_hash || token.v !== fingerprint(data.hr_pin_hash)) return null
+  const [{ data }, pinHash] = await Promise.all([
+    db.from('xocks_team_members').select('id, name, active').eq('id', token.m).maybeSingle(),
+    getPinHash(db, token.m),
+  ])
+  if (!data?.active || !pinHash || token.v !== fingerprint(pinHash)) return null
   return { id: data.id, name: data.name }
 }
