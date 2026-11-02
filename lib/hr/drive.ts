@@ -195,6 +195,32 @@ export async function copyToDrive(db: SupabaseClient, kind: DriveKind, id: strin
   return uploaded.webViewLink as string
 }
 
+/**
+ * "Test" button: makes sure the root folder exists and writes a short note
+ * into it through the same upload path receipts use. Returns the folder link.
+ */
+export async function driveTest(db: SupabaseClient): Promise<string> {
+  const token = await accessToken(db)
+  const root = await rootFolder(db, token)
+  const boundary = `xcms${Math.random().toString(36).slice(2)}`
+  const note = [
+    'Xocks HR — approved claim receipts and MC slips are copied here automatically.',
+    'Layout: <month>/<staff name>/<date> <amount or leave type>.<ext>',
+    'The XCMS app keeps its own copy too, so moving or deleting files here does not affect HR records.',
+    `Connection tested ${new Date().toISOString()}.`,
+  ].join('\n')
+  await driveFetch(token, 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+    method: 'POST',
+    headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+    body: [
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: 'About this folder.txt', parents: [root] })}\r\n`,
+      `--${boundary}\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${note}\r\n`,
+      `--${boundary}--`,
+    ].join(''),
+  })
+  return `https://drive.google.com/drive/folders/${root}`
+}
+
 /** Approved rows with a file that are not in Drive yet (claims approved or paid). */
 export async function pendingDriveCopies(db: SupabaseClient, limit = 50): Promise<{ kind: DriveKind; id: string }[]> {
   const [claims, leaves] = await Promise.all([

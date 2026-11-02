@@ -593,6 +593,16 @@ function DriveCard() {
     }
   }
 
+  async function test() {
+    setCopying(true)
+    const res = await fetch('/api/hr/drive', { method: 'PUT' })
+    const body = await res.json().catch(() => ({}))
+    setCopying(false)
+    if (!res.ok) return toast.error(body.error ?? 'Test failed')
+    toast.success('Drive works. Opening the folder…')
+    window.open(body.folder, '_blank', 'noopener')
+  }
+
   async function disconnect() {
     if (!confirm('Disconnect Google Drive? Files already copied stay in Drive.')) return
     if (await call('/api/hr/drive', 'DELETE')) {
@@ -626,6 +636,7 @@ function DriveCard() {
               {copying && <Loader2 size={14} className="animate-spin" />} Copy {status.pending} waiting file{status.pending === 1 ? '' : 's'} now
             </button>
           )}
+          <button onClick={test} disabled={copying} className="text-xs font-medium text-blue-600 hover:underline">Test</button>
           <button onClick={disconnect} className="text-xs font-medium text-gray-500 hover:text-red-600">Disconnect</button>
         </div>
       )}

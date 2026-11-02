@@ -29,4 +29,5 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   'drive.connected': 'Connected Google Drive',
   'drive.disconnected': 'Disconnected Google Drive',
   'drive.copied': 'Copied files to Google Drive',
+  'drive.tested': 'Tested Google Drive',
 }
