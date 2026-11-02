@@ -403,6 +403,22 @@ account for HR; they use the **staff link `/hr`**.
   `hr_late_penalty_default`), PIN status + reset, per-person entitlements
   (`annual_leave_days`, `mc_days`), public holidays, link password, settings,
   and the **Activity log**.
+- **Leave entitlements = Employment Act 1955 minimums from `join_date`**
+  (`statutoryEntitlements` in `lib/hr/rules.ts`): annual 8/12/16 days and MC
+  14/18/22 for under 2 / 2–5 / 5+ completed years. Annual leave is pro-rated by
+  completed months in the joining year (s.60E(1A): ≥ half a day rounds up) and
+  switches tier from the month the anniversary is reached; MC is not
+  pro-rated and uses the highest tier reached that year. Staff give their join
+  date when creating a PIN / adding their name, or once via a prompt; after
+  that only the admin can change it (logged). `custom_entitlement` = use the
+  typed `annual_leave_days` / `mc_days` instead — the API refuses numbers below
+  the statutory minimum. No join date yet → typed numbers (defaults 8/14).
+  Hospitalisation leave (s.60F, 60 days) is not modelled.
+- **Replacement leave**: staff log rest-day / public-holiday work
+  (`hr_rest_day_work`, the API decides the day kind from `hr_work_days` and
+  holidays and refuses normal working days); each approved row earns 1 or 0.5
+  days. Leave type `replacement` draws on it (all-time balance, no expiry),
+  and the API refuses more than the remaining balance.
 - **Activity log** `hr_audit_log` (`lib/hr/audit.ts`): every link unlock,
   wrong password/PIN, sign-in, submission, cancel and admin change, with
   actor, IP and device. Admin actions done *to* a person carry
@@ -440,7 +456,8 @@ account for HR; they use the **staff link `/hr`**.
   production, client "XCMS"), folder My Drive / Xocks HR Receipts.
 - Migrations: `supabase/migrations/20261102_hr_module.sql`, then
   `20261105_hr_drive_secrets.sql` (hr_secrets, moves the link password hash
-  out of `settings`, Drive columns).
+  out of `settings`, Drive columns), then `20261106_hr_join_date_replacement.sql`
+  (join_date, custom_entitlement, hr_rest_day_work, leave type replacement).
 
 ## Code map (the non-obvious parts)
 

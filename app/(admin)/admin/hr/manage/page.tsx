@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Check, X, Loader2, Trash2, Download, Send, Banknote, ShieldAlert, Copy, KeyRound, HardDrive } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import { CLAIM_CATEGORIES, LEAVE_TYPES, daysLabel, rm } from '@/lib/hr/rules'
-import type { HrClaim, HrHoliday, HrLeave, HrMember, HrPenalty } from '@/lib/hr/types'
+import { CLAIM_CATEGORIES, LEAVE_TYPES, completedYears, daysLabel, entitlementsFor, rm } from '@/lib/hr/rules'
+import type { HrClaim, HrHoliday, HrLeave, HrMember, HrPenalty, HrRestDayWork } from '@/lib/hr/types'
 import type { HrSettings } from '@/lib/hr/settings'
 import { StatusBadge, FileLink, fmtDate, fmtRange, inputClass, labelClass, cardClass, primaryButton } from '@/components/hr/shared'
 import { monthLabel, shiftMonth } from '@/lib/monthly-report/months'
@@ -22,6 +22,8 @@ interface AdminData {
   penalties: HrPenalty[]
   holidays: HrHoliday[]
   settings: HrSettings
+  pending_work: HrRestDayWork[]
+  work: HrRestDayWork[]
 }
 
 const TABS = [
@@ -91,7 +93,7 @@ export default function HrAdminPage() {
   if (!data) return <div className="p-8 text-center text-sm text-gray-400">Loading…</div>
 
   const nameOf = new Map(data.members.map((m) => [m.id, m.name]))
-  const pendingCount = data.pending_claims.length + data.pending_leaves.length
+  const pendingCount = data.pending_claims.length + data.pending_leaves.length + data.pending_work.length
 
   return (
     <div className="space-y-5">
@@ -143,7 +145,7 @@ function MonthPicker({ month, onChange }: { month: string; onChange: (m: string)
   )
 }
 
-function ReviewButtons({ kind, id, reload, allowReject = true }: { kind: 'claim' | 'leave'; id: string; reload: () => void; allowReject?: boolean }) {
+function ReviewButtons({ kind, id, reload, allowReject = true }: { kind: 'claim' | 'leave' | 'work'; id: string; reload: () => void; allowReject?: boolean }) {
   const [busy, setBusy] = useState(false)
   async function act(action: 'approve' | 'reject') {
     let note: string | null = null
@@ -173,7 +175,7 @@ function ReviewButtons({ kind, id, reload, allowReject = true }: { kind: 'claim'
 }
 
 function Approvals({ data, nameOf, reload }: { data: AdminData; nameOf: Map<string, string>; reload: () => void }) {
-  if (data.pending_claims.length + data.pending_leaves.length === 0) {
+  if (data.pending_claims.length + data.pending_leaves.length + data.pending_work.length === 0) {
     return <div className={cn(cardClass, 'p-10 text-center text-sm text-gray-500')}>Nothing waiting. All caught up.</div>
   }
   return (
@@ -204,6 +206,22 @@ function Approvals({ data, nameOf, reload }: { data: AdminData; nameOf: Map<stri
               <Td>{l.reason ?? '—'}</Td>
               <Td>{l.attachment_path ? <FileLink kind="leave" id={l.id} /> : '—'}</Td>
               <Td><ReviewButtons kind="leave" id={l.id} reload={reload} /></Td>
+            </tr>
+          ))}
+        </Table>
+      )}
+
+      {data.pending_work.length > 0 && (
+        <Table title={`Rest-day and holiday work (${data.pending_work.length})`} head={['Staff', 'Date', 'Day', 'Event / job', 'Earns', 'Note', '']}>
+          {data.pending_work.map((w) => (
+            <tr key={w.id} className="border-b border-gray-50 last:border-b-0">
+              <Td strong>{nameOf.get(w.member_id)}</Td>
+              <Td>{fmtDate(w.work_date)}</Td>
+              <Td>{w.day_kind === 'public_holiday' ? 'Public holiday' : 'Rest day'}</Td>
+              <Td>{w.event_name}</Td>
+              <Td>{daysLabel(w.days_earned)} replacement</Td>
+              <Td>{w.note ?? '—'}</Td>
+              <Td><ReviewButtons kind="work" id={w.id} reload={reload} /></Td>
             </tr>
           ))}
         </Table>
@@ -243,6 +261,19 @@ function MonthRecords({ data, nameOf, reload }: { data: AdminData; nameOf: Map<s
                 {c.status === 'pending' && <ReviewButtons kind="claim" id={c.id} reload={reload} />}
               </div>
             </Td>
+          </tr>
+        ))}
+      </Table>
+      <Table title="Rest-day and holiday work" head={['Staff', 'Date', 'Day', 'Event / job', 'Earns', 'Status', '']}>
+        {data.work.length === 0 ? <EmptyRow cols={7} /> : data.work.map((w) => (
+          <tr key={w.id} className="border-b border-gray-50 last:border-b-0">
+            <Td strong>{nameOf.get(w.member_id)}</Td>
+            <Td>{fmtDate(w.work_date)}</Td>
+            <Td>{w.day_kind === 'public_holiday' ? 'Public holiday' : 'Rest day'}</Td>
+            <Td>{w.event_name}{w.review_note ? <span className="block text-xs text-gray-400">Note: {w.review_note}</span> : null}</Td>
+            <Td>{daysLabel(w.days_earned)}</Td>
+            <Td><StatusBadge status={w.status} /></Td>
+            <Td>{w.status === 'pending' && <ReviewButtons kind="work" id={w.id} reload={reload} />}</Td>
           </tr>
         ))}
       </Table>
@@ -369,8 +400,8 @@ function Staff({ members, reload }: { members: (HrMember & { has_pin: boolean })
   return (
     <Table
       title="Staff, PINs and yearly entitlements"
-      note="Leave days are per calendar year. Staff add their own name and PIN on the HR link. Resetting a PIN signs that person out everywhere; they create a new PIN on their next visit."
-      head={['Staff', 'PIN', 'Annual leave (days)', 'MC (days)', '']}
+      note="Annual leave and MC follow the Employment Act 1955 minimums from each join date (8/12/16 and 14/18/22 days for under 2, 2–5 and 5+ years; annual leave pro-rated in the joining year). Turn on Custom to give someone more. Staff enter their own join date on the HR link. Resetting a PIN signs that person out everywhere."
+      head={['Staff', 'PIN', 'Joined', `Annual ${new Date().getFullYear()}`, `MC ${new Date().getFullYear()}`, 'Custom', '']}
     >
       {members.filter((m) => m.active).map((m) => <StaffRow key={m.id} member={m} reload={reload} />)}
     </Table>
@@ -378,11 +409,27 @@ function Staff({ members, reload }: { members: (HrMember & { has_pin: boolean })
 }
 
 function StaffRow({ member, reload }: { member: HrMember & { has_pin: boolean }; reload: () => void }) {
+  const [joinDate, setJoinDate] = useState(member.join_date ?? '')
+  const [custom, setCustom] = useState(member.custom_entitlement)
   const [annual, setAnnual] = useState(String(member.annual_leave_days))
   const [mc, setMc] = useState(String(member.mc_days))
-  const dirty = Number(annual) !== member.annual_leave_days || Number(mc) !== member.mc_days
+  const year = new Date().getFullYear()
+  const today = todayMYT()
+  const preview = entitlementsFor(
+    { join_date: joinDate || null, custom_entitlement: custom, annual_leave_days: Number(annual), mc_days: Number(mc) },
+    year,
+  )
+  const dirty = (joinDate || null) !== member.join_date || custom !== member.custom_entitlement
+    || (custom && (Number(annual) !== member.annual_leave_days || Number(mc) !== member.mc_days))
+
   async function save() {
-    if (await call(`/api/hr/members/${member.id}`, 'PATCH', { annual_leave_days: Number(annual), mc_days: Number(mc) })) {
+    const body: Record<string, unknown> = { custom_entitlement: custom }
+    if (joinDate && joinDate !== member.join_date) body.join_date = joinDate
+    if (custom) {
+      body.annual_leave_days = Number(annual)
+      body.mc_days = Number(mc)
+    }
+    if (await call(`/api/hr/members/${member.id}`, 'PATCH', body)) {
       toast.success(`Saved ${member.name}`)
       reload()
     }
@@ -394,6 +441,7 @@ function StaffRow({ member, reload }: { member: HrMember & { has_pin: boolean };
       reload()
     }
   }
+  const usingCustom = preview.source === 'custom'
   return (
     <tr className="border-b border-gray-50 last:border-b-0">
       <Td strong>{member.name}</Td>
@@ -406,8 +454,31 @@ function StaffRow({ member, reload }: { member: HrMember & { has_pin: boolean };
           <span className="text-xs text-gray-400">Not set yet</span>
         )}
       </Td>
-      <Td><input type="number" min="0" max="60" step="0.5" value={annual} onChange={(e) => setAnnual(e.target.value)} className={cn(inputClass, 'w-24')} /></Td>
-      <Td><input type="number" min="0" max="60" step="0.5" value={mc} onChange={(e) => setMc(e.target.value)} className={cn(inputClass, 'w-24')} /></Td>
+      <Td>
+        <input type="date" value={joinDate} max={today} onChange={(e) => setJoinDate(e.target.value)} className={cn(inputClass, 'w-40')} />
+        <span className="block text-xs text-gray-400 mt-0.5">
+          {joinDate ? `${completedYears(joinDate, today)} yr service` : 'Not given yet'}
+        </span>
+      </Td>
+      <Td>
+        {custom ? (
+          <input type="number" min="0" max="60" step="0.5" value={annual} onChange={(e) => setAnnual(e.target.value)} className={cn(inputClass, 'w-20')} />
+        ) : (
+          <span>{preview.annual} days{usingCustom && <span className="block text-xs text-amber-600">No join date: using {member.annual_leave_days}</span>}</span>
+        )}
+      </Td>
+      <Td>
+        {custom ? (
+          <input type="number" min="0" max="60" step="0.5" value={mc} onChange={(e) => setMc(e.target.value)} className={cn(inputClass, 'w-20')} />
+        ) : (
+          <span>{preview.mc} days</span>
+        )}
+      </Td>
+      <Td>
+        <label className="flex items-center gap-1.5 text-xs text-gray-600">
+          <input type="checkbox" checked={custom} onChange={(e) => setCustom(e.target.checked)} /> More than the law
+        </label>
+      </Td>
       <Td>{dirty && <button onClick={save} className="text-xs font-semibold text-blue-600 hover:underline">Save</button>}</Td>
     </tr>
   )
@@ -675,6 +746,9 @@ function detailText(e: AuditEntry, nameOf: Map<string, string>): string {
   if (typeof d.leave_type === 'string') parts.push(LEAVE_TYPES[d.leave_type as keyof typeof LEAVE_TYPES] ?? d.leave_type)
   if (typeof d.start_date === 'string' && typeof d.end_date === 'string') parts.push(fmtRange(d.start_date, d.end_date))
   if (typeof d.claim_date === 'string') parts.push(fmtDate(d.claim_date))
+  if (typeof d.work_date === 'string') parts.push(`${fmtDate(d.work_date)}${d.event_name ? ` ${d.event_name}` : ''}`)
+  if (typeof d.join_date === 'string') parts.push(`joined ${fmtDate(d.join_date)}`)
+  if (typeof d.to === 'string' && e.action === 'join_date.changed') parts.push(`joined ${fmtDate(d.to)}`)
   if (typeof d.penalty_date === 'string') parts.push(fmtDate(d.penalty_date))
   if (typeof d.holiday_date === 'string') parts.push(`${fmtDate(d.holiday_date)}${d.name ? ` ${d.name}` : ''}`)
   if (typeof d.note === 'string' && d.note) parts.push(`“${d.note}”`)

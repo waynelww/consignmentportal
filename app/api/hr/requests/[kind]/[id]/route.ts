@@ -5,11 +5,11 @@ import { authoriseHrAdmin } from '@/lib/hr/access'
 import { logHr } from '@/lib/hr/audit'
 import { copyToDrive, driveStatus } from '@/lib/hr/drive'
 
-type Kind = 'claim' | 'leave'
-const TABLE: Record<Kind, string> = { claim: 'hr_claims', leave: 'hr_leaves' }
+type Kind = 'claim' | 'leave' | 'work'
+const TABLE: Record<Kind, string> = { claim: 'hr_claims', leave: 'hr_leaves', work: 'hr_rest_day_work' }
 
 function kindOf(raw: string): Kind | null {
-  return raw === 'claim' || raw === 'leave' ? raw : null
+  return raw === 'claim' || raw === 'leave' || raw === 'work' ? raw : null
 }
 
 const ReviewSchema = z.object({
@@ -65,7 +65,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   // On approval, copy the receipt / MC slip to Google Drive if connected. A
   // failure never undoes the approval; "Copy now" in settings retries later.
   let drive: string | null = null
-  if (action === 'approve' && (await driveStatus(svc)).connected) {
+  if (action === 'approve' && kind !== 'work' && (await driveStatus(svc)).connected) {
     try {
       drive = (await copyToDrive(svc, kind, id)) ? 'copied' : null
     } catch (err) {

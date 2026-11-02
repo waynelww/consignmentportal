@@ -7,11 +7,11 @@ import * as XLSX from 'xlsx'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { monthLabel, monthRange, parseYearMonth } from '@/lib/monthly-report/months'
 import { todayMYT } from '@/lib/sales/last-sale'
-import { CLAIM_CATEGORIES, LEAVE_TYPES, leaveBalance, leaveDaysWithin, type LeaveType } from './rules'
+import { CLAIM_CATEGORIES, LEAVE_TYPES, entitlementsFor, leaveBalance, leaveDaysWithin, replacementBalance, type LeaveType } from './rules'
 import { loadHolidaySet, loadHrSettings } from './settings'
 import {
-  CLAIM_COLUMNS, LEAVE_COLUMNS, MEMBER_COLUMNS, PENALTY_COLUMNS,
-  numClaim, numLeave, numMember, type HrClaim, type HrLeave, type HrMember, type HrPenalty,
+  CLAIM_COLUMNS, LEAVE_COLUMNS, MEMBER_COLUMNS, PENALTY_COLUMNS, WORK_COLUMNS,
+  numClaim, numLeave, numMember, numWork, type HrClaim, type HrLeave, type HrMember, type HrPenalty, type HrRestDayWork,
 } from './types'
 
 export interface HrMemberRow {
@@ -27,6 +27,12 @@ export interface HrMemberRow {
   annualEntitled: number
   mcRemaining: number
   mcEntitled: number
+  /** 'statutory' = Employment Act minimum from the join date; 'custom' = set by hand (or no join date yet). */
+  entitlementSource: 'statutory' | 'custom'
+  /** Replacement days earned this month (approved rest-day / holiday work). */
+  replacementEarned: number
+  /** Replacement days left (all-time earned − taken − pending). */
+  replacementRemaining: number
 }
 
 export interface HrMonthReport {
@@ -37,6 +43,7 @@ export interface HrMonthReport {
   claims: (HrClaim & { name: string })[]
   leaves: (HrLeave & { name: string; daysInMonth: number })[]
   penalties: (HrPenalty & { name: string })[]
+  work: (HrRestDayWork & { name: string })[]
   totals: { claimsApproved: number; claimsPending: number; toReimburse: number; penalties: number; leaveDays: number; mcDays: number }
   pendingRequests: number
 }
@@ -50,7 +57,7 @@ export async function buildHrMonthReport(db: SupabaseClient, ym: string): Promis
   const yearStart = `${parsed.year}-01-01`
   const yearEnd = `${parsed.year}-12-31`
 
-  const [settings, holidays, membersRes, claimsRes, outstandingRes, leavesRes, penaltiesRes, pendingClaims, pendingLeaves] =
+  const [settings, holidays, membersRes, claimsRes, outstandingRes, leavesRes, penaltiesRes, pendingClaims, pendingLeaves, workRes, replLeavesRes, pendingWork] =
     await Promise.all([
       loadHrSettings(db),
       loadHolidaySet(db, yearStart, yearEnd),
@@ -62,8 +69,12 @@ export async function buildHrMonthReport(db: SupabaseClient, ym: string): Promis
       db.from('hr_penalties').select(PENALTY_COLUMNS).gte('penalty_date', start).lte('penalty_date', end).order('penalty_date'),
       db.from('hr_claims').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       db.from('hr_leaves').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      // Replacement balances are all-time up to the month end.
+      db.from('hr_rest_day_work').select(WORK_COLUMNS).lte('work_date', end).order('work_date'),
+      db.from('hr_leaves').select('member_id, leave_type, status, days').eq('leave_type', 'replacement').lte('start_date', end),
+      db.from('hr_rest_day_work').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     ])
-  for (const r of [membersRes, claimsRes, outstandingRes, leavesRes, penaltiesRes]) {
+  for (const r of [membersRes, claimsRes, outstandingRes, leavesRes, penaltiesRes, workRes, replLeavesRes]) {
     if (r.error) throw new Error(r.error.message)
   }
 
@@ -72,6 +83,9 @@ export async function buildHrMonthReport(db: SupabaseClient, ym: string): Promis
   const claims = (claimsRes.data ?? []).map(numClaim) as HrClaim[]
   const allLeaves = (leavesRes.data ?? []).map(numLeave) as HrLeave[]
   const penalties = (penaltiesRes.data ?? []).map((p) => ({ ...p, amount: Number(p.amount) })) as HrPenalty[]
+  const allWork = (workRes.data ?? []).map(numWork) as HrRestDayWork[]
+  const monthWork = allWork.filter((w) => w.work_date >= start && w.status !== 'rejected')
+  const replLeaves = (replLeavesRes.data ?? []).map(numLeave)
   const outstanding = new Map<string, number>()
   for (const c of outstandingRes.data ?? []) {
     outstanding.set(c.member_id, (outstanding.get(c.member_id) ?? 0) + Number(c.amount))
@@ -87,6 +101,7 @@ export async function buildHrMonthReport(db: SupabaseClient, ym: string): Promis
     ...claims.map((c) => c.member_id),
     ...monthLeaves.map((l) => l.member_id),
     ...penalties.map((p) => p.member_id),
+    ...monthWork.map((w) => w.member_id),
     ...outstanding.keys(),
   ])
   const inScope = members.filter((m) => m.active || withRecords.has(m.id))
@@ -95,11 +110,13 @@ export async function buildHrMonthReport(db: SupabaseClient, ym: string): Promis
     const mine = <T extends { member_id: string }>(list: T[]) => list.filter((x) => x.member_id === m.id)
     const myClaims = mine(claims)
     const myPenalties = mine(penalties)
-    const leaveDays: Record<LeaveType, number> = { annual: 0, emergency: 0, unpaid: 0, mc: 0 }
+    const leaveDays: Record<LeaveType, number> = { annual: 0, emergency: 0, unpaid: 0, mc: 0, replacement: 0 }
     for (const l of mine(monthLeaves)) if (l.status === 'approved') leaveDays[l.leave_type] += l.daysInMonth
     const myYear = mine(allLeaves)
-    const annual = leaveBalance('annual', m.annual_leave_days, myYear, parsed.year, dayOpts)
-    const mc = leaveBalance('mc', m.mc_days, myYear, parsed.year, dayOpts)
+    const ent = entitlementsFor(m, parsed.year)
+    const annual = leaveBalance('annual', ent.annual, myYear, parsed.year, dayOpts)
+    const mc = leaveBalance('mc', ent.mc, myYear, parsed.year, dayOpts)
+    const repl = replacementBalance(mine(allWork), mine(replLeaves))
     return {
       name: m.name,
       claimsApproved: round2(myClaims.filter((c) => c.status === 'approved' || c.status === 'paid').reduce((s, c) => s + c.amount, 0)),
@@ -112,6 +129,9 @@ export async function buildHrMonthReport(db: SupabaseClient, ym: string): Promis
       annualEntitled: annual.entitled,
       mcRemaining: mc.remaining,
       mcEntitled: mc.entitled,
+      entitlementSource: ent.source,
+      replacementEarned: mine(monthWork).filter((w) => w.status === 'approved').reduce((s, w) => s + w.days_earned, 0),
+      replacementRemaining: repl.remaining,
     }
   })
 
@@ -124,15 +144,16 @@ export async function buildHrMonthReport(db: SupabaseClient, ym: string): Promis
     claims: claims.map((c) => ({ ...c, name: nameOf.get(c.member_id) ?? '?' })),
     leaves: monthLeaves,
     penalties: penalties.map((p) => ({ ...p, name: nameOf.get(p.member_id) ?? '?' })),
+    work: monthWork.map((w) => ({ ...w, name: nameOf.get(w.member_id) ?? '?' })),
     totals: {
       claimsApproved: sum((r) => r.claimsApproved),
       claimsPending: sum((r) => r.claimsPending),
       toReimburse: sum((r) => r.toReimburse),
       penalties: sum((r) => r.penalties),
-      leaveDays: sum((r) => r.leaveDays.annual + r.leaveDays.emergency + r.leaveDays.unpaid),
+      leaveDays: sum((r) => r.leaveDays.annual + r.leaveDays.emergency + r.leaveDays.unpaid + r.leaveDays.replacement),
       mcDays: sum((r) => r.leaveDays.mc),
     },
-    pendingRequests: (pendingClaims.count ?? 0) + (pendingLeaves.count ?? 0),
+    pendingRequests: (pendingClaims.count ?? 0) + (pendingLeaves.count ?? 0) + (pendingWork.count ?? 0),
   }
 }
 
@@ -148,18 +169,20 @@ export function hrReportWorkbook(r: HrMonthReport): Buffer {
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, sheet([
     [`Xocks HR Report — ${r.monthLabel}`],
-    [`Generated ${r.today}. Leave balances are for the calendar year, approved + pending deducted.`],
+    [`Generated ${r.today}. Annual leave and MC are the Employment Act minimums from each join date unless marked custom; balances are for the calendar year, approved + pending deducted.`],
     [],
     ['Staff', 'Claims approved (RM)', 'Claims pending (RM)', 'To reimburse, all months (RM)', 'Penalties (RM)', 'Times late',
-      'Annual leave (days)', 'Emergency leave (days)', 'Unpaid leave (days)', 'MC (days)', 'Annual leave left', 'MC left'],
+      'Annual leave (days)', 'Emergency leave (days)', 'Unpaid leave (days)', 'MC (days)', 'Replacement leave (days)',
+      'Annual leave left', 'MC left', 'Entitlement', 'Replacement earned this month', 'Replacement days left'],
     ...r.rows.map((x) => [
       x.name, x.claimsApproved, x.claimsPending, x.toReimburse, x.penalties, x.lateCount,
-      x.leaveDays.annual, x.leaveDays.emergency, x.leaveDays.unpaid, x.leaveDays.mc,
+      x.leaveDays.annual, x.leaveDays.emergency, x.leaveDays.unpaid, x.leaveDays.mc, x.leaveDays.replacement,
       `${x.annualRemaining} / ${x.annualEntitled}`, `${x.mcRemaining} / ${x.mcEntitled}`,
+      x.entitlementSource === 'statutory' ? 'Employment Act' : 'Custom', x.replacementEarned, x.replacementRemaining,
     ]),
     ['TOTAL', r.totals.claimsApproved, r.totals.claimsPending, r.totals.toReimburse, r.totals.penalties,
       r.rows.reduce((s, x) => s + x.lateCount, 0), null, null, null, r.totals.mcDays],
-  ], [22, 18, 18, 24, 14, 10, 16, 18, 16, 10, 16, 10]), 'Summary')
+  ], [22, 18, 18, 24, 14, 10, 16, 18, 16, 10, 20, 16, 10, 15, 26, 20]), 'Summary')
 
   XLSX.utils.book_append_sheet(wb, sheet([
     ['Date', 'Staff', 'Category', 'Description', 'Amount (RM)', 'Status', 'Receipt', 'Note', 'Google Drive'],
@@ -177,6 +200,12 @@ export function hrReportWorkbook(r: HrMonthReport): Buffer {
     ['Date', 'Staff', 'Type', 'Minutes late', 'Amount (RM)', 'Note'],
     ...r.penalties.map((p) => [p.penalty_date, p.name, p.kind === 'late' ? 'Late' : 'Other', p.minutes_late, p.amount, p.note]),
   ], [12, 20, 8, 13, 12, 36]), 'Penalties')
+
+  XLSX.utils.book_append_sheet(wb, sheet([
+    ['Date', 'Staff', 'Day', 'Event / job', 'Days earned', 'Status', 'Note'],
+    ...r.work.map((w) => [w.work_date, w.name, w.day_kind === 'public_holiday' ? 'Public holiday' : 'Rest day', w.event_name,
+      w.days_earned, w.status, w.note]),
+  ], [12, 20, 15, 36, 12, 10, 30]), 'Rest-day work')
 
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer
 }

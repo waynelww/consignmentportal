@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict'
 import {
   parseWorkDays, countLeaveDays, leaveDaysWithin, leaveBalance, isoWeekday, isYmd, entitlementFor, daysLabel,
+  completedYears, statutoryEntitlements, entitlementsFor, replacementBalance,
 } from '../lib/hr/rules'
 
 // ── Work days setting ────────────────────────────────────────────────────
@@ -60,5 +61,58 @@ assert.deepEqual(leaveBalance('annual', 12, leaves, 2027), { entitled: 12, taken
 
 assert.equal(daysLabel(1), '1 day')
 assert.equal(daysLabel(2.5), '2.5 days')
+
+// ── Employment Act minimums from the join date ───────────────────────────
+assert.equal(completedYears('2024-03-15', '2026-03-14'), 1)
+assert.equal(completedYears('2024-03-15', '2026-03-15'), 2)
+assert.equal(completedYears('2026-05-01', '2026-01-01'), 0, 'not joined yet')
+
+// Full year, same tier: exactly 8 / 12 / 16 and 14 / 18 / 22.
+assert.deepEqual(statutoryEntitlements('2025-01-01', 2026), { annual: 8, mc: 14 })
+assert.deepEqual(statutoryEntitlements('2022-06-01', 2026), { annual: 12, mc: 18 }, '4 years')
+assert.deepEqual(statutoryEntitlements('2015-06-01', 2026), { annual: 16, mc: 22 }, '11 years')
+
+// Joining year, pro-rated by completed months: 15 Mar join → Apr..Dec = 9 months × 8/12 = 6.
+assert.deepEqual(statutoryEntitlements('2026-03-15', 2026), { annual: 6, mc: 14 })
+// 1 Mar join → Mar..Dec = 10 months × 8/12 = 6.67 → 7 (≥ half a day rounds up).
+assert.equal(statutoryEntitlements('2026-03-01', 2026).annual, 7)
+// 20 Nov join → Dec only = 0.67 → 1. 2 Dec join → no completed month = 0.
+assert.equal(statutoryEntitlements('2026-11-20', 2026).annual, 1)
+assert.equal(statutoryEntitlements('2026-12-02', 2026).annual, 0)
+// Joined after the year: nothing.
+assert.deepEqual(statutoryEntitlements('2027-01-05', 2026), { annual: 0, mc: 0 })
+
+// Crossing 2 years mid-year (joined 1 Jul 2024): 2 years are completed on
+// 1 Jul 2026, so Jan–Jun are at 8/yr and Jul–Dec at 12/yr:
+// 6 × 8/12 + 6 × 12/12 = 4 + 6 = 10. MC is the higher tier reached: 18.
+assert.deepEqual(statutoryEntitlements('2024-07-01', 2026), { annual: 10, mc: 18 })
+// Crossing 5 years (joined 1 Oct 2021): 9 × 12/12 + 3 × 16/12 = 9 + 4 = 13; MC 22.
+assert.deepEqual(statutoryEntitlements('2021-10-01', 2026), { annual: 13, mc: 22 })
+
+// Statutory vs custom.
+const base = { annual_leave_days: 20, mc_days: 30 }
+assert.deepEqual(entitlementsFor({ ...base, join_date: '2025-01-01', custom_entitlement: false }, 2026), { annual: 8, mc: 14, source: 'statutory' })
+assert.deepEqual(entitlementsFor({ ...base, join_date: '2025-01-01', custom_entitlement: true }, 2026), { annual: 20, mc: 30, source: 'custom' })
+assert.deepEqual(entitlementsFor({ ...base, join_date: null, custom_entitlement: false }, 2026), { annual: 20, mc: 30, source: 'custom' }, 'no join date yet')
+
+// ── Replacement leave ────────────────────────────────────────────────────
+assert.equal(entitlementFor('replacement'), 'replacement')
+assert.deepEqual(
+  replacementBalance(
+    [{ status: 'approved', days_earned: 1 }, { status: 'approved', days_earned: 0.5 }, { status: 'pending', days_earned: 1 }, { status: 'rejected', days_earned: 1 }],
+    [
+      { leave_type: 'replacement', status: 'approved', days: 1 },
+      { leave_type: 'replacement', status: 'pending', days: 0.5 },
+      { leave_type: 'replacement', status: 'rejected', days: 1 },
+      { leave_type: 'annual', status: 'approved', days: 3 },
+    ],
+  ),
+  { entitled: 1.5, taken: 1, pending: 0.5, remaining: 0 },
+)
+// Replacement leave does not touch annual or MC balances.
+assert.deepEqual(
+  leaveBalance('annual', 8, [{ leave_type: 'replacement', status: 'approved', start_date: '2026-03-02', end_date: '2026-03-02', half_day: false }], 2026),
+  { entitled: 8, taken: 0, pending: 0, remaining: 8 },
+)
 
 console.log('✓ HR rules: all assertions passed')

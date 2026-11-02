@@ -4,9 +4,10 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { HR_FILE_TYPES } from '@/lib/hr/access'
 import { portalMember } from '@/lib/hr/portal-session'
 import { logHr } from '@/lib/hr/audit'
-import { CLAIM_CATEGORIES, LEAVE_TYPES, countLeaveDays, isYmd } from '@/lib/hr/rules'
+import { CLAIM_CATEGORIES, LEAVE_TYPES, countLeaveDays, isYmd, isoWeekday, replacementBalance } from '@/lib/hr/rules'
 import { loadHolidaySet, loadHrSettings } from '@/lib/hr/settings'
-import { CLAIM_COLUMNS, LEAVE_COLUMNS } from '@/lib/hr/types'
+import { CLAIM_COLUMNS, LEAVE_COLUMNS, WORK_COLUMNS, numLeave, numWork } from '@/lib/hr/types'
+import { todayMYT } from '@/lib/sales/last-sale'
 
 const Ymd = z.string().refine(isYmd, 'Date must be YYYY-MM-DD')
 // Files are uploaded first via /api/hr-portal/upload-url; the path must sit in the person's folder.
@@ -35,9 +36,18 @@ const LeaveSchema = z.object({
   ...FileFields,
 })
 
+const WorkSchema = z.object({
+  kind: z.literal('work'),
+  work_date: Ymd,
+  half_day: z.boolean().default(false),
+  event_name: z.string().trim().min(1, 'Say which event or job').max(120),
+  note: z.string().trim().max(300).nullish(),
+})
+
 /**
  * POST /api/hr-portal/requests — the signed-in person submits a claim
- * ({kind:'claim'}) or leave / MC ({kind:'leave'}). The person always comes
+ * ({kind:'claim'}), leave / MC ({kind:'leave'}) or work on a rest day /
+ * public holiday that earns replacement leave ({kind:'work'}). The person always comes
  * from the PIN session, never from the request body.
  */
 export async function POST(request: NextRequest) {
@@ -52,11 +62,40 @@ export async function POST(request: NextRequest) {
   } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
-  const parsed = z.discriminatedUnion('kind', [ClaimSchema, LeaveSchema]).safeParse(body)
+  const parsed = z.discriminatedUnion('kind', [ClaimSchema, LeaveSchema, WorkSchema]).safeParse(body)
   if (!parsed.success) {
     return Response.json({ error: parsed.error.issues[0]?.message ?? 'Validation error' }, { status: 400 })
   }
   const input = parsed.data
+
+  if (input.kind === 'work') {
+    // Only rest days (non-work days per hr_work_days) and public holidays earn replacement leave.
+    const [settings, holidays] = await Promise.all([
+      loadHrSettings(svc),
+      loadHolidaySet(svc, input.work_date, input.work_date),
+    ])
+    const dayKind = holidays.has(input.work_date)
+      ? 'public_holiday'
+      : settings.workDays.includes(isoWeekday(input.work_date)) ? null : 'rest_day'
+    if (!dayKind) return Response.json({ error: 'That is a normal working day. Only rest days and public holidays earn replacement leave.' }, { status: 400 })
+    if (input.work_date > todayMYT()) {
+      return Response.json({ error: 'Log the work on or after the day you worked' }, { status: 400 })
+    }
+    const { data, error } = await svc.from('hr_rest_day_work').insert({
+      member_id: me.id,
+      work_date: input.work_date,
+      day_kind: dayKind,
+      days_earned: input.half_day ? 0.5 : 1,
+      event_name: input.event_name,
+      note: input.note || null,
+    }).select(WORK_COLUMNS).single()
+    if (error?.code === '23505') return Response.json({ error: 'You already logged work on that day' }, { status: 409 })
+    if (error) return Response.json({ error: 'Failed to log the work', details: error.message }, { status: 500 })
+    await logHr(svc, request, actor, 'work.submitted', { type: 'work', id: data.id },
+      { work_date: data.work_date, day_kind: data.day_kind, days_earned: Number(data.days_earned), event_name: data.event_name })
+    return Response.json({ work: data }, { status: 201 })
+  }
+
   if (input.file_path && !input.file_path.startsWith(`${me.id}/`)) {
     return Response.json({ error: 'File does not belong to this person' }, { status: 400 })
   }
@@ -93,6 +132,18 @@ export async function POST(request: NextRequest) {
   ])
   const days = countLeaveDays(input.start_date, input.end_date, { halfDay: input.half_day, workDays: settings.workDays, holidays })
   if (days === 0) return Response.json({ error: 'Those dates are all weekends or public holidays' }, { status: 400 })
+
+  // Replacement leave can't go past the days earned (approved work, minus taken and pending).
+  if (input.leave_type === 'replacement') {
+    const [work, taken] = await Promise.all([
+      svc.from('hr_rest_day_work').select('status, days_earned').eq('member_id', me.id),
+      svc.from('hr_leaves').select('leave_type, status, days').eq('member_id', me.id).eq('leave_type', 'replacement'),
+    ])
+    const bal = replacementBalance((work.data ?? []).map(numWork), (taken.data ?? []).map(numLeave))
+    if (days > bal.remaining) {
+      return Response.json({ error: `You have ${bal.remaining} replacement day${bal.remaining === 1 ? '' : 's'} available` }, { status: 400 })
+    }
+  }
 
   // Same person, overlapping dates, not rejected → refuse the duplicate.
   const { data: overlap } = await svc.from('hr_leaves').select('id')

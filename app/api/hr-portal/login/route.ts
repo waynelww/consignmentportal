@@ -6,13 +6,15 @@ import {
   MEMBER_COOKIE, MEMBER_MAX_AGE, PIN_PATTERN, cookieOptions, hasGate, hashSecret, memberToken, verifySecret,
 } from '@/lib/hr/portal-session'
 import { logHr } from '@/lib/hr/audit'
+import { isValidJoinDate } from '@/lib/hr/rules'
+import { todayMYT } from '@/lib/sales/last-sale'
 
 const ENDPOINT = 'hr-portal-pin'
 
 /**
- * POST /api/hr-portal/login { member_id, pin }
+ * POST /api/hr-portal/login { member_id, pin, join_date? }
  * If the person has no PIN yet (new, or reset by the admin), this PIN becomes
- * theirs. Otherwise it must match. 5 wrong PINs per person per 15 minutes.
+ * theirs; join_date is then required if none is on file yet. Otherwise it must match. 5 wrong PINs per person per 15 minutes.
  */
 export async function POST(request: NextRequest) {
   const db = await createServiceClient()
@@ -21,22 +23,29 @@ export async function POST(request: NextRequest) {
   const parsed = z.object({
     member_id: z.string().uuid(),
     pin: z.string().regex(PIN_PATTERN, 'PIN must be 4 to 6 digits'),
+    join_date: z.string().nullish(),
   }).safeParse(await request.json().catch(() => null))
   if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? 'Validation error' }, { status: 400 })
-  const { member_id, pin } = parsed.data
+  const { member_id, pin, join_date } = parsed.data
 
-  const { data: m } = await db.from('xocks_team_members').select('id, name, active, hr_pin_hash').eq('id', member_id).maybeSingle()
+  const { data: m } = await db.from('xocks_team_members').select('id, name, active, hr_pin_hash, join_date').eq('id', member_id).maybeSingle()
   if (!m?.active) return Response.json({ error: 'Name not found' }, { status: 404 })
   const actor = { type: 'staff' as const, memberId: m.id, label: m.name }
 
   let pinHash = m.hr_pin_hash as string | null
   if (!pinHash) {
+    const needsJoinDate = !m.join_date
+    if (needsJoinDate && !isValidJoinDate(join_date, todayMYT())) {
+      return Response.json({ error: 'Enter the date you joined Xocks' }, { status: 400 })
+    }
     pinHash = hashSecret(pin)
     // Only claim the PIN if it is still unset (two phones racing → one wins).
-    const { data: set } = await db.from('xocks_team_members').update({ hr_pin_hash: pinHash })
+    const { data: set } = await db.from('xocks_team_members')
+      .update({ hr_pin_hash: pinHash, ...(needsJoinDate ? { join_date } : {}) })
       .eq('id', m.id).is('hr_pin_hash', null).select('id')
     if (!set?.length) return Response.json({ error: 'A PIN was just set for this name. Enter that PIN.' }, { status: 409 })
     await logHr(db, request, actor, 'pin.created', { type: 'member', id: m.id })
+    if (needsJoinDate) await logHr(db, request, actor, 'join_date.set', { type: 'member', id: m.id }, { join_date })
   } else {
     // Keyed by person (in the email column) so guessing is capped across devices too.
     const key = `hr-member:${m.id}`

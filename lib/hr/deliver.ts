@@ -16,7 +16,7 @@ export async function sendHrReport(db: SupabaseClient, ym: string, to: string, i
       toReimburse: r.toReimburse,
       penalties: r.penalties,
       lateCount: r.lateCount,
-      leaveDays: r.leaveDays.annual + r.leaveDays.emergency + r.leaveDays.unpaid,
+      leaveDays: r.leaveDays.annual + r.leaveDays.emergency + r.leaveDays.unpaid + r.leaveDays.replacement,
       mcDays: r.leaveDays.mc,
     })),
     totals: report.totals,

@@ -1,14 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Loader2, Plus, Receipt, CalendarDays, Stethoscope, UserRound, Paperclip, X, Lock, LogOut, ArrowLeft } from 'lucide-react'
+import { Loader2, Plus, Receipt, CalendarDays, Stethoscope, UserRound, Paperclip, X, Lock, LogOut, ArrowLeft, Briefcase } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import {
   CLAIM_CATEGORIES, LEAVE_TYPES, countLeaveDays, daysLabel, rm,
   type ClaimCategory, type LeaveBalance, type LeaveType,
 } from '@/lib/hr/rules'
-import type { HrClaim, HrHoliday, HrLeave, HrMember, HrPenalty } from '@/lib/hr/types'
+import type { HrClaim, HrHoliday, HrLeave, HrMember, HrPenalty, HrRestDayWork } from '@/lib/hr/types'
 import {
   StatusBadge, FileLink, uploadHrFile, fmtDate, fmtRange, inputClass, labelClass, cardClass, primaryButton,
 } from '@/components/hr/shared'
@@ -21,7 +21,9 @@ import { todayMYT } from '@/lib/sales/last-sale'
 interface MyHr {
   member: HrMember
   year: number
-  balances: { annual: LeaveBalance; mc: LeaveBalance }
+  entitlement: { source: 'statutory' | 'custom'; years_of_service: number | null }
+  balances: { annual: LeaveBalance; mc: LeaveBalance; replacement: LeaveBalance }
+  work: HrRestDayWork[]
   claims: HrClaim[]
   leaves: HrLeave[]
   penalties: HrPenalty[]
@@ -118,7 +120,7 @@ function Unlock({ onDone }: { onDone: () => void }) {
   )
 }
 
-interface PickMember { id: string; name: string; has_pin: boolean }
+interface PickMember { id: string; name: string; has_pin: boolean; has_join_date: boolean }
 
 function PickAndPin({ onIn, onLocked }: { onIn: (m: { id: string; name: string }) => void; onLocked: () => void }) {
   const [members, setMembers] = useState<PickMember[] | null>(null)
@@ -191,17 +193,30 @@ function PinInput({ value, onChange, onEnter, autoFocus, placeholder }: {
   )
 }
 
+function JoinDateInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label className={labelClass}>When did you join Xocks?</label>
+      <input type="date" value={value} max={todayMYT()} min="1990-01-01" onChange={(e) => onChange(e.target.value)} className={inputClass} />
+      <p className="text-xs text-gray-400 mt-1">Your annual leave and MC are worked out from this, at least the legal minimum.</p>
+    </div>
+  )
+}
+
 function PinStep({ member, onBack, onIn }: { member: PickMember; onBack: () => void; onIn: (m: { id: string; name: string }) => void }) {
   const creating = !member.has_pin
+  const askJoinDate = creating && !member.has_join_date
   const [pin, setPin] = useState('')
   const [confirmPin, setConfirmPin] = useState('')
+  const [joinDate, setJoinDate] = useState('')
   const [busy, setBusy] = useState(false)
 
   async function submit() {
     if (!/^\d{4,6}$/.test(pin)) return toast.error('PIN must be 4 to 6 digits')
     if (creating && pin !== confirmPin) return toast.error('The two PINs don’t match')
+    if (askJoinDate && !joinDate) return toast.error('Enter the date you joined Xocks')
     setBusy(true)
-    const { ok, data } = await postJson('/api/hr-portal/login', { member_id: member.id, pin })
+    const { ok, data } = await postJson('/api/hr-portal/login', { member_id: member.id, pin, join_date: askJoinDate ? joinDate : null })
     setBusy(false)
     if (!ok) {
       setPin('')
@@ -224,7 +239,8 @@ function PinStep({ member, onBack, onIn }: { member: PickMember; onBack: () => v
         </p>
       </div>
       <PinInput value={pin} onChange={setPin} onEnter={creating ? undefined : submit} autoFocus />
-      {creating && <PinInput value={confirmPin} onChange={setConfirmPin} onEnter={submit} placeholder="Type it again" />}
+      {creating && <PinInput value={confirmPin} onChange={setConfirmPin} onEnter={askJoinDate ? undefined : submit} placeholder="Type it again" />}
+      {askJoinDate && <JoinDateInput value={joinDate} onChange={setJoinDate} />}
       <button onClick={submit} disabled={busy} className={cn(primaryButton, 'w-full')}>
         {busy && <Loader2 size={14} className="animate-spin" />} {creating ? 'Create PIN' : 'Sign in'}
       </button>
@@ -237,14 +253,16 @@ function AddName({ onBack, onIn }: { onBack: () => void; onIn: (m: { id: string;
   const [name, setName] = useState('')
   const [pin, setPin] = useState('')
   const [confirmPin, setConfirmPin] = useState('')
+  const [joinDate, setJoinDate] = useState('')
   const [busy, setBusy] = useState(false)
 
   async function submit() {
     if (!name.trim()) return toast.error('Enter your name')
     if (!/^\d{4,6}$/.test(pin)) return toast.error('PIN must be 4 to 6 digits')
     if (pin !== confirmPin) return toast.error('The two PINs don’t match')
+    if (!joinDate) return toast.error('Enter the date you joined Xocks')
     setBusy(true)
-    const { ok, data } = await postJson('/api/hr-portal/members', { name: name.trim(), pin })
+    const { ok, data } = await postJson('/api/hr-portal/members', { name: name.trim(), pin, join_date: joinDate })
     setBusy(false)
     if (!ok) return toast.error(String(data.error ?? 'Could not add your name'))
     toast.success(`Welcome, ${name.trim()}`)
@@ -267,8 +285,9 @@ function AddName({ onBack, onIn }: { onBack: () => void; onIn: (m: { id: string;
       </div>
       <div>
         <label className={labelClass}>Type the PIN again</label>
-        <PinInput value={confirmPin} onChange={setConfirmPin} onEnter={submit} placeholder="" />
+        <PinInput value={confirmPin} onChange={setConfirmPin} placeholder="" />
       </div>
+      <JoinDateInput value={joinDate} onChange={setJoinDate} />
       <button onClick={submit} disabled={busy} className={cn(primaryButton, 'w-full')}>
         {busy && <Loader2 size={14} className="animate-spin" />} Add me
       </button>
@@ -276,7 +295,7 @@ function AddName({ onBack, onIn }: { onBack: () => void; onIn: (m: { id: string;
   )
 }
 
-type Tab = 'claim' | 'leave' | 'mc'
+type Tab = 'claim' | 'leave' | 'mc' | 'work'
 
 function MyHrView({ name, onSignedOut }: { name: string; onSignedOut: () => void }) {
   const [data, setData] = useState<MyHr | null>(null)
@@ -295,7 +314,7 @@ function MyHrView({ name, onSignedOut }: { name: string; onSignedOut: () => void
 
   useEffect(() => { load() }, [load])
 
-  async function cancel(kind: 'claim' | 'leave', id: string) {
+  async function cancel(kind: 'claim' | 'leave' | 'work', id: string) {
     if (!confirm('Cancel this request?')) return
     const res = await fetch(`/api/hr-portal/requests/${kind}/${id}`, { method: 'DELETE' })
     const body = await res.json().catch(() => ({}))
@@ -319,11 +338,18 @@ function MyHrView({ name, onSignedOut }: { name: string; onSignedOut: () => void
         <div className="p-8 text-center text-sm text-gray-400">Loading…</div>
       ) : (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {!data.member.join_date && <JoinDatePrompt onDone={load} />}
+
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <StatCard
               label={`Annual leave left (${data.year})`}
               value={`${fmtDays(data.balances.annual.remaining)} / ${fmtDays(data.balances.annual.entitled)}`}
-              sub={data.balances.annual.pending ? `${daysLabel(data.balances.annual.pending)} pending` : undefined}
+              sub={[
+                data.balances.annual.pending ? `${daysLabel(data.balances.annual.pending)} pending` : null,
+                data.entitlement.source === 'statutory' && data.entitlement.years_of_service !== null
+                  ? `${data.entitlement.years_of_service} yr${data.entitlement.years_of_service === 1 ? '' : 's'} service`
+                  : null,
+              ].filter(Boolean).join(' · ') || undefined}
             />
             <StatCard
               label={`MC left (${data.year})`}
@@ -341,18 +367,32 @@ function MyHrView({ name, onSignedOut }: { name: string; onSignedOut: () => void
               sub={`${penaltiesThisMonth.filter((p) => p.kind === 'late').length} late`}
               warn={penaltiesThisMonth.length > 0}
             />
+            <StatCard
+              label="Replacement days left"
+              value={fmtDays(data.balances.replacement.remaining)}
+              sub={`${fmtDays(data.balances.replacement.entitled)} earned from rest-day work`}
+            />
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <ActionButton icon={Receipt} label="Submit claim" active={tab === 'claim'} onClick={() => setTab(tab === 'claim' ? null : 'claim')} />
             <ActionButton icon={CalendarDays} label="Apply leave" active={tab === 'leave'} onClick={() => setTab(tab === 'leave' ? null : 'leave')} />
             <ActionButton icon={Stethoscope} label="Submit MC" active={tab === 'mc'} onClick={() => setTab(tab === 'mc' ? null : 'mc')} />
+            <ActionButton icon={Briefcase} label="Worked rest day" active={tab === 'work'} onClick={() => setTab(tab === 'work' ? null : 'work')} />
           </div>
 
           {tab === 'claim' && <ClaimForm onDone={() => { setTab(null); load() }} />}
           {(tab === 'leave' || tab === 'mc') && (
-            <LeaveForm key={tab} mode={tab} workDays={data.work_days} holidays={holidaySet} onDone={() => { setTab(null); load() }} />
+            <LeaveForm
+              key={tab}
+              mode={tab}
+              workDays={data.work_days}
+              holidays={holidaySet}
+              replacementLeft={data.balances.replacement.remaining}
+              onDone={() => { setTab(null); load() }}
+            />
           )}
+          {tab === 'work' && <WorkForm onDone={() => { setTab(null); load() }} />}
 
           <Section title="My claims">
             {data.claims.length === 0 ? <Empty text="No claims yet." /> : (
@@ -387,6 +427,23 @@ function MyHrView({ name, onSignedOut }: { name: string; onSignedOut: () => void
               </ul>
             )}
           </Section>
+
+          {data.work.length > 0 && (
+            <Section title="My rest-day and holiday work">
+              <ul className="divide-y divide-gray-50">
+                {data.work.map((w) => (
+                  <li key={w.id} className="px-4 py-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900">{w.event_name} · earns {daysLabel(w.days_earned)}</p>
+                      <p className="text-xs text-gray-500">{fmtDate(w.work_date)} · {w.day_kind === 'public_holiday' ? 'Public holiday' : 'Rest day'}{w.note ? ` · ${w.note}` : ''}</p>
+                      {w.review_note && <p className="text-xs text-gray-500 mt-0.5">Note: {w.review_note}</p>}
+                    </div>
+                    <RowActions status={w.status} kind="work" id={w.id} hasFile={false} onCancel={cancel} />
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
 
           <div className="grid lg:grid-cols-2 gap-5">
             <Section title="My penalties">
@@ -484,10 +541,11 @@ function ClaimForm({ onDone }: { onDone: () => void }) {
   )
 }
 
-function LeaveForm({ mode, workDays, holidays, onDone }: {
+function LeaveForm({ mode, workDays, holidays, replacementLeft, onDone }: {
   mode: 'leave' | 'mc'
   workDays: number[]
   holidays: Set<string>
+  replacementLeft: number
   onDone: () => void
 }) {
   const [type, setType] = useState<LeaveType>(mode === 'mc' ? 'mc' : 'annual')
@@ -530,7 +588,7 @@ function LeaveForm({ mode, workDays, holidays, onDone }: {
         <div>
           <label className={labelClass}>Type</label>
           <div className="flex flex-wrap gap-2">
-            {(['annual', 'emergency', 'unpaid'] as const).map((t) => (
+            {(['annual', 'emergency', 'unpaid', ...(replacementLeft > 0 ? ['replacement' as const] : [])] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setType(t)}
@@ -544,6 +602,7 @@ function LeaveForm({ mode, workDays, holidays, onDone }: {
             ))}
           </div>
           {type === 'emergency' && <p className="text-xs text-gray-500 mt-1">Emergency leave is taken from your annual leave.</p>}
+          {type === 'replacement' && <p className="text-xs text-gray-500 mt-1">You have {daysLabel(replacementLeft)} of replacement leave from rest-day work.</p>}
         </div>
       )}
       <div className="grid sm:grid-cols-3 gap-3 items-end">
@@ -572,6 +631,78 @@ function LeaveForm({ mode, workDays, holidays, onDone }: {
         {saving && <Loader2 size={14} className="animate-spin" />} {mode === 'mc' ? 'Submit MC' : 'Apply'}
       </button>
     </FormCard>
+  )
+}
+
+function WorkForm({ onDone }: { onDone: () => void }) {
+  const [date, setDate] = useState(todayMYT())
+  const [eventName, setEventName] = useState('')
+  const [halfDay, setHalfDay] = useState(false)
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function submit() {
+    if (!eventName.trim()) return toast.error('Say which event or job')
+    setSaving(true)
+    const { ok, data } = await postJson('/api/hr-portal/requests', {
+      kind: 'work', work_date: date, half_day: halfDay, event_name: eventName.trim(), note: note.trim() || null,
+    })
+    setSaving(false)
+    if (!ok) return toast.error(String(data.error ?? 'Could not submit'))
+    toast.success('Logged. Once approved it becomes replacement leave.')
+    onDone()
+  }
+
+  return (
+    <FormCard title="Worked on a rest day or public holiday">
+      <p className="text-xs text-gray-500">
+        Log a weekend or public holiday you worked (booth event, store run). Once approved you earn a replacement day off.
+      </p>
+      <div className="grid sm:grid-cols-3 gap-3 items-end">
+        <div>
+          <label className={labelClass}>Date worked</label>
+          <input type="date" value={date} max={todayMYT()} onChange={(e) => setDate(e.target.value)} className={inputClass} />
+        </div>
+        <div className="sm:col-span-2">
+          <label className={labelClass}>Event / job</label>
+          <input value={eventName} onChange={(e) => setEventName(e.target.value)} maxLength={120} placeholder="Mid Valley booth" className={inputClass} />
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-sm text-gray-700">
+        <input type="checkbox" checked={halfDay} onChange={(e) => setHalfDay(e.target.checked)} />
+        Half day only (earns half a day)
+      </label>
+      <div>
+        <label className={labelClass}>Note (optional)</label>
+        <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} className={inputClass} />
+      </div>
+      <button onClick={submit} disabled={saving} className={cn(primaryButton, 'w-full sm:w-auto')}>
+        {saving && <Loader2 size={14} className="animate-spin" />} Log work
+      </button>
+    </FormCard>
+  )
+}
+
+function JoinDatePrompt({ onDone }: { onDone: () => void }) {
+  const [joinDate, setJoinDate] = useState('')
+  const [saving, setSaving] = useState(false)
+  async function save() {
+    if (!joinDate) return toast.error('Enter the date you joined Xocks')
+    setSaving(true)
+    const { ok, data } = await postJson('/api/hr-portal/join-date', { join_date: joinDate })
+    setSaving(false)
+    if (!ok) return toast.error(String(data.error ?? 'Could not save'))
+    toast.success('Saved. Your leave is now worked out from your join date.')
+    onDone()
+  }
+  return (
+    <div className={cn(cardClass, 'p-4 space-y-3 border-[#FFD700]')}>
+      <h2 className="text-sm font-semibold text-gray-900">One quick question</h2>
+      <JoinDateInput value={joinDate} onChange={setJoinDate} />
+      <button onClick={save} disabled={saving} className={primaryButton}>
+        {saving && <Loader2 size={14} className="animate-spin" />} Save
+      </button>
+    </div>
   )
 }
 
@@ -606,16 +737,16 @@ function FilePicker({ label, file, onChange }: { label: string; file: File | nul
 
 function RowActions({ status, kind, id, hasFile, onCancel }: {
   status: string
-  kind: 'claim' | 'leave'
+  kind: 'claim' | 'leave' | 'work'
   id: string
   hasFile: boolean
-  onCancel: (kind: 'claim' | 'leave', id: string) => void
+  onCancel: (kind: 'claim' | 'leave' | 'work', id: string) => void
 }) {
   return (
     <div className="flex flex-col items-end gap-1 flex-shrink-0">
       <StatusBadge status={status} />
       <div className="flex gap-3">
-        {hasFile && <FileLink kind={kind} id={id} base={FILE_BASE} />}
+        {hasFile && kind !== 'work' && <FileLink kind={kind} id={id} base={FILE_BASE} />}
         {status === 'pending' && (
           <button onClick={() => onCancel(kind, id)} className="text-xs font-medium text-gray-500 hover:text-red-600">Cancel</button>
         )}

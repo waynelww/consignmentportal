@@ -4,7 +4,7 @@ import { authoriseHrAdmin } from '@/lib/hr/access'
 import { loadHrSettings } from '@/lib/hr/settings'
 import { monthRange, parseYearMonth } from '@/lib/monthly-report/months'
 import {
-  CLAIM_COLUMNS, LEAVE_COLUMNS, MEMBER_COLUMNS, PENALTY_COLUMNS, numClaim, numLeave, numMember,
+  CLAIM_COLUMNS, LEAVE_COLUMNS, MEMBER_COLUMNS, PENALTY_COLUMNS, WORK_COLUMNS, numClaim, numLeave, numMember, numWork,
 } from '@/lib/hr/types'
 import { todayMYT } from '@/lib/sales/last-sale'
 
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   const { start, end } = monthRange(ym)
 
   const supabase = await createClient()
-  const [members, pendingClaims, pendingLeaves, claims, leaves, penalties, holidays, settings] = await Promise.all([
+  const [members, pendingClaims, pendingLeaves, claims, leaves, penalties, holidays, settings, pendingWork, work] = await Promise.all([
     supabase.from('xocks_team_members').select(`${MEMBER_COLUMNS}, hr_pin_hash`).order('name'),
     supabase.from('hr_claims').select(CLAIM_COLUMNS).eq('status', 'pending').order('created_at'),
     supabase.from('hr_leaves').select(LEAVE_COLUMNS).eq('status', 'pending').order('created_at'),
@@ -31,8 +31,10 @@ export async function GET(request: NextRequest) {
     supabase.from('hr_penalties').select(PENALTY_COLUMNS).gte('penalty_date', start).lte('penalty_date', end).order('penalty_date', { ascending: false }),
     supabase.from('hr_public_holidays').select('id, holiday_date, name').gte('holiday_date', `${todayMYT().slice(0, 4)}-01-01`).order('holiday_date'),
     loadHrSettings(supabase),
+    supabase.from('hr_rest_day_work').select(WORK_COLUMNS).eq('status', 'pending').order('created_at'),
+    supabase.from('hr_rest_day_work').select(WORK_COLUMNS).gte('work_date', start).lte('work_date', end).order('work_date', { ascending: false }),
   ])
-  const firstError = [members, pendingClaims, pendingLeaves, claims, leaves, penalties, holidays].find((r) => r.error)?.error
+  const firstError = [members, pendingClaims, pendingLeaves, claims, leaves, penalties, holidays, pendingWork, work].find((r) => r.error)?.error
   if (firstError) return Response.json({ error: firstError.message }, { status: 500 })
 
   return Response.json({
@@ -44,6 +46,8 @@ export async function GET(request: NextRequest) {
     claims: (claims.data ?? []).map(numClaim),
     leaves: (leaves.data ?? []).map(numLeave),
     penalties: (penalties.data ?? []).map((p) => ({ ...p, amount: Number(p.amount) })),
+    pending_work: (pendingWork.data ?? []).map(numWork),
+    work: (work.data ?? []).map(numWork),
     holidays: holidays.data ?? [],
     settings,
   })
