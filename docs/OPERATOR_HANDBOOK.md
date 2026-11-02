@@ -353,6 +353,30 @@ of consignment follow-ups. Default month is last month (Malaysia time).
 - APIs: `GET /api/followups?month=YYYY-MM`, `POST /api/followups/entries`,
   `POST /api/followups/extra-stores`, `PATCH /api/followups/extra-stores/:id`.
 
+## Barcode scanning (store app + admin)
+
+- **Record a Sale** (`/store/record-sale`): the **Scan** button opens the rear
+  camera (iPhone Safari and Android Chrome, via ZXing). Each scan adds 1 pair of
+  that product, only if the store carries it in stock. Scanning the same pair
+  again adds another. Unknown codes and products the store does not carry are
+  reported, and the staff member picks the product manually. The staff picker
+  rule is unchanged: Confirm Order still asks who keyed in the sale.
+- **Matching** lives only in `lib/barcode/normalize.ts`. A 13-digit code starting
+  with 0 is the same as the 12-digit UPC-A (`0726529949100` = `726529949100`).
+  Pinned by `npx tsx scripts/test-barcode.ts`.
+- **Admin → Products**: the **Missing barcode** filter lists products with no
+  barcode. **Scan to set barcode** (row icon, or the button in the product form)
+  saves the code straight after one read. A code another product already has
+  shows a warning; "Save anyway" is recorded.
+- Barcodes are no longer typed in the product form. Every change goes through
+  `POST /api/products/[productId]/barcode` and the `set_product_barcode()`
+  function, which writes `product_barcode_log` (who, when, old and new code,
+  any override) in the same transaction.
+- Migration `supabase/migrations/20261104_product_barcode_log.sql` creates the
+  log and the function. It must be applied before "Scan to set barcode" works.
+- Camera access needs HTTPS (production is fine). If the camera is blocked, the
+  scanner offers "Type code instead".
+
 ## Code map (the non-obvious parts)
 
 - `lib/gang/` — tickets (`draw_month`, MAX+1), first-timer codes, phone

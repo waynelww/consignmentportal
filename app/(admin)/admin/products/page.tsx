@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Plus, Edit, X, AlertTriangle, Upload, RefreshCw, Loader2 } from 'lucide-react'
+import { Plus, Edit, X, AlertTriangle, Upload, RefreshCw, Loader2, ScanLine } from 'lucide-react'
 import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -10,7 +10,11 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, PRODUCT_CATEGORY_LABELS, cn } from '@/lib/utils'
 import type { Product, ProductCategory } from '@/types'
 import { toast } from 'sonner'
+import BarcodeScanner, { primeScannerAudio } from '@/components/scanner/BarcodeScanner'
+import { normalizeBarcode } from '@/lib/barcode/normalize'
 
+// Barcodes are not in this form. They are set only with "Scan to set barcode",
+// so every change is saved through the API and logged (who and when).
 const productSchema = z.object({
   sku: z.string().min(2, 'SKU is required'),
   name: z.string().min(2, 'Name is required'),
@@ -18,7 +22,6 @@ const productSchema = z.object({
   color: z.string().min(1, 'Color is required'),
   selling_price: z.number().min(0.01, 'Selling price required'),
   cost_price: z.number().min(0.01, 'Cost price required'),
-  barcode: z.string().optional(),
   is_core_sku: z.boolean(),
   is_active: z.boolean(),
   description: z.string().optional(),
@@ -43,6 +46,17 @@ export default function ProductsPage() {
   const [confirmDeactivate, setConfirmDeactivate] = useState<Product | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncingInventory, setSyncingInventory] = useState(false)
+
+  // Barcodes
+  const [missingOnly, setMissingOnly] = useState(false)
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [scanTarget, setScanTarget] = useState<Product | null>(null)
+  const [barcodeConflict, setBarcodeConflict] = useState<{
+    product: Product
+    code: string
+    conflict: { id: string; name: string; sku: string }
+  } | null>(null)
+  const [savingBarcode, setSavingBarcode] = useState(false)
 
   async function syncShopifyImages() {
     if (syncing) return
@@ -125,6 +139,51 @@ export default function ProductsPage() {
     fetchProducts()
   }, [fetchProducts])
 
+  /**
+   * Saves a barcode through the API, which checks for duplicates and writes the
+   * log row. A duplicate returns 'conflict' and opens the confirm dialog.
+   */
+  async function saveBarcode(product: Product, code: string, force = false): Promise<'saved' | 'unchanged' | 'conflict' | 'error'> {
+    setSavingBarcode(true)
+    try {
+      const res = await fetch(`/api/products/${product.id}/barcode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ barcode: code, force }),
+      })
+      const data = await res.json().catch(() => null)
+      if (res.status === 409 && data?.conflict) {
+        setBarcodeConflict({ product, code, conflict: data.conflict })
+        return 'conflict'
+      }
+      if (!res.ok || !data?.ok) {
+        toast.error(data?.error ?? `Could not save barcode (HTTP ${res.status})`)
+        return 'error'
+      }
+      if (data.unchanged) {
+        toast.message(`${product.name} already has this barcode`)
+      } else if (data.overrode) {
+        toast.success(`Barcode saved on ${product.name}. ${data.overrode.name} also has this code now.`, { duration: 6000 })
+      } else {
+        toast.success(`Barcode saved on ${product.name}`)
+      }
+      setEditProduct((prev) => (prev && prev.id === product.id ? { ...prev, barcode: data.product.barcode } : prev))
+      fetchProducts()
+      return data.unchanged ? 'unchanged' : 'saved'
+    } catch (e) {
+      toast.error(`Network error: ${e instanceof Error ? e.message : 'Unknown'}`)
+      return 'error'
+    } finally {
+      setSavingBarcode(false)
+    }
+  }
+
+  function startScan(product: Product) {
+    primeScannerAudio()
+    setScanTarget(product)
+    setScannerOpen(true)
+  }
+
   function openAdd() {
     form.reset({ is_core_sku: false, is_active: true, selling_price: 0, cost_price: 0 })
     setEditProduct(null)
@@ -139,7 +198,6 @@ export default function ProductsPage() {
       color: product.color,
       selling_price: product.selling_price,
       cost_price: product.cost_price,
-      barcode: product.barcode || '',
       is_core_sku: product.is_core_sku,
       is_active: product.is_active,
       description: product.description || '',
@@ -201,9 +259,26 @@ export default function ProductsPage() {
     else fetchProducts()
   }
 
+  const missingCount = products.filter((p) => normalizeBarcode(p.barcode) === null).length
+  const visibleProducts = missingOnly ? products.filter((p) => normalizeBarcode(p.barcode) === null) : products
+
   return (
     <div className="space-y-5">
       <div className="flex justify-end gap-2 flex-wrap">
+        <button
+          type="button"
+          aria-pressed={missingOnly}
+          onClick={() => setMissingOnly((v) => !v)}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 border rounded-lg text-sm transition-colors',
+            missingOnly
+              ? 'bg-[#0A0A0A] border-[#0A0A0A] text-[#FFD700]'
+              : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50',
+          )}
+        >
+          <ScanLine size={16} />
+          {missingOnly ? 'Showing missing barcodes' : 'Missing barcode'} ({missingCount})
+        </button>
         <button
           onClick={syncShopifyInventory}
           disabled={syncingInventory}
@@ -268,7 +343,7 @@ export default function ProductsPage() {
                       ))}
                     </tr>
                   ))
-                : products.map((p) => (
+                : visibleProducts.map((p) => (
                     <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50/50">
                       <td className="px-4 py-3 font-mono text-xs text-gray-500">{p.sku}</td>
                       <td className="px-4 py-3 font-medium text-gray-900">{p.name}</td>
@@ -320,7 +395,15 @@ export default function ProductsPage() {
                         </button>
                       </td>
                       <td className="px-4 py-3 text-right text-gray-600">{p.stores_count}</td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <button
+                          onClick={() => startScan(p)}
+                          title="Scan to set barcode"
+                          aria-label={`Scan to set barcode for ${p.name}`}
+                          className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                        >
+                          <ScanLine size={15} />
+                        </button>
                         <button
                           onClick={() => openEdit(p)}
                           className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
@@ -334,6 +417,13 @@ export default function ProductsPage() {
                 <tr>
                   <td colSpan={11} className="px-4 py-12 text-center text-gray-400 text-sm">
                     No products yet
+                  </td>
+                </tr>
+              )}
+              {!loading && products.length > 0 && visibleProducts.length === 0 && (
+                <tr>
+                  <td colSpan={11} className="px-4 py-12 text-center text-gray-400 text-sm">
+                    No products are missing a barcode.
                   </td>
                 </tr>
               )}
@@ -424,10 +514,30 @@ export default function ProductsPage() {
 
               <div>
                 <label className="text-xs font-medium text-gray-600 block mb-1">Barcode</label>
-                <input
-                  {...form.register('barcode')}
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]"
-                />
+                {editProduct ? (
+                  <div className="flex gap-2">
+                    <div className="flex-1 min-w-0 px-3 py-2 text-sm font-mono border border-gray-200 rounded-lg bg-gray-50 truncate">
+                      {editProduct.barcode ? (
+                        <span className="text-gray-800">{editProduct.barcode}</span>
+                      ) : (
+                        <span className="font-sans text-amber-700">Missing</span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => startScan(editProduct)}
+                      disabled={savingBarcode}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-[#0A0A0A] text-[#FFD700] rounded-lg text-sm font-semibold shrink-0 disabled:opacity-50"
+                    >
+                      <ScanLine size={15} />
+                      Scan to set barcode
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500">
+                    Save the product first, then use Scan to set barcode on its row.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -466,6 +576,60 @@ export default function ProductsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Scan to set barcode: one read, saved straight away */}
+      <BarcodeScanner
+        open={scannerOpen}
+        mode="single"
+        title={scanTarget ? `Scan barcode for ${scanTarget.name}` : 'Scan barcode'}
+        hint="Point the camera at the barcode. It is saved as soon as it is read."
+        onClose={() => setScannerOpen(false)}
+        onDetect={(code) => {
+          if (scanTarget) void saveBarcode(scanTarget, code)
+        }}
+      />
+
+      {/* Duplicate barcode warning */}
+      {barcodeConflict && (
+        <div className="fixed inset-0 bg-black/60 z-[95] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-amber-100 rounded-full">
+                <AlertTriangle size={20} className="text-amber-600" />
+              </div>
+              <h3 className="text-base font-semibold text-gray-900">Barcode already in use</h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-2">
+              <span className="font-mono">{barcodeConflict.code}</span> is already saved on{' '}
+              <strong>{barcodeConflict.conflict.name}</strong> ({barcodeConflict.conflict.sku}).
+            </p>
+            <p className="text-sm text-gray-600 mb-5">
+              Save it on <strong>{barcodeConflict.product.name}</strong> as well? Both products will then show this
+              code. Your override is logged with your name and the time.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setBarcodeConflict(null)}
+                disabled={savingBarcode}
+                className="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const pending = barcodeConflict
+                  setBarcodeConflict(null)
+                  void saveBarcode(pending.product, pending.code, true)
+                }}
+                disabled={savingBarcode}
+                className="flex-1 py-2.5 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 transition-colors disabled:opacity-50"
+              >
+                Save anyway
+              </button>
+            </div>
           </div>
         </div>
       )}
