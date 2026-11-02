@@ -1,21 +1,26 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { X, ShoppingCart, CheckCircle, Loader2, Search, Minus, Plus, Trash2, Tag, ChevronRight } from 'lucide-react'
+import { X, ShoppingCart, CheckCircle, Loader2, Search, Minus, Plus, Trash2, Tag, ChevronRight, ScanLine } from 'lucide-react'
 import { toast } from 'sonner'
 import Image from 'next/image'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
-import type { StoreInventory, Promo } from '@/types'
+import type { StoreInventory, Promo, Product } from '@/types'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/components/store/StoreContext'
 import { StaffSheet, useSelectedStaffId, useStoreStaff } from '@/components/store/StaffPicker'
+import BarcodeScanner, { primeScannerAudio, type ScanFeedback } from '@/components/scanner/BarcodeScanner'
+import { findByBarcode } from '@/lib/barcode/normalize'
 
 interface CartItem {
   inventoryItem: StoreInventory
   quantity: number
 }
+
+/** Catalogue row used only to tell "unknown barcode" from "not stocked here". */
+type CatalogueProduct = Pick<Product, 'id' | 'name' | 'sku' | 'barcode' | 'image_url'>
 
 type PageStep = 'select' | 'success'
 
@@ -39,6 +44,10 @@ export default function RecordSalePage() {
 
   const [search, setSearch] = useState('')
 
+  // Barcode scanning
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [catalogue, setCatalogue] = useState<CatalogueProduct[]>([])
+
   // Who is keying in this sale — remembered on this phone until changed
   const staffState = useStoreStaff(storeId)
   const selectedStaffId = useSelectedStaffId(storeId)
@@ -50,15 +59,22 @@ export default function RecordSalePage() {
     if (!storeId) return
     async function load() {
       const supabase = createClient()
-      const [invRes, promosRes] = await Promise.all([
+      const [invRes, promosRes, catRes] = await Promise.all([
         supabase
           .from('store_inventory')
           .select('*, product:products(*)')
           .eq('store_id', storeId!)
           .order('quantity_on_hand', { ascending: false }),
         fetch(`/api/promos?store_id=${storeId}`).then((r) => r.json()).catch(() => ({ promos: [] })),
+        // Whole catalogue's barcodes, so an unknown code and a code for a product
+        // this store does not carry can be told apart.
+        supabase
+          .from('products')
+          .select('id, name, sku, barcode, image_url')
+          .not('barcode', 'is', null),
       ])
       setInventory((invRes.data as StoreInventory[]) ?? [])
+      setCatalogue((catRes.data as CatalogueProduct[]) ?? [])
       const allPromos = (promosRes.promos ?? []) as Promo[]
       // Show only active and non-expired
       setPromos(
@@ -201,6 +217,54 @@ export default function RecordSalePage() {
     setCart((prev) => prev.filter((c) => c.inventoryItem.product_id !== productId))
   }
 
+  /**
+   * One scan = one pair of that product, only if this store carries it.
+   * Scanning the same pair again adds another pair. Unknown codes and products
+   * the store does not carry are reported, and the cashier picks manually.
+   */
+  function handleScan(code: string): ScanFeedback {
+    const hit = findByBarcode(
+      inventory.map((item) => ({ item, barcode: item.product?.barcode ?? null })),
+      code,
+    )?.item
+
+    if (hit) {
+      const name = hit.product?.name ?? hit.product?.sku ?? 'Product'
+      const imageUrl = hit.product?.image_url ?? null
+      const inCart = cart.find((c) => c.inventoryItem.product_id === hit.product_id)?.quantity ?? 0
+
+      if (hit.quantity_on_hand <= 0) {
+        return { tone: 'warn', title: name, detail: 'Out of stock at this store. Not added.', imageUrl }
+      }
+      if (inCart >= hit.quantity_on_hand) {
+        return {
+          tone: 'warn',
+          title: name,
+          detail: `All ${hit.quantity_on_hand} in stock are already in this sale.`,
+          imageUrl,
+        }
+      }
+      addToCart(hit)
+      return { tone: 'ok', title: name, detail: `Added. ${inCart + 1} in this sale.`, imageUrl }
+    }
+
+    const elsewhere = findByBarcode(catalogue, code)
+    if (elsewhere) {
+      return {
+        tone: 'warn',
+        title: elsewhere.name,
+        detail: `This store does not carry ${elsewhere.sku}. Close the scanner and pick the product manually if it is a mistake.`,
+        imageUrl: elsewhere.image_url,
+      }
+    }
+
+    return {
+      tone: 'error',
+      title: 'Barcode not recognised',
+      detail: `${code} is not in the product list. Close the scanner and pick the product manually.`,
+    }
+  }
+
   async function confirmOrder() {
     if (!storeId || cart.length === 0) return
     if (!selectedStaff) {
@@ -295,25 +359,46 @@ export default function RecordSalePage() {
         </button>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name or SKU…"
-          className="w-full h-12 pl-9 pr-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#FFD700] bg-white"
-        />
-        {search && (
-          <button
-            onClick={() => setSearch('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-          >
-            <X size={14} />
-          </button>
-        )}
+      {/* Search + scan */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name or SKU…"
+            className="w-full h-12 pl-9 pr-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#FFD700] bg-white"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            primeScannerAudio()
+            setScannerOpen(true)
+          }}
+          className="h-12 px-4 rounded-xl bg-[#0A0A0A] text-[#FFD700] font-bold text-sm flex items-center gap-2 shrink-0 active:scale-95 transition-transform"
+        >
+          <ScanLine size={18} />
+          Scan
+        </button>
       </div>
+
+      <BarcodeScanner
+        open={scannerOpen}
+        mode="continuous"
+        title="Scan to add to sale"
+        onClose={() => setScannerOpen(false)}
+        onDetect={handleScan}
+      />
 
       {/* Product grid — 3 columns */}
       {loadingInventory ? (

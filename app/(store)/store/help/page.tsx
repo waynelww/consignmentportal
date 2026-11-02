@@ -35,7 +35,7 @@ const SECTIONS: GuideSection[] = [
       {
         title: 'Tap each product the customer is buying',
         body: 'Each tap adds 1 pair to your cart. Tap the same product twice for 2 pairs. A yellow number badge appears on the product card showing how many are in the cart.',
-        tip: 'You can also tap the Scan button (top left of the grid) to scan a barcode.',
+        tip: 'Or tap the black Scan button beside the search box and point the camera at the barcode. Each scan adds 1 pair; scan the same pair again to add another. If a barcode is not recognised, close the scanner and tap the product instead.',
       },
       {
         title: 'Open the cart',
