@@ -430,7 +430,14 @@ account for HR; they use the **staff link `/hr`**.
   (OAuth Web client, redirect URI `https://consignmentportal.vercel.app/api/hr/drive/callback`,
   consent screen **published to Production** or Google expires the token in 7 days),
   then "Connect Google Drive". Scope `drive.file` = only files the app made.
+  Google's Allow screen has a tickbox per permission: if the Drive box is left
+  unticked the callback refuses the connection (`drive-box-not-ticked`).
+  "Test" (next to Disconnect) writes a note into the root folder to prove the
+  connection works end to end.
   Refresh token, account email and root folder id live in `hr_secrets`.
+  **Status (2 Nov 2026): set up and connected** — Google Cloud project
+  `xocks-hr` under waynelww2000@gmail.com (consent screen "Xocks HR", In
+  production, client "XCMS"), folder My Drive / Xocks HR Receipts.
 - Migrations: `supabase/migrations/20261102_hr_module.sql`, then
   `20261105_hr_drive_secrets.sql` (hr_secrets, moves the link password hash
   out of `settings`, Drive columns).
