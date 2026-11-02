@@ -1,0 +1,40 @@
+name: Monthly HR report email
+
+# Emails last month's HR report (claims, penalties, leave, MC + Excel) at
+# 10:00 Malaysia time on the 1st. Recipient = the hr_report_email setting
+# (HR Admin → Settings); the endpoint refuses to send if it is blank.
+#
+# Requires repo secret: CRON_SECRET (same value as the Vercel env var).
+# GitHub emails the repo owner automatically when a run fails.
+
+on:
+  schedule:
+    # 02:00 UTC = 10:00 Malaysia time, 1st of the month
+    - cron: '0 2 1 * *'
+  workflow_dispatch: {}
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Call hr-report endpoint (3 attempts)
+        run: |
+          set -u
+          URL="https://consignmentportal.vercel.app/api/cron/hr-report"
+          for attempt in 1 2 3; do
+            echo "Attempt ${attempt}…"
+            code=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              --max-time 90 "$URL" || echo "000")
+            echo "HTTP ${code}"
+            cat /tmp/resp.json || true
+            echo ""
+            if [ "$code" = "200" ]; then
+              echo "✓ HR report sent."
+              exit 0
+            fi
+            sleep 90
+          done
+          echo "✗ All attempts failed — check Vercel logs for /api/cron/hr-report."
+          exit 1
