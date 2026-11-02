@@ -329,12 +329,13 @@ of consignment follow-ups. Default month is last month (Malaysia time).
 - **Rows:** every active, non-test XCMS store, plus every "extra store" (a store
   that is not in XCMS, added with **+ Add store**). **Hide** keeps a store's past
   ticks; **Restore** brings it back from the bottom of the page.
-- **XCMS boxes are automatic and cannot be ticked by hand**, only noted:
-  Sales Report = a sale keyed in that month (`sales.sale_date`); Invoice = a
-  `commission_periods` row for that month; Payment = that invoice is `paid`
-  (a receipt that is uploaded but not paid shows "receipt uploaded, awaiting
-  review"; a rejected one shows "receipt rejected"); Restock = a restock DO with
-  `dispatch_date` in that month and status dispatched, delivered or acknowledged.
+- **Sales Report, Invoice and Payment are automatic for XCMS stores** and cannot
+  be ticked by hand, only noted: Sales Report = a sale keyed in that month
+  (`sales.sale_date`); Invoice = a `commission_periods` row for that month;
+  Payment = that invoice is `paid` (a receipt that is uploaded but not paid shows
+  "receipt uploaded, awaiting review"; a rejected one shows "receipt rejected").
+- **Restock is ticked by hand for every store**, XCMS stores included. It is no
+  longer read from delivery orders. Each tick is recorded like an extra-store tick.
 - **Extra store boxes are ticked by hand.** Every tick, untick and note is a row
   in `followup_log` with who did it (the "Working as" name, shared with
   Onboarding) and when. The log is append-only and each row is a snapshot of the
@@ -347,6 +348,8 @@ of consignment follow-ups. Default month is last month (Malaysia time).
 - Migration `supabase/migrations/20261102_followups.sql` creates
   `followup_extra_stores`, `followup_extra_store_history` and `followup_log`.
   It must be applied before the page works.
+- Migration `supabase/migrations/20261103_followup_restock_manual.sql` widens the
+  `followup_log` shape rule so XCMS restock rows can be ticked. Apply after `20261102`.
 - APIs: `GET /api/followups?month=YYYY-MM`, `POST /api/followups/entries`,
   `POST /api/followups/extra-stores`, `PATCH /api/followups/extra-stores/:id`.
 

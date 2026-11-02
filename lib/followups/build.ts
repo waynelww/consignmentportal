@@ -17,9 +17,6 @@ export const FOLLOWUP_ITEM_LABELS: Record<FollowupItem, string> = {
   restock: 'Restock',
 }
 
-/** Delivery order statuses that mean the restock left the warehouse. */
-export const RESTOCK_DISPATCHED_STATUSES = ['dispatched', 'delivered', 'acknowledged'] as const
-
 const MYT_TIME_ZONE = 'Asia/Kuala_Lumpur'
 
 /** YYYY-MM-DD in Malaysia time for an ISO timestamp. */
@@ -72,12 +69,6 @@ export interface PeriodInput {
 export interface ReceiptInput {
   commission_period_id: string
   status: 'submitted' | 'confirmed' | 'rejected'
-}
-
-export interface RestockInput {
-  store_id: string
-  /** YYYY-MM-DD */
-  dispatch_date: string
 }
 
 export interface LogInput {
@@ -151,7 +142,6 @@ export interface BuildInput {
   sales: SaleInput[]
   periods: PeriodInput[]
   receipts: ReceiptInput[]
-  restocks: RestockInput[]
   log: LogInput[]
 }
 
@@ -199,11 +189,6 @@ export function autoPayment(
     return { done: false, auto_date: null, auto_detail: 'receipt confirmed, invoice not marked paid' }
   }
   return { done: false, auto_date: null, auto_detail: 'Not paid' }
-}
-
-/** Restock: a restock delivery order was dispatched to the store in the month. */
-export function autoRestock(dispatchDates: string[]): Pick<CellView, 'done' | 'auto_date' | 'auto_detail'> {
-  return { done: dispatchDates.length > 0, auto_date: earliest(dispatchDates), auto_detail: null }
 }
 
 // ── Manual cells ─────────────────────────────────────────────────────────
@@ -286,7 +271,6 @@ export function buildFollowupMonth(input: BuildInput): FollowupMonthView {
   const cellLog = (key: string, item: FollowupItem) => logs.get(`${key}|${item}`) ?? []
 
   const salesByStore = groupBy(input.sales, (s) => s.store_id, (s) => s.sale_date)
-  const restockByStore = groupBy(input.restocks, (r) => r.store_id, (r) => r.dispatch_date)
   const periodByStore = new Map(input.periods.map((p) => [p.store_id, p]))
   const receiptByPeriod = new Map(input.receipts.map((r) => [r.commission_period_id, r]))
 
@@ -308,7 +292,8 @@ export function buildFollowupMonth(input: BuildInput): FollowupMonthView {
           sales_report: autoCell('sales_report', autoSalesReport(salesByStore.get(s.id) ?? []), cellLog(key, 'sales_report')),
           invoice: autoCell('invoice', autoInvoice(period), cellLog(key, 'invoice')),
           payment: autoCell('payment', autoPayment(period, receipt), cellLog(key, 'payment')),
-          restock: autoCell('restock', autoRestock(restockByStore.get(s.id) ?? []), cellLog(key, 'restock')),
+          // Restock is hand-ticked for XCMS stores too (see manualCell).
+          restock: manualCell('restock', cellLog(key, 'restock')),
         },
       })
     })

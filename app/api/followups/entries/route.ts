@@ -63,7 +63,8 @@ export async function POST(request: NextRequest) {
   }
 
   const plan = planEntry({
-    auto: target.kind === 'store',
+    // Restock is hand-ticked for every store; the other three are automatic for XCMS stores.
+    auto: target.kind === 'store' && v.item !== 'restock',
     prev,
     request: { ticked: v.ticked, note: v.note },
   })
