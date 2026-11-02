@@ -4,7 +4,8 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { authoriseHrAdmin } from '@/lib/hr/access'
 import { logHr } from '@/lib/hr/audit'
 import { HR_SETTING_KEYS } from '@/lib/hr/settings'
-import { PORTAL_PASSWORD_KEY, hashSecret } from '@/lib/hr/portal-session'
+import { hashSecret } from '@/lib/hr/portal-session'
+import { HR_SECRET_KEYS, setHrSecret } from '@/lib/hr/secrets'
 
 const SettingsSchema = z.object({
   email: z.string().trim().email('Enter a valid email').optional(),
@@ -33,12 +34,17 @@ export async function PUT(request: NextRequest) {
   if (s.email !== undefined) upserts.push({ key: HR_SETTING_KEYS.email, value: s.email })
   if (s.late_penalty !== undefined) upserts.push({ key: HR_SETTING_KEYS.latePenalty, value: String(s.late_penalty) })
   if (s.work_days !== undefined) upserts.push({ key: HR_SETTING_KEYS.workDays, value: [...new Set(s.work_days)].sort().join(',') })
-  if (s.portal_password !== undefined) upserts.push({ key: PORTAL_PASSWORD_KEY, value: hashSecret(s.portal_password) })
-  if (upserts.length === 0) return Response.json({ error: 'Nothing to update' }, { status: 400 })
+  if (upserts.length === 0 && s.portal_password === undefined) return Response.json({ error: 'Nothing to update' }, { status: 400 })
 
   const svc = await createServiceClient()
-  const { error } = await svc.from('settings').upsert(upserts, { onConflict: 'key' })
-  if (error) return Response.json({ error: 'Save failed', details: error.message }, { status: 500 })
+  if (upserts.length > 0) {
+    const { error } = await svc.from('settings').upsert(upserts, { onConflict: 'key' })
+    if (error) return Response.json({ error: 'Save failed', details: error.message }, { status: 500 })
+  }
+  if (s.portal_password !== undefined) {
+    // Server-only table: the hash never sits where store accounts could read it.
+    await setHrSecret(svc, HR_SECRET_KEYS.portalPasswordHash, hashSecret(s.portal_password))
+  }
 
   const actor = { type: 'admin' as const, label: auth.label }
   if (s.portal_password !== undefined) await logHr(svc, request, actor, 'link_password.changed')

@@ -26,4 +26,7 @@ export const AUDIT_ACTIONS: Record<string, string> = {
   'settings.changed': 'Changed HR settings',
   'link_password.changed': 'Changed the HR link password',
   'report.sent': 'Sent the HR report',
+  'drive.connected': 'Connected Google Drive',
+  'drive.disconnected': 'Disconnected Google Drive',
+  'drive.copied': 'Copied files to Google Drive',
 }

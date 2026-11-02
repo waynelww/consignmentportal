@@ -21,6 +21,7 @@ export interface HrClaim {
   review_note: string | null
   reviewed_at: string | null
   paid_at: string | null
+  drive_url: string | null
   created_at: string
 }
 
@@ -38,6 +39,7 @@ export interface HrLeave {
   status: LeaveStatus
   review_note: string | null
   reviewed_at: string | null
+  drive_url: string | null
   created_at: string
 }
 
@@ -59,9 +61,9 @@ export interface HrHoliday {
 }
 
 export const CLAIM_COLUMNS =
-  'id, member_id, claim_date, category, amount, description, receipt_path, receipt_name, status, review_note, reviewed_at, paid_at, created_at'
+  'id, member_id, claim_date, category, amount, description, receipt_path, receipt_name, status, review_note, reviewed_at, paid_at, drive_url, created_at'
 export const LEAVE_COLUMNS =
-  'id, member_id, leave_type, start_date, end_date, half_day, days, reason, attachment_path, attachment_name, status, review_note, reviewed_at, created_at'
+  'id, member_id, leave_type, start_date, end_date, half_day, days, reason, attachment_path, attachment_name, status, review_note, reviewed_at, drive_url, created_at'
 export const PENALTY_COLUMNS = 'id, member_id, penalty_date, kind, minutes_late, amount, note, created_at'
 export const MEMBER_COLUMNS = 'id, name, active, annual_leave_days, mc_days'
 

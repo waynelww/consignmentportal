@@ -1,5 +1,5 @@
 // Sessions for the staff HR link (/hr). No Supabase account involved:
-//   1. Link password (shared, hash in settings.hr_portal_password_hash) →
+//   1. Link password (shared, hash in hr_secrets.hr_portal_password_hash) →
 //      cookie xcms_hr_gate, 30 days.
 //   2. Name + personal PIN (hash in xocks_team_members.hr_pin_hash) →
 //      cookie xcms_hr_member, 12 hours.
@@ -10,12 +10,12 @@
 import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import type { NextRequest } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { HR_SECRET_KEYS, getHrSecret } from './secrets'
 
 export const GATE_COOKIE = 'xcms_hr_gate'
 export const MEMBER_COOKIE = 'xcms_hr_member'
 export const GATE_MAX_AGE = 60 * 60 * 24 * 30
 export const MEMBER_MAX_AGE = 60 * 60 * 12
-export const PORTAL_PASSWORD_KEY = 'hr_portal_password_hash'
 
 /** PINs are 4–6 digits. */
 export const PIN_PATTERN = /^\d{4,6}$/
@@ -89,8 +89,7 @@ export function cookieOptions(maxAge: number) {
 // ── Checks used by every /api/hr-portal route ─────────────────────────────
 
 export async function loadPortalPasswordHash(db: SupabaseClient): Promise<string | null> {
-  const { data } = await db.from('settings').select('value').eq('key', PORTAL_PASSWORD_KEY).maybeSingle()
-  return data?.value?.trim() || null
+  return getHrSecret(db, HR_SECRET_KEYS.portalPasswordHash)
 }
 
 /** True when the request carries a gate cookie issued against the current link password. */

@@ -32,7 +32,7 @@ function db(passwordHash: string | null, member: Record<string, unknown> | null)
     c.maybeSingle = async () => ({ data: row })
     return c
   }
-  return { from: (t: string) => chain(t === 'settings' ? (passwordHash === null ? null : { value: passwordHash }) : member) } as never
+  return { from: (t: string) => chain(t === 'hr_secrets' ? (passwordHash === null ? null : { value: passwordHash }) : member) } as never
 }
 
 const pw = hashSecret('HRXocks-test')

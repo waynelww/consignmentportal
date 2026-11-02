@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase/server'
 import { authoriseHrAdmin } from '@/lib/hr/access'
 import { logHr } from '@/lib/hr/audit'
+import { copyToDrive, driveStatus } from '@/lib/hr/drive'
 
 type Kind = 'claim' | 'leave'
 const TABLE: Record<Kind, string> = { claim: 'hr_claims', leave: 'hr_leaves' }
@@ -60,5 +61,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const done = action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'paid'
   await logHr(svc, request, { type: 'admin', label: auth.label }, `${kind}.${done}`, { type: kind, id },
     { for_member_id: row.member_id, from_status: row.status, note: note || null })
-  return Response.json({ ok: true })
+
+  // On approval, copy the receipt / MC slip to Google Drive if connected. A
+  // failure never undoes the approval; "Copy now" in settings retries later.
+  let drive: string | null = null
+  if (action === 'approve' && (await driveStatus(svc)).connected) {
+    try {
+      drive = (await copyToDrive(svc, kind, id)) ? 'copied' : null
+    } catch (err) {
+      console.error('[hr drive] copy on approve failed:', err)
+      drive = 'failed'
+    }
+  }
+  return Response.json({ ok: true, drive })
 }

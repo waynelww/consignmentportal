@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Check, X, Loader2, Trash2, Download, Send, Banknote, ShieldAlert, Copy, KeyRound } from 'lucide-react'
+import { Check, X, Loader2, Trash2, Download, Send, Banknote, ShieldAlert, Copy, KeyRound, HardDrive } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { CLAIM_CATEGORIES, LEAVE_TYPES, daysLabel, rm } from '@/lib/hr/rules'
@@ -53,6 +53,17 @@ async function call(url: string, method: string, body?: unknown): Promise<boolea
 
 export default function HrAdminPage() {
   const [tab, setTab] = useState<TabKey>('approvals')
+
+  // Google sends the admin back with ?tab=settings&drive=<result> after Connect.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const t = params.get('tab')
+    if (t && TABS.some((x) => x.key === t)) setTab(t as TabKey)
+    const drive = params.get('drive')
+    if (drive === 'connected') toast.success('Google Drive connected')
+    else if (drive) toast.error(`Google Drive not connected (${drive})`)
+    if (t || drive) window.history.replaceState(null, '', window.location.pathname)
+  }, [])
   const [month, setMonth] = useState(todayMYT().slice(0, 7))
   const [data, setData] = useState<AdminData | null>(null)
   const [forbidden, setForbidden] = useState(false)
@@ -221,6 +232,7 @@ function MonthRecords({ data, nameOf, reload }: { data: AdminData; nameOf: Map<s
             <Td>
               <div className="flex items-center gap-2 justify-end">
                 {c.receipt_path && <FileLink kind="claim" id={c.id} label="Receipt" />}
+                {c.drive_url && <a href={c.drive_url} target="_blank" rel="noreferrer" className="text-xs font-medium text-blue-600 hover:underline">Drive</a>}
                 {c.status === 'approved' && (
                   <button onClick={() => markPaid(c.id)} className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">
                     <Banknote size={12} /> Mark paid
@@ -244,6 +256,7 @@ function MonthRecords({ data, nameOf, reload }: { data: AdminData; nameOf: Map<s
             <Td>
               <div className="flex items-center gap-2 justify-end">
                 {l.attachment_path && <FileLink kind="leave" id={l.id} label="Slip" />}
+                {l.drive_url && <a href={l.drive_url} target="_blank" rel="noreferrer" className="text-xs font-medium text-blue-600 hover:underline">Drive</a>}
                 {l.status === 'pending' && <ReviewButtons kind="leave" id={l.id} reload={reload} />}
               </div>
             </Td>
@@ -543,6 +556,79 @@ function SettingsPanel({ settings, reload }: { settings: HrSettings; reload: () 
         </div>
         <button onClick={save} className={primaryButton}>Save settings</button>
       </div>
+      <DriveCard />
+    </div>
+  )
+}
+
+function DriveCard() {
+  const [status, setStatus] = useState<{ configured: boolean; connected: boolean; account: string | null; pending: number } | null>(null)
+  const [copying, setCopying] = useState(false)
+
+  const load = useCallback(async () => {
+    const res = await fetch('/api/hr/drive')
+    if (res.ok) setStatus(await res.json())
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  async function copyNow() {
+    setCopying(true)
+    let total = 0
+    try {
+      // Batches of up to 8 per call (Vercel's time limit); keep going until done.
+      for (let i = 0; i < 50; i++) {
+        const res = await fetch('/api/hr/drive', { method: 'POST' })
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(body.error ?? 'Copy failed')
+        total += body.copied
+        if (body.errors?.length) toast.error(body.errors[0])
+        if (body.remaining === 0 || body.stuck) break
+      }
+      toast.success(`${total} file${total === 1 ? '' : 's'} copied to Google Drive`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Copy failed')
+    } finally {
+      setCopying(false)
+      load()
+    }
+  }
+
+  async function disconnect() {
+    if (!confirm('Disconnect Google Drive? Files already copied stay in Drive.')) return
+    if (await call('/api/hr/drive', 'DELETE')) {
+      toast.success('Disconnected')
+      load()
+    }
+  }
+
+  return (
+    <div className={cn(cardClass, 'p-4 space-y-3 lg:col-span-2')}>
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900"><HardDrive size={16} /> Google Drive copies</h2>
+      <p className="text-xs text-gray-500">
+        When you approve a claim or MC, its receipt or slip is also copied to Google Drive in
+        <span className="font-mono"> Xocks HR Receipts / month / name</span>. The app keeps its own copy too.
+      </p>
+      {!status ? (
+        <p className="text-sm text-gray-400">Loading…</p>
+      ) : !status.configured ? (
+        <p className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+          Not set up yet: add GOOGLE_DRIVE_CLIENT_ID and GOOGLE_DRIVE_CLIENT_SECRET in Vercel, redeploy, then come back to connect.
+        </p>
+      ) : !status.connected ? (
+        <a href="/api/hr/drive/connect" className={cn(primaryButton, 'w-fit')}>
+          <HardDrive size={14} /> Connect Google Drive
+        </a>
+      ) : (
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm text-gray-700">Connected to <strong>{status.account}</strong></span>
+          {status.pending > 0 && (
+            <button onClick={copyNow} disabled={copying} className={primaryButton}>
+              {copying && <Loader2 size={14} className="animate-spin" />} Copy {status.pending} waiting file{status.pending === 1 ? '' : 's'} now
+            </button>
+          )}
+          <button onClick={disconnect} className="text-xs font-medium text-gray-500 hover:text-red-600">Disconnect</button>
+        </div>
+      )}
     </div>
   )
 }

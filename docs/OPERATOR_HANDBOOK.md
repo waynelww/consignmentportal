@@ -385,8 +385,8 @@ account for HR; they use the **staff link `/hr`**.
 
 - **Staff link `/hr`** (public path, skipped by `proxy.ts` like `/gang`):
   1. Shared link password → cookie `xcms_hr_gate` (30 days). Stored only as
-     a scrypt hash in setting `hr_portal_password_hash`; changed from HR
-     Admin → Report & settings (never in git). Blank = link locked.
+     a scrypt hash in `hr_secrets` (server-only table: RLS on, no policies);
+     changed from HR Admin → Report & settings (never in git). Missing = link locked.
   2. Pick your name + personal 4–6 digit PIN (`xocks_team_members.hr_pin_hash`)
      → cookie `xcms_hr_member` (12 h). First visit (or after an admin reset)
      the person creates their PIN. New people add name + PIN themselves.
@@ -421,7 +421,19 @@ account for HR; they use the **staff link `/hr`**.
   on the 1st at 10:00 MYT for the previous month: HTML summary + Excel
   (Summary, Claims, Leave & MC, Penalties) to `hr_report_email`. HR Admin →
   Report & settings has Download Excel and "Email it now".
-- Migration: `supabase/migrations/20261102_hr_module.sql`.
+- **Google Drive copies** (`lib/hr/drive.ts`): on approval, the receipt / MC
+  slip is also uploaded to `Xocks HR Receipts / YYYY-MM / Name /` and
+  `drive_url` saved on the row (shown as "Drive" links and in the Excel). The
+  Supabase copy stays the source of truth; a failed Drive copy never blocks the
+  approval — "Copy N waiting files now" (HR Admin → Report & settings) retries.
+  Setup: Vercel env `GOOGLE_DRIVE_CLIENT_ID` / `GOOGLE_DRIVE_CLIENT_SECRET`
+  (OAuth Web client, redirect URI `https://consignmentportal.vercel.app/api/hr/drive/callback`,
+  consent screen **published to Production** or Google expires the token in 7 days),
+  then "Connect Google Drive". Scope `drive.file` = only files the app made.
+  Refresh token, account email and root folder id live in `hr_secrets`.
+- Migrations: `supabase/migrations/20261102_hr_module.sql`, then
+  `20261105_hr_drive_secrets.sql` (hr_secrets, moves the link password hash
+  out of `settings`, Drive columns).
 
 ## Code map (the non-obvious parts)
 

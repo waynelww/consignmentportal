@@ -162,16 +162,16 @@ export function hrReportWorkbook(r: HrMonthReport): Buffer {
   ], [22, 18, 18, 24, 14, 10, 16, 18, 16, 10, 16, 10]), 'Summary')
 
   XLSX.utils.book_append_sheet(wb, sheet([
-    ['Date', 'Staff', 'Category', 'Description', 'Amount (RM)', 'Status', 'Receipt', 'Note'],
+    ['Date', 'Staff', 'Category', 'Description', 'Amount (RM)', 'Status', 'Receipt', 'Note', 'Google Drive'],
     ...r.claims.map((c) => [c.claim_date, c.name, CLAIM_CATEGORIES[c.category] ?? c.category, c.description, c.amount, c.status,
-      c.receipt_path ? 'Yes' : 'No', c.review_note]),
-  ], [12, 20, 18, 40, 12, 10, 8, 30]), 'Claims')
+      c.receipt_path ? 'Yes' : 'No', c.review_note, c.drive_url]),
+  ], [12, 20, 18, 40, 12, 10, 8, 30, 40]), 'Claims')
 
   XLSX.utils.book_append_sheet(wb, sheet([
-    ['Staff', 'Type', 'From', 'To', 'Half day', 'Days this month', 'Status', 'Reason', 'MC slip'],
+    ['Staff', 'Type', 'From', 'To', 'Half day', 'Days this month', 'Status', 'Reason', 'MC slip', 'Google Drive'],
     ...r.leaves.map((l) => [l.name, LEAVE_TYPES[l.leave_type], l.start_date, l.end_date, l.half_day ? 'Yes' : '', l.daysInMonth,
-      l.status, l.reason, l.leave_type === 'mc' ? (l.attachment_path ? 'Yes' : 'No') : '']),
-  ], [20, 18, 12, 12, 9, 15, 10, 36, 8]), 'Leave & MC')
+      l.status, l.reason, l.leave_type === 'mc' ? (l.attachment_path ? 'Yes' : 'No') : '', l.drive_url]),
+  ], [20, 18, 12, 12, 9, 15, 10, 36, 8, 40]), 'Leave & MC')
 
   XLSX.utils.book_append_sheet(wb, sheet([
     ['Date', 'Staff', 'Type', 'Minutes late', 'Amount (RM)', 'Note'],
