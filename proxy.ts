@@ -44,6 +44,12 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Staff HR link — its own shared link password + personal PIN, checked by
+  // /api/hr-portal/* (lib/hr/portal-session.ts). No XCMS session involved.
+  if (path === '/hr' || path.startsWith('/hr/')) {
+    return NextResponse.next()
+  }
+
   // Static assets in /public (images etc.) are always public.
   if (/\.(?:png|jpg|jpeg|svg|webp|ico)$/.test(path)) {
     return NextResponse.next()
@@ -79,6 +85,7 @@ export async function proxy(request: NextRequest) {
     path.startsWith('/api/bot') ||
     path.startsWith('/api/gang') ||
     path.startsWith('/api/speed') ||
+    path.startsWith('/api/hr-portal') ||
     path.startsWith('/api/wa/webhook')
   ) {
     return supabaseResponse

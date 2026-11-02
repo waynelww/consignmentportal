@@ -215,6 +215,7 @@ and store page). Current test stores: AGK-001 (Wayne Store) and STR-009
   (PDF + Excel) to `monthly_report_email`. See "Monthly report" below.
 - `low-stock-summary.yml` — daily 09:00 MYT low-stock email (see Low stock).
 - `daily-sales-report.yml` — daily 22:00 MYT internal sales PDFs, batched (see Daily sales report).
+- `hr-report.yml` — 1st of month 10:00 MYT, emails last month's HR report (see HR).
 - `nightly-backup.yml` — nightly database backup.
 - `sync-shopify-orders.yml` — every 2h, pulls Shopify orders for the
   performance dashboard.
@@ -376,6 +377,51 @@ of consignment follow-ups. Default month is last month (Malaysia time).
   log and the function. It must be applied before "Scan to set barcode" works.
 - Camera access needs HTTPS (production is fine). If the camera is blocked, the
   scanner offers "Type code instead".
+
+## HR (claims, leave, MC, late penalties)
+
+Staff = the Xocks team list (`xocks_team_members`). Staff never use an XCMS
+account for HR; they use the **staff link `/hr`**.
+
+- **Staff link `/hr`** (public path, skipped by `proxy.ts` like `/gang`):
+  1. Shared link password → cookie `xcms_hr_gate` (30 days). Stored only as
+     a scrypt hash in setting `hr_portal_password_hash`; changed from HR
+     Admin → Report & settings (never in git). Blank = link locked.
+  2. Pick your name + personal 4–6 digit PIN (`xocks_team_members.hr_pin_hash`)
+     → cookie `xcms_hr_member` (12 h). First visit (or after an admin reset)
+     the person creates their PIN. New people add name + PIN themselves.
+  Cookies are HMAC-signed (key from `HR_PORTAL_SECRET`, else derived from
+  `SUPABASE_SERVICE_ROLE_KEY`) and carry a fingerprint of the hash they were
+  issued against: changing the link password or resetting a PIN signs those
+  devices out. Wrong tries are capped via `rate_limit_attempts` (password 10
+  per IP / 15 min; PIN 5 per person / 15 min). Code: `lib/hr/portal-session.ts`,
+  pinned by `npx tsx scripts/test-hr-portal-session.ts`; routes `/api/hr-portal/*`.
+  Staff only ever see and cancel their own records; the person always comes
+  from the PIN session, never the request body.
+- **HR Admin** `/admin/hr/manage` (**super_admin only**, `lib/hr/access.ts`):
+  approve/reject, mark claims paid, log late penalties (manual, default
+  `hr_late_penalty_default`), PIN status + reset, per-person entitlements
+  (`annual_leave_days`, `mc_days`), public holidays, link password, settings,
+  and the **Activity log**.
+- **Activity log** `hr_audit_log` (`lib/hr/audit.ts`): every link unlock,
+  wrong password/PIN, sign-in, submission, cancel and admin change, with
+  actor, IP and device. Admin actions done *to* a person carry
+  `details.for_member_id`, so filtering by person shows both.
+- **Rules** `lib/hr/rules.ts` (pure; `npx tsx scripts/test-hr-rules.ts`):
+  leave days = working days (`hr_work_days`, ISO 1–7) minus
+  `hr_public_holidays`; half day = 0.5. `days` is stored at submission, so
+  adding a holiday later doesn't change old requests. Balances are per
+  calendar year; emergency leave uses annual entitlement; approved + pending
+  are both deducted from "left".
+- **Files**: private bucket `hr-documents`, path `{member_id}/…`, uploaded via
+  signed URL (`/api/hr-portal/upload-url`), streamed by
+  `/api/hr-portal/requests/[kind]/[id]/file` (own files) and
+  `/api/hr/requests/[kind]/[id]/file` (admin).
+- **Monthly report**: `.github/workflows/hr-report.yml` → `/api/cron/hr-report`
+  on the 1st at 10:00 MYT for the previous month: HTML summary + Excel
+  (Summary, Claims, Leave & MC, Penalties) to `hr_report_email`. HR Admin →
+  Report & settings has Download Excel and "Email it now".
+- Migration: `supabase/migrations/20261102_hr_module.sql`.
 
 ## Code map (the non-obvious parts)
 

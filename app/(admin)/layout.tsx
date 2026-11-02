@@ -30,6 +30,7 @@ import {
   TrendingUp,
   MessageCircle,
   UserPlus,
+  Briefcase,
   ClipboardCheck,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -77,6 +78,13 @@ const NAV_ITEMS = [
       { label: 'OEM Calculator', href: '/admin/oem-calculator', icon: Calculator },
       { label: 'Xocks Gang', href: '/admin/gang', icon: Users },
       { label: 'WhatsApp', href: '/admin/whatsapp', icon: MessageCircle },
+    ],
+  },
+  {
+    section: 'HR',
+    items: [
+      { label: 'Staff HR link', href: '/hr', icon: Briefcase },
+      { label: 'HR Admin', href: '/admin/hr/manage', icon: ClipboardCheck, superAdminOnly: true },
     ],
   },
   {
@@ -129,6 +137,7 @@ function getPageTitle(pathname: string): string {
     '/admin/performance': 'Performance',
     '/admin/reports': 'Monthly Sales',
     '/admin/oem-calculator': 'OEM Calculator',
+    '/admin/hr/manage': 'HR Admin',
     '/admin/settings': 'Settings',
     '/admin/profile': 'My Profile',
   }
@@ -198,8 +207,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </p>
               )}
               <ul className="space-y-1">
-                {section.items.map(({ label, href, icon: Icon }) => {
-                  const active = pathname.includes(href)
+                {section.items
+                  .filter((item) => !('superAdminOnly' in item && item.superAdminOnly) || profile?.role === 'super_admin')
+                  .map(({ label, href, icon: Icon }) => {
+                  // '/hr' is inside '/admin/hr/manage', so the staff link needs an exact match.
+                  const active = href === '/hr' ? pathname === href : pathname.includes(href)
                   return (
                     <li key={href}>
                       <Link

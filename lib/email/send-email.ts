@@ -427,3 +427,67 @@ export async function sendDailySalesReportEmail(params: {
     throw err
   }
 }
+
+// ── Monthly HR report (1st of the month, and the HR admin "Send test report") ──
+
+export async function sendHrReportEmail(params: {
+  to: string
+  monthLabel: string
+  fileName: string
+  xlsx: Buffer
+  rows: Array<{ name: string; claimsApproved: number; toReimburse: number; penalties: number; lateCount: number; leaveDays: number; mcDays: number }>
+  totals: { claimsApproved: number; toReimburse: number; penalties: number }
+  pendingRequests: number
+  isTest?: boolean
+}): Promise<void> {
+  const cell = 'padding:6px 4px;border-top:1px solid #eee;font-size:13px;color:#111;'
+  const num = `${cell}text-align:right;`
+  const staffRows = params.rows
+    .map((r) => `
+      <tr>
+        <td style="${cell}"><strong>${r.name}</strong></td>
+        <td style="${num}">${r.claimsApproved.toFixed(2)}</td>
+        <td style="${num}">${r.toReimburse.toFixed(2)}</td>
+        <td style="${num}">${r.penalties.toFixed(2)}${r.lateCount ? ` <span style="color:#666;">(${r.lateCount}×)</span>` : ''}</td>
+        <td style="${num}">${r.leaveDays}</td>
+        <td style="${num}">${r.mcDays}</td>
+      </tr>`)
+    .join('')
+  const head = 'padding:6px 4px;font-size:11px;color:#666;'
+  const body = `
+    ${h2(`HR Report — ${params.monthLabel}`)}
+    ${p(params.isTest ? 'Test send. The same report goes out on the 1st of each month.' : 'Last month’s claims, penalties, leave and MC. Full detail is in the attached Excel file.')}
+    ${infoTable([
+      ['Claims approved', formatCurrency(params.totals.claimsApproved)],
+      ['Still to reimburse', formatCurrency(params.totals.toReimburse)],
+      ['Penalties to deduct', formatCurrency(params.totals.penalties)],
+      ['Requests waiting for you', String(params.pendingRequests)],
+    ])}
+    <table cellpadding="0" cellspacing="0" style="margin:8px 0 16px;width:100%;border-collapse:collapse;">
+      <tr>
+        <td style="${head}">Staff</td>
+        <td style="${head}text-align:right;">Claims RM</td>
+        <td style="${head}text-align:right;">To reimburse</td>
+        <td style="${head}text-align:right;">Penalty RM</td>
+        <td style="${head}text-align:right;">Leave days</td>
+        <td style="${head}text-align:right;">MC days</td>
+      </tr>
+      ${staffRows}
+    </table>
+    ${ctaButton('Open HR Admin', 'https://consignmentportal.vercel.app/admin/hr/manage')}
+  `
+  try {
+    await getResend().emails.send({
+      from: FROM,
+      to: params.to,
+      subject: `${params.isTest ? '[TEST] ' : ''}Xocks HR Report — ${params.monthLabel}`,
+      html: emailWrapper(body),
+      attachments: [
+        { filename: params.fileName, content: params.xlsx, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+      ],
+    })
+  } catch (err) {
+    console.error('[sendHrReportEmail] Failed to send email:', err)
+    throw err
+  }
+}
