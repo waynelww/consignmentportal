@@ -6,9 +6,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { isTestStore, loadTestStoreIds } from '@/lib/stores/test-accounts'
 import { monthRange, parseYearMonth } from '@/lib/monthly-report/months'
 import {
-  buildFollowupMonth, RESTOCK_DISPATCHED_STATUSES,
+  buildFollowupMonth,
   type FollowupItem, type FollowupMonthView, type LogInput, type ExtraStoreInput,
-  type PeriodInput, type ReceiptInput, type RestockInput, type SaleInput, type StoreInput,
+  type PeriodInput, type ReceiptInput, type SaleInput, type StoreInput,
 } from './build'
 import type { CellPrevious } from './entry'
 
@@ -101,16 +101,6 @@ export async function loadFollowupMonth(month: string): Promise<FollowupMonthVie
       .order('id')
       .range(from, to))
 
-  const restocks = await fetchAll<RestockInput>((from, to) =>
-    db.from('delivery_orders')
-      .select('store_id, dispatch_date')
-      .eq('do_type', 'restock')
-      .in('status', [...RESTOCK_DISPATCHED_STATUSES])
-      .gte('dispatch_date', range.start)
-      .lte('dispatch_date', range.end)
-      .order('id')
-      .range(from, to))
-
   const rawLog = await fetchAll<RawLog>((from, to) =>
     db.from('followup_log')
       .select('id, created_at, store_id, extra_store_id, item, action, ticked, note, by_member_id, mover:xocks_team_members!by_member_id(name)')
@@ -126,7 +116,6 @@ export async function loadFollowupMonth(month: string): Promise<FollowupMonthVie
     sales,
     periods,
     receipts,
-    restocks,
     log: rawLog.map((r) => ({
       id: r.id,
       created_at: r.created_at,

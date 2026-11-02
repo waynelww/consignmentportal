@@ -2,7 +2,7 @@
 // Run: npx tsx scripts/test-followups.ts
 import assert from 'node:assert/strict'
 import {
-  autoSalesReport, autoInvoice, autoPayment, autoRestock, buildFollowupMonth, stillToFollowUp,
+  autoSalesReport, autoInvoice, autoPayment, buildFollowupMonth, stillToFollowUp,
   mytDate, mytStamp, type LogInput, type BuildInput, type PeriodInput, type ReceiptInput,
 } from '../lib/followups/build'
 import { normaliseNote, planEntry, NOTE_MAX_LENGTH, type CellPrevious } from '../lib/followups/entry'
@@ -23,11 +23,6 @@ assert.equal(mytStamp('2026-11-03T06:05:00Z'), '3 Nov 2026, 14:05')
 assert.deepEqual(autoSalesReport([]), { done: false, auto_date: null, auto_detail: null })
 assert.deepEqual(autoSalesReport(['2026-09-14', '2026-09-02', '2026-09-30']),
   { done: true, auto_date: '2026-09-02', auto_detail: null }, 'earliest sale day is the date shown')
-
-// ── Restock ──────────────────────────────────────────────────────────────
-assert.equal(autoRestock([]).done, false)
-assert.equal(autoRestock(['2026-09-20']).done, true)
-assert.equal(autoRestock(['2026-09-20']).auto_date, '2026-09-20')
 
 // ── Invoice ──────────────────────────────────────────────────────────────
 const period = (over: Partial<PeriodInput> = {}): PeriodInput => ({
@@ -108,7 +103,6 @@ const base: BuildInput = {
   ],
   periods: [period({ id: 'pA', store_id: STORE_A, status: 'paid', invoice_no: 101, paid_at: '2026-11-05T02:00:00Z' })],
   receipts: [{ commission_period_id: 'pA', status: 'confirmed' }],
-  restocks: [{ store_id: STORE_B, dispatch_date: '2026-10-20' }],
   log: [
     logRow({ id: 'l1', created_at: '2026-11-01T01:00:00Z', extra_store_id: EXTRA_X, item: 'payment', action: 'tick', ticked: true, note: 'transfer seen' }),
     logRow({ id: 'l2', created_at: '2026-11-02T01:00:00Z', extra_store_id: EXTRA_X, item: 'payment', action: 'untick', ticked: false, note: 'transfer seen', by_member_id: MEMBER_SITI, by_name: 'Siti' }),
@@ -130,16 +124,17 @@ assert.equal(alpha.cells.sales_report.auto_date, '2026-10-03')
 assert.equal(alpha.cells.invoice.done, true)
 assert.equal(alpha.cells.invoice.auto_detail, 'XCSM-101')
 assert.equal(alpha.cells.payment.done, true)
-assert.equal(alpha.cells.restock.done, false, 'no restock DO for Alpha')
+assert.equal(alpha.cells.restock.auto, false, 'restock is hand-ticked for XCMS stores too')
+assert.equal(alpha.cells.restock.done, false, 'nothing ticked for Alpha yet')
 assert.equal(alpha.missing, 1)
 
 const beta = view.rows[1]
 assert.equal(beta.cells.sales_report.done, false, 'Beta has no sales in the month')
 assert.equal(beta.cells.sales_report.note, 'shop closed for renovation', 'auto boxes still take notes')
 assert.equal(beta.cells.sales_report.last_by, 'Ali')
-assert.equal(beta.cells.restock.done, true)
+assert.equal(beta.cells.restock.done, false, 'Beta restock is not ticked until someone ticks it')
 assert.equal(beta.cells.invoice.auto_detail, 'No invoice yet')
-assert.equal(beta.missing, 3)
+assert.equal(beta.missing, 4)
 
 const extra = view.rows[2]
 assert.equal(extra.kind, 'extra')
@@ -151,8 +146,8 @@ assert.deepEqual(extra.cells.payment.history.map((h) => h.action), ['tick', 'unt
 assert.equal(extra.cells.invoice.done, false, 'a hand-ticked box with no history is not done')
 assert.equal(extra.cells.invoice.last_by, null)
 
-// Column counts: Sales Report missing on Beta and Xtra; Invoice on Beta and Xtra; Payment on Beta and Xtra; Restock on Alpha and Xtra
-assert.deepEqual(view.outstanding, { sales_report: 2, invoice: 2, payment: 2, restock: 2 })
+// Column counts: Sales Report, Invoice and Payment missing on Beta and Xtra; Restock missing on Alpha, Beta and Xtra
+assert.deepEqual(view.outstanding, { sales_report: 2, invoice: 2, payment: 2, restock: 3 })
 
 // Still-to-follow-up filter keeps any row with a box not ticked
 assert.deepEqual(stillToFollowUp(view.rows).map((r) => r.key), view.rows.map((r) => r.key))
@@ -170,6 +165,32 @@ const extraDone = done.rows.find((r) => r.kind === 'extra')!
 assert.equal(extraDone.missing, 0)
 assert.ok(!stillToFollowUp(done.rows).some((r) => r.key === `extra:${EXTRA_X}`), 'fully ticked extra store leaves the filter')
 assert.equal(done.outstanding.payment, 1, 'only Beta is still missing payment')
+assert.equal(done.outstanding.restock, 2, 'Xtra is ticked for restock, so Alpha and Beta remain')
+
+// Restock on an XCMS store is ticked by hand and recorded with the member
+const withRestock = buildFollowupMonth({
+  ...base,
+  log: [...base.log, logRow({ id: 'r1', created_at: '2026-11-06T01:00:00Z', store_id: STORE_B, item: 'restock', action: 'tick', ticked: true })],
+})
+const betaRestock = withRestock.rows[1].cells.restock
+assert.equal(betaRestock.auto, false)
+assert.equal(betaRestock.done, true)
+assert.equal(betaRestock.last_by, 'Ali')
+assert.equal(withRestock.outstanding.restock, 2)
+const betaUnticked = buildFollowupMonth({
+  ...base,
+  log: [
+    ...base.log,
+    logRow({ id: 'r1', created_at: '2026-11-06T01:00:00Z', store_id: STORE_B, item: 'restock', action: 'tick', ticked: true }),
+    logRow({ id: 'r2', created_at: '2026-11-07T01:00:00Z', store_id: STORE_B, item: 'restock', action: 'untick', ticked: false, by_member_id: MEMBER_SITI, by_name: 'Siti' }),
+  ],
+})
+assert.equal(betaUnticked.rows[1].cells.restock.done, false, 'the newest untick wins')
+assert.equal(betaUnticked.rows[1].cells.restock.history.length, 2)
+
+// Other XCMS boxes still cannot be ticked by hand; restock can
+assert.deepEqual(plan(false, null, { ticked: true }), { ok: true, action: 'tick', ticked: true, note: null })
+assert.equal(plan(true, null, { ticked: true }).ok, false)
 
 // The log never changes the XCMS box state, only the note
 const notAllowedToTick = buildFollowupMonth({
@@ -180,7 +201,7 @@ assert.equal(notAllowedToTick.rows[0].cells.invoice.done, true, 'invoice still c
 assert.equal(notAllowedToTick.rows[0].cells.invoice.note, 'checked')
 
 // Empty month: no rows, every column at zero
-const empty = buildFollowupMonth({ ...base, sales: [], periods: [], receipts: [], restocks: [], log: [] })
+const empty = buildFollowupMonth({ ...base, sales: [], periods: [], receipts: [], log: [] })
 assert.equal(empty.rows.length, 3)
 assert.deepEqual(empty.outstanding, { sales_report: 3, invoice: 3, payment: 3, restock: 3 })
 
