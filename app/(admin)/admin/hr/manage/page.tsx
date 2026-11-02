@@ -61,7 +61,9 @@ export default function HrAdminPage() {
     if (t && TABS.some((x) => x.key === t)) setTab(t as TabKey)
     const drive = params.get('drive')
     if (drive === 'connected') toast.success('Google Drive connected')
-    else if (drive) toast.error(`Google Drive not connected (${drive})`)
+    else if (drive === 'drive-box-not-ticked') {
+      toast.error('Not connected: on Google’s screen, tick the box for Google Drive files, then Continue.', { duration: 10000 })
+    } else if (drive) toast.error(`Google Drive not connected (${drive})`)
     if (t || drive) window.history.replaceState(null, '', window.location.pathname)
   }, [])
   const [month, setMonth] = useState(todayMYT().slice(0, 7))
@@ -625,9 +627,12 @@ function DriveCard() {
           Not set up yet: add GOOGLE_DRIVE_CLIENT_ID and GOOGLE_DRIVE_CLIENT_SECRET in Vercel, redeploy, then come back to connect.
         </p>
       ) : !status.connected ? (
-        <a href="/api/hr/drive/connect" className={cn(primaryButton, 'w-fit')}>
-          <HardDrive size={14} /> Connect Google Drive
-        </a>
+        <div className="space-y-1">
+          <a href="/api/hr/drive/connect" className={cn(primaryButton, 'w-fit')}>
+            <HardDrive size={14} /> Connect Google Drive
+          </a>
+          <p className="text-xs text-gray-500">On Google’s screen, make sure the Google Drive box is ticked before you continue.</p>
+        </div>
       ) : (
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm text-gray-700">Connected to <strong>{status.account}</strong></span>

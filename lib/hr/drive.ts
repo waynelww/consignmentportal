@@ -18,6 +18,12 @@ export const DRIVE_ROOT_FOLDER_NAME = 'Xocks HR Receipts'
 const SCOPES = 'openid email https://www.googleapis.com/auth/drive.file'
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
+export class DriveScopeMissing extends Error {
+  constructor() {
+    super('The Google Drive tickbox was not ticked on Google\'s Allow screen')
+  }
+}
+
 export function driveConfigured(): boolean {
   return !!process.env.GOOGLE_DRIVE_CLIENT_ID && !!process.env.GOOGLE_DRIVE_CLIENT_SECRET
 }
@@ -53,6 +59,8 @@ async function tokenRequest(params: Record<string, string>): Promise<Record<stri
 /** Finishes the Connect flow: stores the refresh token and which Google account it is. */
 export async function connectDrive(db: SupabaseClient, code: string, redirectUri: string): Promise<string> {
   const t = await tokenRequest({ code, redirect_uri: redirectUri, grant_type: 'authorization_code' })
+  // Google's Allow screen has a tickbox per permission; the Drive one can be left unticked.
+  if (!t.scope?.split(' ').includes('https://www.googleapis.com/auth/drive.file')) throw new DriveScopeMissing()
   if (!t.refresh_token) throw new Error('Google did not return a refresh token. Remove the app at myaccount.google.com/permissions and connect again.')
   let account = 'Google account'
   try {

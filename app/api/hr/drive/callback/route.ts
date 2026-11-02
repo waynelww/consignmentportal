@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { authoriseHrAdmin } from '@/lib/hr/access'
 import { logHr } from '@/lib/hr/audit'
-import { connectDrive } from '@/lib/hr/drive'
+import { DriveScopeMissing, connectDrive } from '@/lib/hr/drive'
 
 const STATE_COOKIE = 'xcms_hr_drive_state'
 
@@ -30,6 +30,6 @@ export async function GET(request: NextRequest) {
     return back('connected')
   } catch (err) {
     console.error('[hr drive callback]', err)
-    return back('failed')
+    return back(err instanceof DriveScopeMissing ? 'drive-box-not-ticked' : 'failed')
   }
 }
