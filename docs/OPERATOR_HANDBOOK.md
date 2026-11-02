@@ -200,7 +200,8 @@ and store page). Current test stores: AGK-001 (Wayne Store) and STR-009
   Calculator and predictions (including the bot `restock-calc` endpoint), the
   consignment figures on `/admin/performance`, every `/api/bot/*` store report
   (the single-store `store-performance` endpoint returns 404 for a test store),
-  and the admin CSV export (`/api/admin/export`: sales, commissions, stores).
+  and the admin CSV export (`/api/admin/export`: sales, commissions, stores), and
+  the Follow-ups checklist (`/admin/followups`).
 - Commission invoices are **not** excluded: test stores get the monthly
   invoice like any other store, so they can be tested end to end.
 - The rule lives in one place: `lib/stores/test-accounts.ts`
@@ -319,6 +320,35 @@ without at least one recipient (also enforced by a DB check).
   the first run.
 - Settings writes go through `PUT /api/stores/[storeId]/daily-report` (admin
   check, then the service role). Missing settings row = off.
+
+## Follow-ups checklist (admin)
+
+`/admin/followups` (Operations → Follow-ups, admins only) is the monthly checklist
+of consignment follow-ups. Default month is last month (Malaysia time).
+
+- **Rows:** every active, non-test XCMS store, plus every "extra store" (a store
+  that is not in XCMS, added with **+ Add store**). **Hide** keeps a store's past
+  ticks; **Restore** brings it back from the bottom of the page.
+- **XCMS boxes are automatic and cannot be ticked by hand**, only noted:
+  Sales Report = a sale keyed in that month (`sales.sale_date`); Invoice = a
+  `commission_periods` row for that month; Payment = that invoice is `paid`
+  (a receipt that is uploaded but not paid shows "receipt uploaded, awaiting
+  review"; a rejected one shows "receipt rejected"); Restock = a restock DO with
+  `dispatch_date` in that month and status dispatched, delivered or acknowledged.
+- **Extra store boxes are ticked by hand.** Every tick, untick and note is a row
+  in `followup_log` with who did it (the "Working as" name, shared with
+  Onboarding) and when. The log is append-only and each row is a snapshot of the
+  cell, so the newest row is its current state. Open a cell (the note icon) to
+  see its history.
+- **Still to follow up** shows only rows with a box not ticked. The counts at the
+  top are how many rows still need each column.
+- Rules: `lib/followups/build.ts` (auto rules and assembly) and `lib/followups/entry.ts`
+  (what one save writes). Pinned by `npx tsx scripts/test-followups.ts`.
+- Migration `supabase/migrations/20261102_followups.sql` creates
+  `followup_extra_stores`, `followup_extra_store_history` and `followup_log`.
+  It must be applied before the page works.
+- APIs: `GET /api/followups?month=YYYY-MM`, `POST /api/followups/entries`,
+  `POST /api/followups/extra-stores`, `PATCH /api/followups/extra-stores/:id`.
 
 ## Code map (the non-obvious parts)
 

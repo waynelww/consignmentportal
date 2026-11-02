@@ -30,6 +30,7 @@ import {
   TrendingUp,
   MessageCircle,
   UserPlus,
+  ClipboardCheck,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
@@ -71,6 +72,7 @@ const NAV_ITEMS = [
       { label: 'Event Targets', href: '/admin/events/targets', icon: Target },
       { label: 'Payments', href: '/admin/payments', icon: Wallet },
       { label: 'Commissions', href: '/admin/commissions', icon: DollarSign },
+      { label: 'Follow-ups', href: '/admin/followups', icon: ClipboardCheck },
       { label: 'Promos', href: '/admin/promos', icon: Tag },
       { label: 'OEM Calculator', href: '/admin/oem-calculator', icon: Calculator },
       { label: 'Xocks Gang', href: '/admin/gang', icon: Users },
@@ -120,6 +122,7 @@ function getPageTitle(pathname: string): string {
     '/admin/payments': 'Payments',
     '/admin/exports': 'Data Export',
     '/admin/commissions': 'Commissions',
+    '/admin/followups': 'Follow-ups',
     '/admin/promos': 'Promos',
     '/admin/gang': 'Xocks Gang',
     '/admin/whatsapp': 'WhatsApp',
