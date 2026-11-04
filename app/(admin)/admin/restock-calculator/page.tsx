@@ -13,8 +13,9 @@ import {
   describePeriod, formatDateRange, isPeriodMonths, parseWayneSettings,
   type PeriodMonths, type WayneResult, type WayneSettings, type StoreStatus,
 } from '@/lib/restock/wayne-calc'
-import { HqAvailabilityBadge, HqQtyCell, HqRefreshBar, hqRowClass } from '@/components/stock/HqStock'
-import { hqAvailabilityForSku, type HqStockMap } from '@/lib/stock/hq-availability'
+import { HqAvailabilityBadge, HqQtyCell, HqRefreshBar, SimilarColours, hqRowClass } from '@/components/stock/HqStock'
+import { hqAvailabilityForSku, normalizeSku, type HqStockMap } from '@/lib/stock/hq-availability'
+import { suggestSimilar } from '@/lib/stock/colour-suggestions'
 import { loadHqStock } from '@/lib/stock/hq-load'
 
 // Restock Calculator — Wayne's consignment restock method, one store at a
@@ -543,6 +544,9 @@ export default function RestockCalculatorPage() {
                                 <div className="flex flex-col items-start gap-1">
                                   <HqQtyCell qty={hqCheck.hqQty} status={hqCheck.status} />
                                   <HqAvailabilityBadge status={hqCheck.status} hqQty={hqCheck.hqQty} />
+                                  {hqCheck.status !== 'ok' && (
+                                    <SimilarColours suggestions={suggestSimilar(s.sku ?? '', s.send, hq.map, new Set(r.skus.filter((x) => (sends[x.product_id] ?? 0) > 0).map((x) => normalizeSku(x.sku))))} />
+                                  )}
                                 </div>
                               </td>
                               <td className="py-2 px-3 text-right">

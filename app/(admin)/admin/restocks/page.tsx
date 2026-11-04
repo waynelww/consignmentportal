@@ -6,8 +6,10 @@ import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, cn } from '@/lib/utils'
 import type { RestockRequest, RestockRequestItem, RestockRequestStatus, Product } from '@/types'
 import { toast } from 'sonner'
-import { HqAvailabilityBadge, HqQtyCell, HqRefreshBar, hqRowClass } from '@/components/stock/HqStock'
-import { hqAvailability } from '@/lib/stock/hq-availability'
+import { HqAvailabilityBadge, HqQtyCell, HqRefreshBar, SimilarColours, hqRowClass } from '@/components/stock/HqStock'
+import { hqAvailability, normalizeSku, type HqStockMap } from '@/lib/stock/hq-availability'
+import { suggestSimilar, type ColourSuggestion } from '@/lib/stock/colour-suggestions'
+import { loadHqStock } from '@/lib/stock/hq-load'
 
 type TabStatus = RestockRequestStatus | 'all'
 
@@ -43,6 +45,36 @@ export default function RestocksPage() {
   const [adminNotes, setAdminNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const supabase = createClient()
+
+  // Office (HQ) stock by SKU, and SKU → product id (for swaps)
+  const [hqMap, setHqMap] = useState<HqStockMap>(new Map())
+  const [hqIds, setHqIds] = useState<Map<string, string>>(new Map())
+  const reloadHq = useCallback(() => {
+    loadHqStock(createClient())
+      .then((r) => { setHqMap(r.map); setHqIds(r.idBySku) })
+      .catch(() => toast.error('Could not load Shopify HQ stock'))
+  }, [])
+  useEffect(() => { reloadHq() }, [reloadHq])
+
+  // Similar colours for one review line; the other lines in this request are excluded
+  function similarFor(item: ReviewItem): ColourSuggestion[] {
+    const status = hqStatusOf(item)
+    if (status === 'ok') return []
+    const exclude = new Set(
+      reviewItems.filter((i) => i.id !== item.id).map((i) => normalizeSku(i.product?.sku))
+    )
+    return suggestSimilar(item.product?.sku ?? '', item.approved_qty, hqMap, exclude)
+  }
+
+  // Swap changes this line's colour (keeps the qty). Saved only when Approve is pressed.
+  async function swapLine(itemId: string, sug: ColourSuggestion) {
+    const id = hqIds.get(sug.sku)
+    if (!id) { toast.error(`Could not find ${sug.sku}`); return }
+    const { data, error } = await supabase.from('products').select('*').eq('id', id).single()
+    if (error || !data) { toast.error(`Could not load ${sug.sku}`); return }
+    setReviewItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, product_id: id, product: data as Product } : i)))
+    toast.success(`Line swapped to ${sug.sku} ${sug.name}. Press Approve to save.`)
+  }
 
   // Office (HQ) status of one request line. Needed = the approved qty (what would ship).
   // Out (HQ = 0) is counted on the card; the review modal shows short too.
@@ -114,10 +146,15 @@ export default function RestocksPage() {
 
     // Update each item's approved qty
     for (const item of reviewItems) {
-      await supabase
+      const { error: lineErr } = await supabase
         .from('restock_request_items')
-        .update({ quantity_approved: item.approved_qty })
+        .update({ quantity_approved: item.approved_qty, product_id: item.product_id })
         .eq('id', item.id)
+      if (lineErr) {
+        toast.error(`Could not save ${item.product?.sku ?? 'a line'}: ${lineErr.message}`)
+        setSubmitting(false)
+        return
+      }
     }
 
     // Update request status + admin notes
@@ -187,7 +224,7 @@ export default function RestocksPage() {
 
   return (
     <div className="space-y-5">
-      <HqRefreshBar syncedAt={latestHqSync(allRequests)} onRefreshed={fetchRequests} />
+      <HqRefreshBar syncedAt={latestHqSync(allRequests)} onRefreshed={() => { fetchRequests(); reloadHq() }} />
 
       {/* Tabs */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100">
@@ -356,6 +393,7 @@ export default function RestocksPage() {
                           {item.product?.sku}
                         </span>
                         <div className="mt-0.5"><HqAvailabilityBadge status={hqStatusOf(item)} hqQty={item.product?.hq_available_qty ?? null} /></div>
+                        <div className="mt-1"><SimilarColours suggestions={similarFor(item)} onSwap={(s) => swapLine(item.id, s)} /></div>
                       </td>
                       <td className="py-2.5 text-right text-gray-500">{item.quantity_requested}</td>
                       <td className="py-2.5 text-right"><HqQtyCell qty={item.product?.hq_available_qty ?? null} status={hqStatusOf(item)} /></td>

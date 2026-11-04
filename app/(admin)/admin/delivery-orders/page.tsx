@@ -10,8 +10,9 @@ import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, cn } from '@/lib/utils'
 import type { DeliveryOrder, DeliveryOrderStatus, DeliveryOrderType, Store, Product } from '@/types'
 import { toast } from 'sonner'
-import { HqAvailabilityBadge, HqQtyCell, HqRefreshBar, hqRowClass } from '@/components/stock/HqStock'
-import { hqAvailability } from '@/lib/stock/hq-availability'
+import { HqAvailabilityBadge, HqQtyCell, HqRefreshBar, SimilarColours, hqRowClass } from '@/components/stock/HqStock'
+import { hqAvailability, normalizeSku, type HqStockMap } from '@/lib/stock/hq-availability'
+import { suggestSimilar, type ColourSuggestion } from '@/lib/stock/colour-suggestions'
 
 interface DOWithStore extends DeliveryOrder { store_name: string }
 interface DispatchModal { open: boolean; doId: string; courier: string; tracking: string }
@@ -122,6 +123,34 @@ export default function DeliveryOrdersPage() {
   function hqLine(product: Product | undefined, qty: number) {
     const status = hqAvailability(product?.hq_available_qty, qty)
     return { status, hqQty: product?.hq_available_qty ?? null }
+  }
+
+  // Office (HQ) stock and SKU → product id, taken from the product list above
+  const hqMap = useMemo<HqStockMap>(
+    () => new Map(products.map((p) => [normalizeSku(p.sku), p.hq_available_qty ?? null])),
+    [products],
+  )
+  const idBySku = useMemo(() => new Map(products.map((p) => [normalizeSku(p.sku), p.id])), [products])
+
+  // Similar colours for one line. The other lines in this DO are excluded.
+  function similarForLine(product: Product | undefined, qty: number, items: { product_id: string }[], status: 'out' | 'short' | 'ok'): ColourSuggestion[] {
+    if (status === 'ok' || !product) return []
+    const exclude = new Set(
+      items
+        .map((i) => normalizeSku(products.find((p) => p.id === i.product_id)?.sku))
+        .filter((k) => k && k !== normalizeSku(product.sku)),
+    )
+    return suggestSimilar(product.sku, qty, hqMap, exclude)
+  }
+
+  // Swap changes the line's colour and keeps its qty. Never automatic.
+  function swapProduct(list: 'create' | 'edit', oldProductId: string, sug: ColourSuggestion) {
+    const newId = idBySku.get(normalizeSku(sug.sku))
+    if (!newId) { toast.error(`Could not find ${sug.sku}`); return }
+    const apply = (prev: { product_id: string; quantity: number }[]) =>
+      prev.map((i) => (i.product_id === oldProductId ? { ...i, product_id: newId } : i))
+    if (list === 'create') setCreateItems(apply)
+    else setEditItems(apply)
   }
 
   // Clear selection when filters/sort change
@@ -874,6 +903,9 @@ export default function DeliveryOrdersPage() {
                                 <div className="mt-0.5 flex items-center gap-1.5">
                                   <HqAvailabilityBadge status={hq.status} hqQty={hq.hqQty} />
                                 </div>
+                                <div className="mt-1">
+                                  <SimilarColours suggestions={similarForLine(product, item.quantity, createItems, hq.status)} onSwap={(s) => swapProduct('create', item.product_id, s)} />
+                                </div>
                               </div>
                               <div className="flex flex-col items-center shrink-0 w-12">
                                 <span className="text-[9px] uppercase tracking-wide text-gray-400">HQ</span>
@@ -963,6 +995,9 @@ export default function DeliveryOrdersPage() {
                               <p className="text-sm text-gray-800 truncate">{product?.name ?? '(unknown)'}</p>
                               <div className="mt-0.5 flex items-center gap-1.5">
                                 <HqAvailabilityBadge status={hq.status} hqQty={hq.hqQty} />
+                              </div>
+                              <div className="mt-1">
+                                <SimilarColours suggestions={similarForLine(product, item.quantity, editItems, hq.status)} onSwap={(s) => swapProduct('edit', item.product_id, s)} />
                               </div>
                             </div>
                             <div className="flex flex-col items-center shrink-0 w-12">
