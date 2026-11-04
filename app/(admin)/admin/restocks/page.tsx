@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, cn } from '@/lib/utils'
 import type { RestockRequest, RestockRequestItem, RestockRequestStatus, Product } from '@/types'
 import { toast } from 'sonner'
+import { HqAvailabilityBadge, HqQtyCell, HqRefreshBar, hqRowClass } from '@/components/stock/HqStock'
+import { hqAvailability } from '@/lib/stock/hq-availability'
 
 type TabStatus = RestockRequestStatus | 'all'
 
@@ -41,6 +43,15 @@ export default function RestocksPage() {
   const [adminNotes, setAdminNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const supabase = createClient()
+
+  // Office (HQ) status of one request line. Needed = the approved qty (what would ship).
+  // Out (HQ = 0) is counted on the card; the review modal shows short too.
+  function hqStatusOf(item: { product?: Product | null; approved_qty?: number; quantity_requested: number }) {
+    return hqAvailability(item.product?.hq_available_qty, item.approved_qty ?? item.quantity_requested)
+  }
+  function outAtHqCount(req: RequestWithStore) {
+    return (req.restock_request_items || []).filter((i) => hqAvailability(i.product?.hq_available_qty, i.quantity_requested) === 'out').length
+  }
 
   // Single query with items + products joined — eliminates N+1
   const fetchRequests = useCallback(async () => {
@@ -176,6 +187,8 @@ export default function RestocksPage() {
 
   return (
     <div className="space-y-5">
+      <HqRefreshBar syncedAt={latestHqSync(allRequests)} onRefreshed={fetchRequests} />
+
       {/* Tabs */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100">
         <div className="flex overflow-x-auto border-b border-gray-100 px-4">
@@ -240,6 +253,9 @@ export default function RestocksPage() {
                             </span>
                           )}
                         </div>
+                        {outAtHqCount(req) > 0 && (
+                          <p className="text-[11px] font-semibold text-red-600 mt-0.5">{outAtHqCount(req)} item{outAtHqCount(req) !== 1 ? 's' : ''} out at HQ</p>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-gray-600">{req.city}</td>
                       <td className="px-4 py-3 text-right font-semibold">{req.total_pairs}</td>
@@ -327,19 +343,22 @@ export default function RestocksPage() {
                   <tr className="border-b border-gray-100">
                     <th className="text-left py-2 text-xs font-semibold text-gray-500">Product</th>
                     <th className="text-right py-2 text-xs font-semibold text-gray-500">Requested</th>
+                    <th className="text-right py-2 text-xs font-semibold text-gray-500">At HQ</th>
                     <th className="text-right py-2 text-xs font-semibold text-gray-500">Approved Qty</th>
                   </tr>
                 </thead>
                 <tbody>
                   {reviewItems.map((item) => (
-                    <tr key={item.id} className="border-b border-gray-50">
+                    <tr key={item.id} className={cn('border-b border-gray-50', hqRowClass(hqStatusOf(item)))}>
                       <td className="py-2.5 text-gray-800">
                         {item.product?.name || '—'}
                         <span className="ml-1 text-xs font-mono text-gray-400">
                           {item.product?.sku}
                         </span>
+                        <div className="mt-0.5"><HqAvailabilityBadge status={hqStatusOf(item)} hqQty={item.product?.hq_available_qty ?? null} /></div>
                       </td>
                       <td className="py-2.5 text-right text-gray-500">{item.quantity_requested}</td>
+                      <td className="py-2.5 text-right"><HqQtyCell qty={item.product?.hq_available_qty ?? null} status={hqStatusOf(item)} /></td>
                       <td className="py-2.5 text-right">
                         <input
                           type="number"
@@ -390,4 +409,16 @@ export default function RestocksPage() {
       )}
     </div>
   )
+}
+
+// Latest Office (HQ) sync across the loaded requests' products.
+function latestHqSync(requests: RequestWithStore[]): string | null {
+  let latest: string | null = null
+  for (const r of requests) {
+    for (const i of r.restock_request_items || []) {
+      const t = i.product?.hq_synced_at as string | null | undefined
+      if (t && (!latest || t > latest)) latest = t
+    }
+  }
+  return latest
 }

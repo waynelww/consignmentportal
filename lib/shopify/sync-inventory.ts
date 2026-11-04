@@ -1,201 +1,208 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { normalizeSku } from '@/lib/stock/hq-availability'
 
-// Pulls every variant's total inventory quantity from Shopify
-// (summed across all Shopify locations) and writes it onto the
-// products row by matching on SKU.
+// Reads the "Office (HQ)" Shopify location ONLY and writes each product's
+// available quantity onto products.hq_available_qty (matched by SKU).
+// Nothing from any other location (including the Flexship warehouse) is read.
+// Old shopify_inventory_qty columns are no longer written (kept untouched).
+//
+// Products whose SKU has no inventory record at HQ are written as 0 and
+// counted in `not_at_hq`, so a SKU mismatch shows up in the result.
 
-interface SyncResult {
+export const OFFICE_HQ_LOCATION_ID = 'gid://shopify/Location/97815986484'
+export const OFFICE_HQ_LOCATION_NAME = 'Office (HQ)'
+
+const SHOPIFY_API_VERSION = '2024-10'
+const PAGE_SIZE = 250
+const MAX_PAGES = 40 // safety cap: 10,000 inventory levels
+const WRITE_CHUNK = 25
+
+export interface SyncResult {
   success: true
-  shopify_variants_fetched: number
+  synced_at: string
+  location: string
+  levels_fetched: number
   products_in_db: number
   updated: number
-  unchanged: number
-  not_found_in_shopify: number
-  not_found_skus: string[]
-  total_warehouse_pairs: number
+  without_sku: number
+  not_at_hq: number
+  out_at_hq: number
+  not_at_hq_skus: string[]
+  total_hq_pairs: number
 }
 
-interface SyncError {
+export interface SyncError {
   success: false
   error: string
   status: number
 }
 
-const SHOPIFY_API_VERSION = '2024-10'
-
-interface VariantNode {
-  sku: string | null
-  inventoryQuantity: number | null
+interface HqLevelNode {
+  quantities: { name: string; quantity: number }[]
+  item: { sku: string | null } | null
 }
 
-interface ShopifyResponse {
+interface HqResponse {
   data?: {
-    productVariants: {
-      edges: { cursor: string; node: VariantNode }[]
-      pageInfo: { hasNextPage: boolean; endCursor: string | null }
-    }
+    location: {
+      id: string
+      name: string
+      inventoryLevels: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null }
+        nodes: HqLevelNode[]
+      }
+    } | null
   }
   errors?: { message: string }[]
 }
 
-async function fetchAllInventory(domain: string, token: string): Promise<Map<string, number>> {
-  const skuToQty = new Map<string, number>()
-  let after: string | null = null
-
-  for (let page = 0; page < 50; page++) { // safety cap ~5000 variants
-    const query = `
-      query Inventory($first: Int!, $after: String) {
-        productVariants(first: $first, after: $after) {
-          edges {
-            cursor
-            node {
-              sku
-              inventoryQuantity
-            }
-          }
-          pageInfo { hasNextPage endCursor }
+const HQ_QUERY = `
+  query HqInventory($id: ID!, $first: Int!, $after: String) {
+    location(id: $id) {
+      id
+      name
+      inventoryLevels(first: $first, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          quantities(names: ["available"]) { name quantity }
+          item { sku }
         }
       }
-    `
+    }
+  }
+`
 
+/** Returns SKU → available quantity at Office (HQ). Throws on any Shopify error. */
+async function fetchHqInventory(domain: string, token: string): Promise<{ skuToQty: Map<string, number>; levels: number }> {
+  const skuToQty = new Map<string, number>()
+  let levels = 0
+  let after: string | null = null
+
+  for (let page = 0; page < MAX_PAGES; page++) {
     const res = await fetch(`https://${domain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
       method: 'POST',
-      headers: {
-        'X-Shopify-Access-Token': token,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ query, variables: { first: 100, after } }),
+      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: HQ_QUERY,
+        variables: { id: OFFICE_HQ_LOCATION_ID, first: PAGE_SIZE, after },
+      }),
     })
+    if (!res.ok) throw new Error(`Shopify API ${res.status}: ${await res.text()}`)
 
-    if (!res.ok) {
-      throw new Error(`Shopify API ${res.status}: ${await res.text()}`)
+    const json = (await res.json()) as HqResponse
+    if (json.errors?.length) throw new Error(`Shopify GraphQL: ${json.errors.map((e) => e.message).join('; ')}`)
+
+    const location = json.data?.location
+    if (!location) throw new Error('Office (HQ) location not found in Shopify')
+    // Guard: never sync from a different location than the one we are meant to read.
+    if (location.name !== OFFICE_HQ_LOCATION_NAME) {
+      throw new Error(`Location ${OFFICE_HQ_LOCATION_ID} is "${location.name}", expected "${OFFICE_HQ_LOCATION_NAME}"`)
     }
 
-    const json = (await res.json()) as ShopifyResponse
-    if (json.errors?.length) {
-      throw new Error(`Shopify GraphQL: ${json.errors.map((e) => e.message).join('; ')}`)
-    }
-
-    const conn = json.data?.productVariants
-    if (!conn) break
-
-    for (const edge of conn.edges) {
-      const sku = (edge.node.sku ?? '').trim().toUpperCase()
+    for (const node of location.inventoryLevels.nodes) {
+      levels++
+      const sku = normalizeSku(node.item?.sku)
       if (!sku) continue
-      const qty = edge.node.inventoryQuantity ?? 0
-      // If the same SKU appears in multiple products (rare but happens with
-      // bundles), keep the max — we want a realistic "could allocate this many"
+      const qty = node.quantities.find((q) => q.name === 'available')?.quantity ?? 0
+      // Same SKU on two inventory items at HQ is rare: keep the larger figure, as before.
       const existing = skuToQty.get(sku)
       skuToQty.set(sku, existing == null ? qty : Math.max(existing, qty))
     }
 
-    if (!conn.pageInfo.hasNextPage) break
-    after = conn.pageInfo.endCursor
+    if (!location.inventoryLevels.pageInfo.hasNextPage) return { skuToQty, levels }
+    after = location.inventoryLevels.pageInfo.endCursor
   }
-
-  return skuToQty
+  throw new Error(`Office (HQ) inventory exceeded ${MAX_PAGES * PAGE_SIZE} levels; sync stopped`)
 }
 
+/**
+ * Refreshes products.hq_available_qty and hq_synced_at from Office (HQ).
+ * Used by the nightly cron and the admin "Refresh from Shopify" button.
+ * Must finish inside Vercel's 60s limit: two or three GraphQL pages, then
+ * parallel writes in chunks.
+ */
 export async function syncShopifyInventory(): Promise<SyncResult | SyncError> {
   const domain = process.env.SHOPIFY_STORE_DOMAIN
   const token = process.env.SHOPIFY_ADMIN_TOKEN
-
   if (!domain || !token) {
-    return {
-      success: false,
-      status: 500,
-      error: 'Missing SHOPIFY_STORE_DOMAIN or SHOPIFY_ADMIN_TOKEN env vars',
-    }
+    return { success: false, status: 500, error: 'Missing SHOPIFY_STORE_DOMAIN or SHOPIFY_ADMIN_TOKEN env vars' }
   }
 
-  let skuToQty: Map<string, number>
+  let fetched: { skuToQty: Map<string, number>; levels: number }
   try {
-    skuToQty = await fetchAllInventory(domain, token)
+    fetched = await fetchHqInventory(domain, token)
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to fetch Shopify inventory'
     return { success: false, status: 502, error: `Shopify fetch failed: ${message}` }
   }
-
-  if (skuToQty.size === 0) {
-    return { success: false, status: 404, error: 'No variants returned from Shopify' }
-  }
+  const { skuToQty, levels } = fetched
 
   const adminClient = createAdminClient()
-  const { data: products, error: prodErr } = await adminClient
-    .from('products')
-    .select('id, sku, shopify_inventory_qty')
-
+  const { data: products, error: prodErr } = await adminClient.from('products').select('id, sku')
   if (prodErr || !products) {
-    return {
-      success: false,
-      status: 500,
-      error: `Failed to fetch products: ${prodErr?.message ?? 'unknown'}`,
-    }
+    return { success: false, status: 500, error: `Failed to fetch products: ${prodErr?.message ?? 'unknown'}` }
   }
 
-  let unchanged = 0
-  let notFound = 0
-  const notFoundSkus: string[] = []
-  let totalWarehousePairs = 0
-  const syncTime = new Date().toISOString()
+  const syncedAt = new Date().toISOString()
+  const toWrite: { id: string; qty: number }[] = []
+  let withoutSku = 0
+  let notAtHq = 0
+  let outAtHq = 0
+  let totalHqPairs = 0
+  const notAtHqSkus: string[] = []
 
-  // Partition first, write after. The previous version awaited one UPDATE
-  // per product — including timestamp-only touches for unchanged rows —
-  // which meant ~450 sequential round-trips (~45-90s). That sat right at
-  // Vercel's 60s function ceiling, so the admin "Sync" button would get
-  // its function killed mid-run and the browser saw an empty response
-  // body ("The string did not match the expected pattern" in Safari).
-  const toUpdate: { id: string; qty: number }[] = []
   for (const p of products) {
-    const sku = (p.sku ?? '').trim().toUpperCase()
-    const newQty = skuToQty.get(sku)
-    if (newQty == null) {
-      notFound++
-      notFoundSkus.push(p.sku)
-      continue
+    const sku = normalizeSku(p.sku)
+    if (!sku) { withoutSku++; continue }
+    let qty = skuToQty.get(sku)
+    if (qty == null) {
+      notAtHq++
+      if (notAtHqSkus.length < 20) notAtHqSkus.push(p.sku)
+      qty = 0
     }
-    totalWarehousePairs += newQty
-    if (newQty === p.shopify_inventory_qty) {
-      unchanged++
-      continue
-    }
-    toUpdate.push({ id: p.id, qty: newQty })
+    if (qty === 0) outAtHq++
+    totalHqPairs += qty
+    toWrite.push({ id: p.id, qty })
   }
 
-  // Changed rows only, in parallel chunks — a full-catalog sync now takes
-  // seconds instead of minutes.
+  // Every matched product gets hq_synced_at, so the timestamp means "checked
+  // against HQ at this time" for the whole catalogue, not only changed rows.
   let updated = 0
-  const CHUNK = 20
-  for (let i = 0; i < toUpdate.length; i += CHUNK) {
+  let failed = 0
+  for (let i = 0; i < toWrite.length; i += WRITE_CHUNK) {
     const results = await Promise.all(
-      toUpdate.slice(i, i + CHUNK).map((u) =>
+      toWrite.slice(i, i + WRITE_CHUNK).map((u) =>
         adminClient
           .from('products')
-          .update({
-            shopify_inventory_qty: u.qty,
-            shopify_inventory_synced_at: syncTime,
-            updated_at: syncTime,
-          })
-          .eq('id', u.id)
-      )
+          .update({ hq_available_qty: u.qty, hq_synced_at: syncedAt })
+          .eq('id', u.id),
+      ),
     )
-    updated += results.filter((r) => !r.error).length
+    for (const r of results) {
+      if (r.error) failed++
+      else updated++
+    }
   }
 
-  // One settings row records "the whole catalog was checked at X" instead
-  // of touching every product's timestamp on every run.
   await adminClient
     .from('settings')
-    .upsert({ key: 'shopify_inventory_last_synced', value: syncTime, updated_at: syncTime }, { onConflict: 'key' })
+    .upsert({ key: 'shopify_hq_last_synced', value: syncedAt, updated_at: syncedAt }, { onConflict: 'key' })
+
+  if (failed > 0) {
+    return { success: false, status: 500, error: `${failed} of ${toWrite.length} product updates failed; run the refresh again` }
+  }
 
   return {
     success: true,
-    shopify_variants_fetched: skuToQty.size,
+    synced_at: syncedAt,
+    location: OFFICE_HQ_LOCATION_NAME,
+    levels_fetched: levels,
     products_in_db: products.length,
     updated,
-    unchanged,
-    not_found_in_shopify: notFound,
-    not_found_skus: notFoundSkus.slice(0, 20),
-    total_warehouse_pairs: totalWarehousePairs,
+    without_sku: withoutSku,
+    not_at_hq: notAtHq,
+    out_at_hq: outAtHq,
+    not_at_hq_skus: notAtHqSkus,
+    total_hq_pairs: totalHqPairs,
   }
 }
