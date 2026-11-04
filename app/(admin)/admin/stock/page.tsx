@@ -7,6 +7,8 @@ import { createClient } from '@/lib/supabase/client'
 import { cn, PRODUCT_CATEGORY_LABELS } from '@/lib/utils'
 import type { Product } from '@/types'
 import { toast } from 'sonner'
+import { HqAvailabilityBadge, HqQtyCell, HqRefreshBar, hqRowClass } from '@/components/stock/HqStock'
+import { hqAvailability } from '@/lib/stock/hq-availability'
 
 interface ProductStockRow {
   product: Product
@@ -23,6 +25,7 @@ interface ProductStockRow {
   expanded: boolean
   office_quantity: number
   office_delta: number
+  refill_needed: number // pairs the low codes need to get back to their stocked level (HQ is compared to this)
 }
 
 interface StockLocation { id: string; name: string; type: string }
@@ -59,6 +62,7 @@ export default function StockPage() {
   const [officeLocationId, setOfficeLocationId] = useState<string | null>(null)
   const [otherLocations, setOtherLocations] = useState<OtherLocationRow[]>([])
   const [search, setSearch] = useState('')
+  const [hqSyncedAt, setHqSyncedAt] = useState<string | null>(null)
 
   const [transferModal, setTransferModal] = useState<{ productId: string; delta: number; newQty: number } | null>(null)
   const [pickerLocations, setPickerLocations] = useState<StockLocation[]>([])
@@ -85,6 +89,7 @@ export default function StockPage() {
     ])
 
     const products = (productsData || []) as Product[]
+    setHqSyncedAt(products.reduce<string | null>((latest, p) => (p.hq_synced_at && (!latest || p.hq_synced_at > latest) ? p.hq_synced_at : latest), null))
     const locationRows = (locations || []) as StockLocation[]
     const office = locationRows.find((l) => l.type === 'office')
     setOfficeLocationId(office?.id ?? null)
@@ -139,6 +144,7 @@ export default function StockPage() {
         expanded: false,
         office_quantity: officeQtyMap[p.id] || 0,
         office_delta: 0,
+        refill_needed: 0,
       }
     }
 
@@ -152,6 +158,7 @@ export default function StockPage() {
       const low = inv.store ? describeCode(inv, inv.store, lowPct) : null
       if (low && low.status !== 'in_stock') {
         row.low_stock_stores++
+        row.refill_needed += Math.max(0, low.stocked - inv.quantity_on_hand)
         if (inv.store?.id) lowStoreSet.add(inv.store.id)
       }
       if (inv.store) {
@@ -178,6 +185,11 @@ export default function StockPage() {
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  // HQ status for a row: needed = pairs the low codes need to refill
+  function hqStatusFor(row: ProductStockRow) {
+    return hqAvailability(row.product.hq_available_qty, row.refill_needed)
+  }
 
   function toggleExpand(productId: string) {
     setRows((prev) => prev.map((r) => r.product.id === productId ? { ...r, expanded: !r.expanded } : r))
@@ -319,6 +331,8 @@ export default function StockPage() {
         <div className="px-5 py-4 border-b border-gray-100">
           <h2 className="text-sm font-semibold text-gray-900">Product Distribution &amp; Office Stock</h2>
           <p className="text-xs text-gray-500 mt-0.5 mb-3">Click a row to see the per-store breakdown. Adjust office stock with +/− then confirm — every change records where the stock went.</p>
+          <p className="text-xs text-gray-500 mb-3">HQ (Shopify) = Office (HQ) location in Shopify. Red: 0 at HQ. Amber: HQ has fewer pairs than the low stores need to top up.</p>
+          <div className="mb-3"><HqRefreshBar syncedAt={hqSyncedAt} onRefreshed={fetchData} /></div>
           <div className="relative max-w-xs">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
             <input
@@ -346,6 +360,7 @@ export default function StockPage() {
                 <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-24">Deployed</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-36">Stores Low In Stock</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-32">Stock In Office</th>
+                <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-28" title="Shopify Office (HQ) available quantity">HQ (Shopify)</th>
                 <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 w-60">Edit Stock</th>
                 <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 w-10" />
               </tr>
@@ -354,7 +369,7 @@ export default function StockPage() {
               {loading
                 ? Array.from({ length: 6 }).map((_, i) => (
                     <tr key={i} className="border-b border-gray-50">
-                      {Array.from({ length: 8 }).map((_, j) => (
+                      {Array.from({ length: 9 }).map((_, j) => (
                         <td key={j} className="px-4 py-3">
                           <div className="h-4 bg-gray-100 animate-pulse rounded" />
                         </td>
@@ -362,7 +377,7 @@ export default function StockPage() {
                     </tr>
                   ))
                 : filteredRows.length === 0 ? (
-                    <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400">No SKUs match &quot;{search}&quot;</td></tr>
+                    <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-gray-400">No SKUs match &quot;{search}&quot;</td></tr>
                   )
                 : filteredRows.map((row) => (
                     <>
@@ -403,6 +418,13 @@ export default function StockPage() {
                             >
                               <History size={13} />
                             </button>
+                          </div>
+                        </td>
+
+                        <td className={cn('px-3 py-3 text-center', hqRowClass(hqStatusFor(row)))}>
+                          <div className="flex flex-col items-center gap-1">
+                            <HqQtyCell qty={row.product.hq_available_qty} status={hqStatusFor(row)} />
+                            <HqAvailabilityBadge status={hqStatusFor(row)} hqQty={row.product.hq_available_qty} />
                           </div>
                         </td>
 

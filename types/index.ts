@@ -133,6 +133,8 @@ export interface Product {
   image_url: string | null
   shopify_inventory_qty: number | null
   shopify_inventory_synced_at: string | null
+  hq_available_qty: number | null // Shopify Office (HQ) available qty; null = never synced
+  hq_synced_at: string | null
   created_at: string
   updated_at: string
 }

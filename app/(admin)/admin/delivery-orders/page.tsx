@@ -10,6 +10,8 @@ import { createClient } from '@/lib/supabase/client'
 import { formatMYDate, cn } from '@/lib/utils'
 import type { DeliveryOrder, DeliveryOrderStatus, DeliveryOrderType, Store, Product } from '@/types'
 import { toast } from 'sonner'
+import { HqAvailabilityBadge, HqQtyCell, HqRefreshBar, hqRowClass } from '@/components/stock/HqStock'
+import { hqAvailability } from '@/lib/stock/hq-availability'
 
 interface DOWithStore extends DeliveryOrder { store_name: string }
 interface DispatchModal { open: boolean; doId: string; courier: string; tracking: string }
@@ -106,9 +108,21 @@ export default function DeliveryOrdersPage() {
     fetchOrders()
     supabase.from('stores').select('id, store_name').eq('status', 'active').order('store_name')
       .then(({ data }) => setStores((data || []) as Store[]))
-    supabase.from('products').select('id, sku, name').eq('is_active', true).order('sku')
+    supabase.from('products').select('id, sku, name, hq_available_qty, hq_synced_at').eq('is_active', true).order('sku')
       .then(({ data }) => setProducts((data || []) as Product[]))
   }, [fetchOrders])
+
+  // Reload the product list (HQ numbers) after a Shopify refresh
+  const reloadProducts = useCallback(() => {
+    supabase.from('products').select('id, sku, name, hq_available_qty, hq_synced_at').eq('is_active', true).order('sku')
+      .then((res: { data: unknown[] | null }) => setProducts((res.data || []) as Product[]))
+  }, [supabase])
+
+  // Warning only: a DO line is never blocked by HQ stock
+  function hqLine(product: Product | undefined, qty: number) {
+    const status = hqAvailability(product?.hq_available_qty, qty)
+    return { status, hqQty: product?.hq_available_qty ?? null }
+  }
 
   // Clear selection when filters/sort change
   useEffect(() => { setSelectedIds(new Set()) }, [dateFrom, dateTo, storeFilter, statusFilter, typeFilter, sortBy])
@@ -378,6 +392,7 @@ export default function DeliveryOrdersPage() {
 
   return (
     <div className="space-y-5">
+      <HqRefreshBar syncedAt={products.reduce<string | null>((l, p) => (p.hq_synced_at && (!l || p.hq_synced_at > l) ? p.hq_synced_at : l), null)} onRefreshed={reloadProducts} />
       {/* Header */}
       <div className="flex justify-end">
         <button onClick={() => setCreateModal(true)}
@@ -850,11 +865,19 @@ export default function DeliveryOrdersPage() {
                       <div className="border border-gray-100 rounded-lg overflow-hidden">
                         {createItems.map((item) => {
                           const product = products.find((p) => p.id === item.product_id)
+                          const hq = hqLine(product, item.quantity)
                           return (
-                            <div key={item.product_id} className="flex items-center gap-3 px-3 py-2 border-b border-gray-50 last:border-b-0">
+                            <div key={item.product_id} className={cn('flex items-center gap-3 px-3 py-2 border-b border-gray-50 last:border-b-0', hqRowClass(hq.status))}>
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-mono text-gray-500">{product?.sku ?? '—'}</p>
                                 <p className="text-sm text-gray-800 truncate">{product?.name ?? '(unknown)'}</p>
+                                <div className="mt-0.5 flex items-center gap-1.5">
+                                  <HqAvailabilityBadge status={hq.status} hqQty={hq.hqQty} />
+                                </div>
+                              </div>
+                              <div className="flex flex-col items-center shrink-0 w-12">
+                                <span className="text-[9px] uppercase tracking-wide text-gray-400">HQ</span>
+                                <HqQtyCell qty={hq.hqQty} status={hq.status} />
                               </div>
                               <div className="flex items-center gap-1 shrink-0">
                                 <button type="button" onClick={() => createSetQty(item.product_id, item.quantity - 1)} className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200">−</button>
@@ -932,11 +955,19 @@ export default function DeliveryOrdersPage() {
                     <div className="border border-gray-100 rounded-lg overflow-hidden">
                       {editItems.map((item) => {
                         const product = products.find((p) => p.id === item.product_id)
+                        const hq = hqLine(product, item.quantity)
                         return (
-                          <div key={item.product_id} className="flex items-center gap-3 px-3 py-2 border-b border-gray-50 last:border-b-0">
+                          <div key={item.product_id} className={cn('flex items-center gap-3 px-3 py-2 border-b border-gray-50 last:border-b-0', hqRowClass(hq.status))}>
                             <div className="flex-1 min-w-0">
                               <p className="text-xs font-mono text-gray-500">{product?.sku ?? '—'}</p>
                               <p className="text-sm text-gray-800 truncate">{product?.name ?? '(unknown)'}</p>
+                              <div className="mt-0.5 flex items-center gap-1.5">
+                                <HqAvailabilityBadge status={hq.status} hqQty={hq.hqQty} />
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-center shrink-0 w-12">
+                              <span className="text-[9px] uppercase tracking-wide text-gray-400">HQ</span>
+                              <HqQtyCell qty={hq.hqQty} status={hq.status} />
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                               <button type="button" onClick={() => editSetQty(item.product_id, item.quantity - 1)} className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200">−</button>

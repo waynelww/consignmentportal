@@ -27,6 +27,8 @@ export default function RestockRequestPage() {
   const [submitting, setSubmitting] = useState(false)
   const [notes, setNotes] = useState('')
   const [step, setStep] = useState<PageStep>('review')
+  // Products Office (HQ) has 0 of. IDs only: stores never see HQ quantities.
+  const [hqOut, setHqOut] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     if (!storeId) return
@@ -36,13 +38,18 @@ export default function RestockRequestPage() {
       // storeId from context — no auth waterfall needed
       const { data: invData } = await supabase
         .from('store_inventory')
-        .select('*, product:products(*), store:stores(pairs_per_code, on_stock_plan)')
+        .select('*, product:products(id, sku, name, image_url), store:stores(pairs_per_code, on_stock_plan)')
         .eq('store_id', storeId!)
         .order('quantity_on_hand', { ascending: true })
 
       const inv = (invData as StoreInventory[]) ?? []
 
       const lowSettings = await loadLowStockSettings(supabase)
+
+      const hqRes = await fetch('/api/restock/hq-status')
+        .then((r) => (r.ok ? r.json() : { unavailable_product_ids: [] }))
+        .catch(() => ({ unavailable_product_ids: [] }))
+      setHqOut(new Set<string>(hqRes.unavailable_product_ids ?? []))
       const requestItems: RequestItem[] = inv.map((item) => {
         const store = embedded(item.store as never)
         const low = store ? describeCode(item, store, lowSettings.pct) : null
@@ -211,6 +218,11 @@ export default function RestockRequestPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <p className="text-sm font-bold text-[#0A0A0A]">{inv.product?.name}</p>
+                        {hqOut.has(inv.product_id) && (
+                          <span className="text-[10px] font-bold bg-gray-200 text-red-700 px-1.5 py-0.5 rounded-full">
+                            Currently unavailable
+                          </span>
+                        )}
                         {belowThresh && (
                           <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">
                             Low Stock

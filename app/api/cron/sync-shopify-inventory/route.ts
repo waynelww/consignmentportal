@@ -1,6 +1,6 @@
 /**
  * GET /api/cron/sync-shopify-inventory
- * Daily Vercel Cron — refreshes products.shopify_inventory_qty from Shopify.
+ * Daily Vercel Cron — refreshes products.hq_available_qty from the Shopify Office (HQ) location.
  * Schedule: 03:30 MY time = 19:30 UTC (30 min after the image sync to avoid
  * hammering the Shopify API at the exact same moment).
  */
@@ -25,10 +25,10 @@ export async function GET(request: NextRequest) {
   }
 
   console.log(
-    `[cron sync-shopify-inventory] ok · fetched=${result.shopify_variants_fetched} · ` +
-    `updated=${result.updated} · unchanged=${result.unchanged} · ` +
-    `not_found=${result.not_found_in_shopify} · ` +
-    `total_pairs=${result.total_warehouse_pairs} · ${duration_ms}ms`,
+    `[cron sync-shopify-inventory] ok · levels=${result.levels_fetched} · ` +
+    `updated=${result.updated} · ` +
+    `not_at_hq=${result.not_at_hq} · out_at_hq=${result.out_at_hq} · ` +
+    `total_hq_pairs=${result.total_hq_pairs} · ${duration_ms}ms`,
   )
 
   return Response.json({ ok: true, duration_ms, ...result })

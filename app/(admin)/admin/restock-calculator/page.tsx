@@ -13,6 +13,9 @@ import {
   describePeriod, formatDateRange, isPeriodMonths, parseWayneSettings,
   type PeriodMonths, type WayneResult, type WayneSettings, type StoreStatus,
 } from '@/lib/restock/wayne-calc'
+import { HqAvailabilityBadge, HqQtyCell, HqRefreshBar, hqRowClass } from '@/components/stock/HqStock'
+import { hqAvailabilityForSku, type HqStockMap } from '@/lib/stock/hq-availability'
+import { loadHqStock } from '@/lib/stock/hq-load'
 
 // Restock Calculator — Wayne's consignment restock method, one store at a
 // time. All maths runs server-side via lib/restock/wayne-calc.ts; this page
@@ -95,6 +98,8 @@ export default function RestockCalculatorPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [sends, setSends] = useState<Record<string, number>>({})
   const [history, setHistory] = useState<SavedCalc[]>([])
+  // Office (HQ) stock by SKU; the suggested Send is compared against it (warnings only)
+  const [hq, setHq] = useState<{ map: HqStockMap; syncedAt: string | null }>({ map: new Map(), syncedAt: null })
 
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<null | 'clear' | 'request'>(null)
@@ -102,6 +107,12 @@ export default function RestockCalculatorPage() {
   const [voidReason, setVoidReason] = useState('')
   const [showSettings, setShowSettings] = useState(false)
   const [settingsDraft, setSettingsDraft] = useState<Record<string, string>>({})
+
+  const reloadHq = useCallback(() => {
+    loadHqStock(createClient())
+      .then(setHq)
+      .catch(() => toast.error('Could not load Shopify HQ stock'))
+  }, [])
 
   const loadSettings = useCallback(async () => {
     const res = await fetch('/api/settings')
@@ -118,6 +129,7 @@ export default function RestockCalculatorPage() {
       })
       .catch(() => toast.error('Failed to load stores'))
     loadSettings()
+    reloadHq()
     createClient().auth.getUser().then((res: { data: { user: { id: string } | null } }) => {
       const id = res.data.user?.id
       if (!id) return
@@ -495,6 +507,10 @@ export default function RestockCalculatorPage() {
                   </div>
 
                   {/* SKUs */}
+                  <div className="px-5 pt-3">
+                    <HqRefreshBar syncedAt={hq.syncedAt} onRefreshed={reloadHq} />
+                    <p className="text-[11px] text-gray-400 mt-1">At HQ compares the suggested Send with Office (HQ) stock in Shopify. Red: 0 at HQ. Amber: fewer than the suggested Send.</p>
+                  </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
@@ -506,14 +522,16 @@ export default function RestockCalculatorPage() {
                           <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">SKU target</th>
                           <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">On hand</th>
                           <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Status</th>
+                          <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">At HQ</th>
                           <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Send</th>
                         </tr>
                       </thead>
                       <tbody>
                         {r.skus.map((s) => {
                           const v = sends[s.product_id] ?? 0
+                          const hqCheck = hqAvailabilityForSku(s.sku, s.send, hq.map)
                           return (
-                            <tr key={s.product_id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                            <tr key={s.product_id} className={cn('border-b border-gray-50 hover:bg-gray-50/50', hqRowClass(hqCheck.status))}>
                               <td className="py-2 px-3 font-medium text-gray-800">{s.name}</td>
                               <td className="py-2 px-3 font-mono text-xs text-gray-500">{s.sku || '—'}</td>
                               <td className="py-2 px-3 text-right">{s.pairs_sold}</td>
@@ -521,6 +539,12 @@ export default function RestockCalculatorPage() {
                               <td className="py-2 px-3 text-right">{s.sku_target}</td>
                               <td className="py-2 px-3 text-right font-semibold">{s.on_hand}</td>
                               <td className="py-2 px-3"><SkuPill onHand={s.on_hand} send={s.send} /></td>
+                              <td className="py-2 px-3">
+                                <div className="flex flex-col items-start gap-1">
+                                  <HqQtyCell qty={hqCheck.hqQty} status={hqCheck.status} />
+                                  <HqAvailabilityBadge status={hqCheck.status} hqQty={hqCheck.hqQty} />
+                                </div>
+                              </td>
                               <td className="py-2 px-3 text-right">
                                 <input type="number" min="0" step="1" value={v}
                                   disabled={!!detail?.linkedRequest}
@@ -531,7 +555,7 @@ export default function RestockCalculatorPage() {
                           )
                         })}
                         {r.skus.length === 0 && (
-                          <tr><td colSpan={8} className="py-6 text-center text-gray-400 text-sm">This store has no products in its inventory</td></tr>
+                          <tr><td colSpan={9} className="py-6 text-center text-gray-400 text-sm">This store has no products in its inventory</td></tr>
                         )}
                       </tbody>
                     </table>

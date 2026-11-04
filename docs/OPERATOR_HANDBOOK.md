@@ -185,6 +185,37 @@ Rule lives only in `lib/restock/low-stock.ts` (pinned by
   not touch `store_inventory` quantities. `restock_threshold` is no longer
   read and can be dropped in a later migration.
 
+## Office (HQ) stock: red and amber warnings
+
+The restock screens show live stock from the Shopify **Office (HQ)** location
+only. Nothing else (no other Shopify location) feeds these numbers.
+
+- **Where the numbers come from:** the Shopify location "Office (HQ)"
+  (`gid://shopify/Location/97815986484`). Stored per product as
+  `products.hq_available_qty` with `products.hq_synced_at`. Matched by SKU.
+  Rule: `lib/stock/hq-availability.ts`; sync: `lib/shopify/sync-inventory.ts`.
+- **Red "Out at HQ":** Office (HQ) has 0 of that product.
+- **Amber "Only X at HQ":** Office (HQ) has fewer than the pairs being asked
+  for. On the Restock Calculator it is the suggested Send; on Restocks it is the
+  approved qty; on Delivery Orders it is the line qty; on Stock it is the pairs
+  the low codes need to get back to their stocked level.
+- **Warnings only.** Nothing is blocked. Admins can still add or approve red and
+  amber items.
+- **Stores** see only "Currently unavailable" on items HQ has 0 of, never the
+  quantities.
+- **A product with no record at HQ** counts as 0 (red), and the sync result lists
+  up to 20 such SKUs in `not_at_hq_skus`. A product that has never been synced
+  shows no colour and "—".
+- **Refresh from Shopify** (admin, on Stock, Restocks, Restock Calculator and
+  Delivery Orders) runs the same sync as the nightly job and shows "Shopify stock
+  updated <time>". It must finish within Vercel's 60s limit.
+- **Nightly:** `/api/cron/sync-shopify-inventory` (Vercel cron, 03:30 MYT) refreshes
+  the same numbers.
+- Migration: `supabase/migrations/20261108_products_hq_stock.sql` adds the two
+  columns. It must be applied before the refresh or the restock screens work.
+  The old `shopify_inventory_qty` columns are no longer written and are still
+  there for now.
+
 ## Test accounts (`stores.is_test`)
 
 Stores used for staff training and system testing are flagged with the
