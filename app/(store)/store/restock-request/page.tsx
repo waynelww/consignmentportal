@@ -29,6 +29,7 @@ export default function RestockRequestPage() {
   const [step, setStep] = useState<PageStep>('review')
   // Products Office (HQ) has 0 of. IDs only: stores never see HQ quantities.
   const [hqOut, setHqOut] = useState<Set<string>>(new Set())
+  const [similar, setSimilar] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
     if (!storeId) return
@@ -50,6 +51,7 @@ export default function RestockRequestPage() {
         .then((r) => (r.ok ? r.json() : { unavailable_product_ids: [] }))
         .catch(() => ({ unavailable_product_ids: [] }))
       setHqOut(new Set<string>(hqRes.unavailable_product_ids ?? []))
+      setSimilar(hqRes.similar ?? {})
       const requestItems: RequestItem[] = inv.map((item) => {
         const store = embedded(item.store as never)
         const low = store ? describeCode(item, store, lowSettings.pct) : null
@@ -222,6 +224,9 @@ export default function RestockRequestPage() {
                           <span className="text-[10px] font-bold bg-gray-200 text-red-700 px-1.5 py-0.5 rounded-full">
                             Currently unavailable
                           </span>
+                        )}
+                        {hqOut.has(inv.product_id) && (similar[inv.product_id]?.length ?? 0) > 0 && (
+                          <span className="text-[11px] text-gray-500">Similar: {similar[inv.product_id].join(' · ')}</span>
                         )}
                         {belowThresh && (
                           <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import type { HqStatus } from '@/lib/stock/hq-availability'
+import type { ColourSuggestion } from '@/lib/stock/colour-suggestions'
 import { cn, formatMYTime } from '@/lib/utils'
 
 // Warnings only: nothing here blocks an action.
@@ -75,6 +76,37 @@ export function HqRefreshBar({ syncedAt, onRefreshed }: { syncedAt: string | nul
         {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
         Refresh from Shopify
       </button>
+    </div>
+  )
+}
+
+/**
+ * "Similar: A18 Grey Black (12 at HQ) · A38 Classic Blue (7 at HQ)" with a Swap
+ * button per suggestion when `onSwap` is given. Swap is never automatic.
+ */
+export function SimilarColours({ suggestions, onSwap }: {
+  suggestions: ColourSuggestion[]
+  onSwap?: (s: ColourSuggestion) => void
+}) {
+  if (suggestions.length === 0) return null
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-600">
+      <span className="font-semibold text-gray-500">Similar:</span>
+      {suggestions.map((s, i) => (
+        <span key={s.sku} className="inline-flex items-center gap-1">
+          {i > 0 && <span className="text-gray-300">·</span>}
+          <span>{s.sku} {s.name} <span className="text-gray-400">({s.hqQty} at HQ)</span></span>
+          {onSwap && (
+            <button
+              type="button"
+              onClick={() => onSwap(s)}
+              className="px-1.5 py-0.5 rounded border border-[#E5E7EB] bg-white text-gray-700 font-semibold hover:bg-gray-50"
+            >
+              Swap
+            </button>
+          )}
+        </span>
+      ))}
     </div>
   )
 }

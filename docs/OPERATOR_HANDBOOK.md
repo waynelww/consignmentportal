@@ -216,6 +216,25 @@ only. Nothing else (no other Shopify location) feeds these numbers.
   The old `shopify_inventory_qty` columns are no longer written and are still
   there for now.
 
+### Similar colours (suggestions)
+
+For a Plain Series code (A/H/C + yarn number) that HQ is short of, the warning
+also shows up to two "Similar" colours. They are picked by closeness of colour
+(CIEDE2000 on each yarn's hex colour, `lib/stock/yarn-colours.ts`), from the
+catalogue list only, with the same cut letter and at least 3 pairs at HQ. Colours
+with enough stock for the quantity come first. Colours already in the same restock
+or DO are skipped. Anything that is not a Plain Series code gets no suggestion.
+
+- **Swap** (Restocks review and DO create/edit) changes that line's colour and
+  keeps the quantity. Nothing swaps automatically. On Restocks the swap is saved
+  when you press Approve.
+- **A swap adds a colour the store may not have carried before.** Check that the
+  store wants it before approving.
+- **Restock Calculator** shows the suggestions for information only. Add the
+  replacement on the request in the Restocks queue.
+- **Store restock request** shows the similar colour codes and names only, never
+  quantities.
+
 ## Test accounts (`stores.is_test`)
 
 Stores used for staff training and system testing are flagged with the
