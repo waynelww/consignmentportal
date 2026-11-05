@@ -470,14 +470,14 @@ export default function RestockCalculatorPage() {
                   </div>
 
                   {/* One-month blocks ending on the last sale */}
-                  <div className="overflow-x-auto">
+                  <div className="overflow-auto max-h-[70vh]">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-gray-100 bg-gray-50">
-                          <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Month block</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Sales (RM)</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Pairs</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">vs average</th>
+                          <th className="sticky top-0 z-10 bg-white shadow-sm text-left py-2 px-3 text-xs font-semibold text-gray-500">Month block</th>
+                          <th className="sticky top-0 z-10 bg-white shadow-sm text-right py-2 px-3 text-xs font-semibold text-gray-500">Sales (RM)</th>
+                          <th className="sticky top-0 z-10 bg-white shadow-sm text-right py-2 px-3 text-xs font-semibold text-gray-500">Pairs</th>
+                          <th className="sticky top-0 z-10 bg-white shadow-sm text-right py-2 px-3 text-xs font-semibold text-gray-500">vs average</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -512,19 +512,19 @@ export default function RestockCalculatorPage() {
                     <HqRefreshBar syncedAt={hq.syncedAt} onRefreshed={reloadHq} />
                     <p className="text-[11px] text-gray-400 mt-1">At HQ compares the suggested Send with Office (HQ) stock in Shopify. Red: 0 at HQ. Amber: fewer than the suggested Send.</p>
                   </div>
-                  <div className="overflow-x-auto">
+                  <div className="overflow-auto max-h-[70vh]">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-gray-100 bg-gray-50">
-                          <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Product</th>
-                          <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">SKU</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Sold (pairs)</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Share</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">SKU target</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">On hand</th>
-                          <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">Status</th>
-                          <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500">At HQ</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500">Send</th>
+                          <th className="sticky top-0 z-10 bg-white shadow-sm text-left py-2 px-3 text-xs font-semibold text-gray-500">Product</th>
+                          <th className="sticky top-0 z-10 bg-white shadow-sm text-left py-2 px-3 text-xs font-semibold text-gray-500">SKU</th>
+                          <th className="sticky top-0 z-10 bg-white shadow-sm text-right py-2 px-3 text-xs font-semibold text-gray-500">Sold (pairs)</th>
+                          <th className="sticky top-0 z-10 bg-white shadow-sm text-right py-2 px-3 text-xs font-semibold text-gray-500">Share</th>
+                          <th className="sticky top-0 z-10 bg-white shadow-sm text-right py-2 px-3 text-xs font-semibold text-gray-500">SKU target</th>
+                          <th className="sticky top-0 z-10 bg-white shadow-sm text-right py-2 px-3 text-xs font-semibold text-gray-500">On hand</th>
+                          <th className="sticky top-0 z-10 bg-white shadow-sm text-left py-2 px-3 text-xs font-semibold text-gray-500">Status</th>
+                          <th className="sticky top-0 z-10 bg-white shadow-sm text-left py-2 px-3 text-xs font-semibold text-gray-500">At HQ</th>
+                          <th className="sticky top-0 z-10 bg-white shadow-sm text-right py-2 px-3 text-xs font-semibold text-gray-500">Send</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -601,17 +601,17 @@ export default function RestockCalculatorPage() {
               {/* Saved calculations for this store */}
               <div>
                 <h3 className="flex items-center gap-1.5 text-sm font-semibold text-gray-900 mb-2"><History size={15} /> Saved calculations</h3>
-                <div className="overflow-x-auto">
+                <div className="overflow-auto max-h-[70vh]">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-gray-100 bg-gray-50">
-                        <th className="text-left py-2 px-3 font-semibold text-gray-500">When</th>
-                        <th className="text-left py-2 px-3 font-semibold text-gray-500">By</th>
-                        <th className="text-left py-2 px-3 font-semibold text-gray-500">Period</th>
-                        <th className="text-left py-2 px-3 font-semibold text-gray-500">Status</th>
-                        <th className="text-right py-2 px-3 font-semibold text-gray-500">Calc / final send</th>
-                        <th className="text-left py-2 px-3 font-semibold text-gray-500">Request</th>
-                        <th className="text-right py-2 px-3 font-semibold text-gray-500"></th>
+                        <th className="sticky top-0 z-10 bg-white shadow-sm text-left py-2 px-3 font-semibold text-gray-500">When</th>
+                        <th className="sticky top-0 z-10 bg-white shadow-sm text-left py-2 px-3 font-semibold text-gray-500">By</th>
+                        <th className="sticky top-0 z-10 bg-white shadow-sm text-left py-2 px-3 font-semibold text-gray-500">Period</th>
+                        <th className="sticky top-0 z-10 bg-white shadow-sm text-left py-2 px-3 font-semibold text-gray-500">Status</th>
+                        <th className="sticky top-0 z-10 bg-white shadow-sm text-right py-2 px-3 font-semibold text-gray-500">Calc / final send</th>
+                        <th className="sticky top-0 z-10 bg-white shadow-sm text-left py-2 px-3 font-semibold text-gray-500">Request</th>
+                        <th className="sticky top-0 z-10 bg-white shadow-sm text-right py-2 px-3 font-semibold text-gray-500"></th>
                       </tr>
                     </thead>
                     <tbody>
