@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict'
 import {
   calcStore, resolvePeriod, monthBlocks, subMonths, describePeriod, formatDateRange,
-  parseWayneSettings, malaysiaToday, DEFAULT_WAYNE_SETTINGS,
+  parseWayneSettings, malaysiaToday, DEFAULT_WAYNE_SETTINGS, evenSkuTarget, WAYNE_SETTING_KEYS,
   type CalcProduct, type CalcSale, type WayneInput,
 } from '../lib/restock/wayne-calc'
 
@@ -71,18 +71,23 @@ const hg: WayneInput = {
   firstSaleDate: '2026-07-15', lastSaleDate: '2026-10-26', inventory: toInventory(HG_INV),
 }
 
+assert.equal(S.split_mode, 'even') // default split is even across codes
 const h3 = calcStore(hg)
 assert.equal(h3.period.start, '2026-07-27')
 assert.equal(h3.period.end, '2026-10-26')
 assert.equal(h3.period.short_history, false)
 assert.equal(h3.period.months_covered, 3)
 assert.equal(describePeriod(h3.period), '27 Jul – 26 Oct 2026 (3 months, ending on last recorded sale)')
-// 117.7579 pairs ÷ 3 = 39.2526
+// 117.7579 pairs ÷ 3 = 39.2526 → target 39.2526 × 4 = 157.01 (exact)
 assert.equal(h3.pairs_per_month, 39.3)
-assert.equal(h3.target_stock, 157)
+// Even split over the 18 codes in inventory: ceil(157.01 ÷ 18) = 9 each → total 162 (above 157)
+assert.equal(h3.skus.length, 18)
+assert.ok(h3.skus.every((x) => x.sku_target === 9), 'every code gets the same target')
+assert.equal(h3.target_stock, 162)
 assert.equal(h3.restock_trigger, 79)
 assert.equal(h3.on_hand, 82)
 assert.equal(h3.status, 'stock_ok') // 82 ≥ 79
+assert.equal(h3.pairs_to_send, 80) // Σ max(0, 9 − on hand) = 162 − 82, as every code is at or below 9
 // blocks 27 Jul–26 Aug / 27 Aug–26 Sep / 27 Sep–26 Oct
 assert.deepEqual(h3.months.map((b) => b.pairs), [21.04, 45.62, 51.1])
 assert.deepEqual(h3.months.map((b) => b.start), ['2026-07-27', '2026-08-27', '2026-09-27'])
@@ -98,7 +103,8 @@ assert.equal(h3.skus.find((x) => x.product_id === 'SEAGREENTIGER')?.pairs_sold, 
 const h2 = calcStore({ ...hg, months: 2 })
 assert.equal(describePeriod(h2.period), '27 Aug – 26 Oct 2026 (2 months, ending on last recorded sale)')
 assert.equal(h2.pairs_per_month, 48.4) // 96.7157 ÷ 2
-assert.equal(h2.target_stock, 193)
+// 48.3578 × 4 = 193.43 → ceil(193.43 ÷ 18) = 11 each → 198
+assert.equal(h2.target_stock, 198)
 assert.equal(h2.restock_trigger, 97)
 assert.equal(h2.status, 'restock_now') // 82 < 97
 assert.equal(h2.months.length, 2)
@@ -130,7 +136,9 @@ assert.equal(o3.period.short_history, true)
 assert.equal(o3.period.months_covered, 2.07) // 63 days ÷ 30.4 = 2.072
 assert.equal(describePeriod(o3.period), '21 Aug – 23 Oct 2026 (2.1 months of history, ending on last recorded sale)')
 assert.equal(o3.pairs_per_month, 20.8) // 559.60 ÷ 13 = 43.046 pairs ÷ 2.072
-assert.equal(o3.target_stock, 83)
+// 20.769 × 4 = 83.08 → ceil(83.08 ÷ 25 codes) = 4 each → 100
+assert.equal(o3.skus.length, 25)
+assert.equal(o3.target_stock, 100)
 assert.equal(o3.restock_trigger, 42)
 assert.equal(o3.on_hand, 109)
 assert.equal(o3.status, 'stock_ok')
@@ -157,13 +165,34 @@ assert.equal(oneMonth.period.months_covered, 1.02)
 assert.equal(calcStore({ ...o99, firstSaleDate: null, lastSaleDate: null }).status, 'not_enough_history')
 
 // ── Restock now, per-SKU maths, sold-not-in-inventory ──────────────────
+// One code in inventory: even split → ceil(157.01 ÷ 1) = 158
 const low = calcStore({ ...hg, inventory: [{ product_id: 'WHITEKUIH', quantity_on_hand: 2 }] })
 assert.equal(low.status, 'restock_now')
 assert.equal(low.skus.length, 1)
 assert.equal(low.skus[0].share, 1)
-assert.equal(low.skus[0].sku_target, 157)
-assert.equal(low.skus[0].send, 155)
+assert.equal(low.skus[0].sku_target, 158)
+assert.equal(low.skus[0].send, 156)
+assert.equal(low.target_stock, 158)
 assert.ok(low.sold_not_in_inventory.some((x) => x.product_id === 'BLUEELEPHANT'))
+
+// ── Old method (sales_share) still works when switched back on ────────────
+const sharedS = { ...S, split_mode: 'sales_share' as const }
+const lowOld = calcStore({ ...hg, settings: sharedS, inventory: [{ product_id: 'WHITEKUIH', quantity_on_hand: 2 }] })
+assert.equal(lowOld.skus[0].sku_target, 157) // round(157.01 × 100%)
+assert.equal(lowOld.skus[0].send, 155)
+assert.equal(lowOld.target_stock, 157) // round, not rounded-up
+const h3Old = calcStore({ ...hg, settings: sharedS })
+assert.equal(h3Old.target_stock, 157)
+assert.equal(h3Old.skus.find((x) => x.product_id === 'SEAGREENTIGER')?.sku_target, Math.round(157.0105 * (h3Old.skus.find((x) => x.product_id === 'SEAGREENTIGER')!.share)))
+assert.equal(h3Old.skus.find((x) => x.product_id === 'BLUEELEPHANT')?.sku_target, Math.round(157.0105 * (h3Old.skus.find((x) => x.product_id === 'BLUEELEPHANT')!.share)))
+assert.equal(h3Old.pairs_per_month, h3.pairs_per_month) // averages unaffected by the split
+
+// ── evenSkuTarget: rounded up per code, float-safe ─────────────────────
+assert.equal(evenSkuTarget(157.0105, 18), 9)
+assert.equal(evenSkuTarget(36, 4), 9) // exact: no extra pair
+assert.equal(evenSkuTarget(12.000000000000002, 3), 4) // float noise (12 ÷ 3 = 4 exactly), must not become 5
+assert.equal(evenSkuTarget(10, 3), 4)
+assert.equal(evenSkuTarget(10, 0), 0)
 
 // ── Stale sales warning (last sale more than 7 days ago) ───────────────
 assert.equal(calcStore({ ...hg, today: '2026-11-02' }).stale_sales, false) // 7 days
@@ -179,9 +208,21 @@ const s2 = parseWayneSettings([
 assert.equal(s2.target_multiplier, 3)
 assert.equal(s2.trigger_multiplier, 1.5)
 assert.equal(s2.price_plain, 13)
+assert.equal(s2.split_mode, 'even') // no row → default
 const r2 = calcStore({ ...hg, settings: s2 })
-assert.equal(r2.target_stock, Math.round(39.2526 * 3))
+// 39.2526 × 3 = 117.76 → ceil(117.76 ÷ 18) = 7 each → 126
+assert.equal(r2.target_stock, 18 * Math.ceil(117.7579 / 18))
+assert.equal(r2.target_stock, 126)
 assert.equal(r2.restock_trigger, Math.round(39.2526 * 1.5))
+
+// ── Split-mode setting: text value, invalid falls back to even ─────────
+assert.equal(WAYNE_SETTING_KEYS.split_mode, 'restock_calc_split_mode')
+assert.equal(parseWayneSettings([{ key: 'restock_calc_split_mode', value: 'sales_share' }]).split_mode, 'sales_share')
+assert.equal(parseWayneSettings([{ key: 'restock_calc_split_mode', value: ' even ' }]).split_mode, 'even')
+assert.equal(parseWayneSettings([{ key: 'restock_calc_split_mode', value: 'banana' }]).split_mode, 'even')
+assert.equal(parseWayneSettings([{ key: 'restock_calc_split_mode', value: '' }]).split_mode, 'even')
+const withMode = parseWayneSettings([{ key: 'restock_calc_split_mode', value: 'sales_share' }, { key: 'restock_calc_target_multiplier', value: '5' }])
+assert.equal(withMode.target_multiplier, 5) // other settings still parse alongside it
 
 console.log('wayne-calc: all assertions passed')
 console.log(`Hyperground (3 mo): ${describePeriod(h3.period)} → ${h3.pairs_per_month} pairs/month, target ${h3.target_stock}, trigger ${h3.restock_trigger}, on hand ${h3.on_hand}, ${h3.status}`)

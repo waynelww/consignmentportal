@@ -30,8 +30,9 @@ export interface PlanRecalcResult {
  * Recalculate the 4-month plan for active stores (all, or the given ids).
  * Each store's average monthly RM sales over the plan window decides whether
  * it is on the plan. Plan stores get plan_level per carried code: the
- * 4-month quantity from wayne-calc split by sales share, minimum 1 pair per
- * code so a carried code never drops out of the low-stock check.
+ * 4-month quantity from wayne-calc split the same way as the Restock
+ * Calculator (restock_calc_split_mode), minimum 1 pair per code so a carried
+ * code never drops out of the low-stock check.
  */
 export async function recalcStockPlan(opts: { storeIds?: string[]; db?: SupabaseClient } = {}): Promise<PlanRecalcResult> {
   const db = opts.db ?? (await createServiceClient())
@@ -48,9 +49,14 @@ export async function recalcStockPlan(opts: { storeIds?: string[]; db?: Supabase
     const rows = await fetchAll<{ id: string; product_id: string }>((from, to) =>
       db.from('store_inventory').select('id, product_id').eq('store_id', r.store_id).order('id').range(from, to))
 
-    const levels = onPlan
-      ? allocateByShare(r.target_stock ?? 0, new Map(r.skus.map((s) => [s.product_id, s.pairs_sold])), rows.map((x) => x.product_id))
-      : new Map<string, number>()
+    // Even split: take each code's target straight from the calculator so the
+    // plan level always matches what the calculator shows. Sales share: the
+    // original allocation, unchanged.
+    const levels = !onPlan
+      ? new Map<string, number>()
+      : run.settings.split_mode === 'even'
+        ? new Map(r.skus.map((s) => [s.product_id, s.sku_target]))
+        : allocateByShare(r.target_stock ?? 0, new Map(r.skus.map((s) => [s.product_id, s.pairs_sold])), rows.map((x) => x.product_id))
 
     const { error: storeErr } = await db.from('stores').update({
       on_stock_plan: onPlan,
