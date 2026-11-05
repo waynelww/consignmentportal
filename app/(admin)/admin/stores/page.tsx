@@ -483,7 +483,15 @@ export default function StoresPage() {
                 : stores.map((store) => (
                     <tr key={store.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                       <td className="px-4 py-3 font-mono text-xs text-gray-500">{store.store_code}</td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{store.store_name}{store.is_test && <TestBadge />}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900">
+                        <Link
+                          href={`/admin/stores/${store.id}?tab=overview`}
+                          className="font-medium text-gray-900 hover:underline cursor-pointer"
+                        >
+                          {store.store_name}
+                        </Link>
+                        {store.is_test && <TestBadge />}
+                      </td>
                       <td className="px-4 py-3 text-gray-600">{store.pic_name}</td>
                       <td className="px-4 py-3 text-gray-600">
                         {store.city}, {store.state}
