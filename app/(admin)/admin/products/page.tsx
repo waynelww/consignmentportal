@@ -95,9 +95,11 @@ export default function ProductsPage() {
         toast.error(data?.error ?? `Sync failed (HTTP ${res.status}) — it may have timed out, try again`, { description: data?.details, duration: 8000 })
         return
       }
+      // Same summary as the Refresh bar: SKU renames, photos, conflicts, not linked.
+      const lines: string[] = Array.isArray(data.summary) ? data.summary : []
       toast.success(
-        `Inventory synced: ${(data.total_warehouse_pairs ?? 0).toLocaleString()} total pairs in Shopify · ${data.updated ?? 0} updated · ${data.unchanged ?? 0} unchanged · ${data.not_found_in_shopify ?? 0} not found`,
-        { duration: 8000 },
+        `Shopify refresh done · ${(data.total_hq_pairs ?? 0).toLocaleString()} pairs at HQ · ${data.updated ?? 0} stock rows updated`,
+        { description: lines.filter((l) => !l.startsWith('  ')).join(' · ') || undefined, duration: 12000 },
       )
       fetchProducts()
     } catch (e) {

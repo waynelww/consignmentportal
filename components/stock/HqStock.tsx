@@ -40,6 +40,7 @@ export function HqQtyCell({ qty, status }: { qty: number | null; status: HqStatu
 export function HqRefreshBar({ syncedAt, onRefreshed }: { syncedAt: string | null; onRefreshed: () => void }) {
   const [busy, setBusy] = useState(false)
   const [lastSynced, setLastSynced] = useState<string | null>(null)
+  const [summary, setSummary] = useState<string[] | null>(null)
   const shown = lastSynced ?? syncedAt
 
   async function refresh() {
@@ -52,6 +53,7 @@ export function HqRefreshBar({ syncedAt, onRefreshed }: { syncedAt: string | nul
         return
       }
       setLastSynced(data.synced_at)
+      setSummary(Array.isArray(data.summary) ? data.summary : null)
       toast.success(`Shopify stock updated ${formatMYTime(data.synced_at)}`)
       onRefreshed()
     } catch {
@@ -76,6 +78,19 @@ export function HqRefreshBar({ syncedAt, onRefreshed }: { syncedAt: string | nul
         {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
         Refresh from Shopify
       </button>
+      {summary && summary.length > 0 && (
+        <div className="w-full rounded-lg border border-[#E5E7EB] bg-white p-2.5 text-[11px] text-gray-600 space-y-0.5">
+          {summary.map((line, i) => {
+            const indented = line.startsWith('  ')
+            const attention = /^(Conflict|Not linked|Linked but)/.test(line)
+            return (
+              <div key={i} className={cn(indented && 'pl-3 text-gray-500', attention && 'font-semibold text-amber-700')}>
+                {line.trim()}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
