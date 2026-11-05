@@ -131,6 +131,7 @@ export interface Product {
   barcode: string | null
   description: string | null
   image_url: string | null
+  shopify_variant_id: string | null // Shopify ProductVariant GID; set by the Shopify sync
   shopify_inventory_qty: number | null
   shopify_inventory_synced_at: string | null
   hq_available_qty: number | null // Shopify Office (HQ) available qty; null = never synced

@@ -233,6 +233,27 @@ only. Nothing else (no other Shopify location) feeds these numbers.
   The old `shopify_inventory_qty` columns are no longer written and are still
   there for now.
 
+### SKU and photo sync (Shopify → XCMS)
+
+- **SKU renames and photo changes** made in Shopify carry over to XCMS on
+  **Refresh from Shopify** or in the nightly sync (same function,
+  `lib/shopify/sync-inventory.ts`). Only `sku` and `image_url` change; name, price,
+  barcode and `is_active` are never touched.
+- The sync runs the SKU and photo step **before** the HQ stock step, so a renamed
+  product gets its HQ quantity in the same run.
+- **Linking:** a product is linked to its Shopify variant (`products.shopify_variant_id`)
+  by SKU, only when exactly one variant has it, otherwise by name ("product title -
+  variant title", only when exactly one matches).
+- **Plain Series shared codes aren't linked by ID.** A code such as A9 that several
+  variants share is listed under "Not linked" and stays on SKU matching.
+- **History:** every SKU change is logged in `product_sku_changes` (source `refresh`
+  or `nightly`). A rename that would clash with another product's SKU is not applied
+  and is reported as a conflict.
+- The result shows "SKUs updated: OLD → NEW, …", "Photos updated: N", conflicts and
+  unlinked products. The nightly run logs the same lines.
+- Migration: `supabase/migrations/20261109_shopify_variant_sku_sync.sql` must be
+  applied before the next refresh.
+
 ### Similar colours (suggestions)
 
 For a Plain Series code (A/H/C + yarn number) that HQ is short of, the warning
