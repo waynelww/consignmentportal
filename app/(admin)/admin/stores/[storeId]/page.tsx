@@ -1033,7 +1033,7 @@ export default function StoreDetailPage() {
                   </div>
                   {store?.on_stock_plan ? (
                     <p className="text-xs text-gray-500">
-                      Each code&apos;s stocked level comes from the 4-month plan (sales share of the total). Per-code overrides are off for this store.
+                      Each code&apos;s stocked level comes from the 4-month plan (split across codes the same way as the Restock Calculator). Per-code overrides are off for this store.
                     </p>
                   ) : (
                     <div className="flex flex-wrap items-end gap-2 text-sm">

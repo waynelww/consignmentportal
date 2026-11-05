@@ -10,8 +10,8 @@ import { createClient } from '@/lib/supabase/client'
 import { cn, formatMYDate } from '@/lib/utils'
 import {
   DEFAULT_PERIOD_MONTHS, PERIOD_MONTH_OPTIONS, WAYNE_SETTING_KEYS,
-  describePeriod, formatDateRange, isPeriodMonths, parseWayneSettings,
-  type PeriodMonths, type WayneResult, type WayneSettings, type StoreStatus,
+  describePeriod, formatDateRange, isPeriodMonths, parseWayneSettings, SPLIT_MODES,
+  type PeriodMonths, type SplitMode, type WayneResult, type WayneSettings, type StoreStatus,
 } from '@/lib/restock/wayne-calc'
 import { HqAvailabilityBadge, HqQtyCell, HqRefreshBar, SimilarColours, hqRowClass } from '@/components/stock/HqStock'
 import { hqAvailabilityForSku, normalizeSku, type HqStockMap } from '@/lib/stock/hq-availability'
@@ -72,6 +72,12 @@ const SETTING_LABELS: Record<keyof WayneSettings, string> = {
   trigger_multiplier: 'Trigger = pairs/month ×',
   consistency_pct: 'Consistency flag (± %)',
   stale_sale_days: 'Warn if last sale older than (days)',
+  split_mode: 'Split target across codes',
+}
+
+const SPLIT_LABELS: Record<SplitMode, string> = {
+  even: 'Even across codes, rounded up (default)',
+  sales_share: 'By sales share (old method)',
 }
 
 // Last 2/3-month choice, remembered per user in this browser
@@ -304,7 +310,10 @@ export default function RestockCalculatorPage() {
     const updates = (Object.keys(WAYNE_SETTING_KEYS) as (keyof WayneSettings)[]).map((k) => ({
       key: WAYNE_SETTING_KEYS[k], value: (settingsDraft[k] ?? '').trim(),
     }))
-    if (updates.some((u) => !(Number(u.value) > 0))) { toast.error('All settings must be numbers above 0'); return }
+    const splitValue = (settingsDraft.split_mode ?? '').trim()
+    if (!(SPLIT_MODES as string[]).includes(splitValue)) { toast.error('Choose how to split the target across codes'); return }
+    const numeric = updates.filter((u) => u.key !== WAYNE_SETTING_KEYS.split_mode)
+    if (numeric.some((u) => !(Number(u.value) > 0))) { toast.error('All settings must be numbers above 0'); return }
     setBusy(true)
     try {
       const res = await fetch('/api/settings', {
@@ -361,6 +370,7 @@ export default function RestockCalculatorPage() {
           <p className="text-xs text-gray-500 mt-3">
             Pairs = sales ÷ RM{settings.price_plain} (Plain) or RM{settings.price_special} (Special Patches, selling price ≥ RM{settings.special_min_selling_price}).
             Pairs/month = pairs in the period ÷ months covered. Target = pairs/month × {settings.target_multiplier}, trigger = × {settings.trigger_multiplier}.
+            Codes share the target {settings.split_mode === 'even' ? 'evenly, each rounded up to a whole pair' : 'by sales share (old method)'}.
           </p>
         )}
       </div>
@@ -374,11 +384,19 @@ export default function RestockCalculatorPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {(Object.keys(SETTING_LABELS) as (keyof WayneSettings)[]).map((k) => (
-              <div key={k}>
+              <div key={k} className={k === 'split_mode' ? 'sm:col-span-2' : undefined}>
                 <label className="text-xs text-gray-500 block mb-1">{SETTING_LABELS[k]}</label>
-                <input type="number" min="0" step="any" value={settingsDraft[k] ?? ''}
-                  onChange={(e) => setSettingsDraft((d) => ({ ...d, [k]: e.target.value }))}
-                  className={cn(INPUT, 'w-full')} />
+                {k === 'split_mode' ? (
+                  <select value={settingsDraft[k] ?? 'even'}
+                    onChange={(e) => setSettingsDraft((d) => ({ ...d, [k]: e.target.value }))}
+                    className={cn(INPUT, 'w-full')}>
+                    {SPLIT_MODES.map((m) => <option key={m} value={m}>{SPLIT_LABELS[m]}</option>)}
+                  </select>
+                ) : (
+                  <input type="number" min="0" step="any" value={settingsDraft[k] ?? ''}
+                    onChange={(e) => setSettingsDraft((d) => ({ ...d, [k]: e.target.value }))}
+                    className={cn(INPUT, 'w-full')} />
+                )}
               </div>
             ))}
           </div>
@@ -457,7 +475,7 @@ export default function RestockCalculatorPage() {
                   <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                     {[
                       ['Pairs / month', r.pairs_per_month],
-                      ['Target stock', r.target_stock],
+                      [settings?.split_mode === 'even' ? 'Target (sum of rounded-up codes)' : 'Target stock', r.target_stock],
                       ['Restock trigger', r.restock_trigger],
                       ['On hand', r.on_hand],
                       ['Pairs to send', finalTotal],
@@ -468,6 +486,12 @@ export default function RestockCalculatorPage() {
                       </div>
                     ))}
                   </div>
+                  {settings?.split_mode === 'even' && r.skus.length > 0 && (
+                    <p className="text-xs text-gray-500">
+                      Even split: each of the {r.skus.length} codes is targeted at {r.skus[0].sku_target} (target ÷ codes, rounded up to a whole pair),
+                      so the total target is {r.target_stock}. That can be a few pairs above pairs/month × {settings.target_multiplier}.
+                    </p>
+                  )}
 
                   {/* One-month blocks ending on the last sale */}
                   <div className="overflow-auto max-h-[70vh]">
@@ -511,6 +535,9 @@ export default function RestockCalculatorPage() {
                   <div className="px-5 pt-3">
                     <HqRefreshBar syncedAt={hq.syncedAt} onRefreshed={reloadHq} />
                     <p className="text-[11px] text-gray-400 mt-1">At HQ compares the suggested Send with Office (HQ) stock in Shopify. Red: 0 at HQ. Amber: fewer than the suggested Send.</p>
+                    {settings?.split_mode === 'even' && (
+                      <p className="text-[11px] text-gray-400 mt-1">Sold (pairs) and Share are for information only in even mode: every code has the same SKU target.</p>
+                    )}
                   </div>
                   <div className="overflow-auto max-h-[70vh]">
                     <table className="w-full text-sm">

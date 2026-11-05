@@ -142,6 +142,22 @@ and ONE NINE NINE STR-019 as of 27 Oct 2026). Separate from
   setting (RM19), otherwise Plain. Prices, multipliers, the consistency %
   and stale-sale days are `restock_calc_*` rows in `public.settings`,
   editable from the page.
+- **Split across codes** (`restock_calc_split_mode`, default `even`). The
+  target is shared evenly across the codes the store carries: each code's
+  target = target ÷ number of codes, **rounded up** to a whole pair, and send =
+  max(0, code target − on hand). The total target is codes × that figure, so it
+  can be a few pairs above pairs/month × 4 ("Target (sum of rounded-up codes)").
+  Sold (pairs) and Share columns are for information only in this mode.
+- **Switching back to the old method:** Restock Calculator → Settings →
+  "Split target across codes" → **By sales share (old method)** → Save
+  settings. Each code's target is then target × that code's share of pairs
+  sold in the period, rounded to the nearest pair (the previous behaviour).
+  Settings apply to the next calculation; plan levels follow at the next daily
+  run or with "Recalculate plan".
+- The split is stored in each saved calculation's `settings` (JSON). Calculations
+  saved before this change have no `split_mode` key and were made by sales share.
+- No migration is needed: the setting has a code default (`even`) and the first
+  "Save settings" writes the row.
 - Nothing is saved on selecting a store or changing 2/3 months. "Save
   calculation" (or "Create restock request", which saves first and links
   the two) writes a row in `restock_calculations`: `period_start` /
@@ -165,8 +181,9 @@ Rule lives only in `lib/restock/low-stock.ts` (pinned by
 - **4-month plan.** A store whose average monthly RM sales over the last
   `restock_plan_avg_months` (3) is at least `restock_plan_min_monthly_sales`
   (RM250) is on the plan (`stores.on_stock_plan`). Its total is the
-  4-month quantity from `wayne-calc.ts`, split across carried codes by sales
-  share (minimum 1 pair per code, so the total can be a pair or two over).
+  4-month quantity from `wayne-calc.ts`, split across carried codes the same way
+  as the Restock Calculator (even and rounded up by default; see "Split across
+  codes" above), minimum 1 pair per code, so the total can be a few pairs over.
   Plan levels are read-only; they refresh in the 09:00 MYT daily job, or
   with "Recalculate plan" on the store page.
 - **Low:** `0 < on hand ≤ max(1, stocked × low_stock_pct / 100)`

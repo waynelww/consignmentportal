@@ -19,9 +19,18 @@
 //    last sale; full blocks feed the consistency check.
 //  - Target = pairs/month × target_multiplier; trigger = × trigger_multiplier.
 //  - "Restock now" if total on hand < trigger, else "Stock OK".
-//  - Per SKU (only products already in store_inventory): split the target by
-//    each SKU's share of pairs sold in the period; send = max(0, SKU target −
-//    on hand). Everything rounded to the nearest pair.
+//  - Per SKU (only products already in store_inventory), split mode
+//    restock_calc_split_mode:
+//      'even' (default): every SKU gets the same target = ceil(target ÷ number
+//        of SKUs the store carries). The total target is codes × that figure,
+//        so it can be a few pairs above target (rounded up per code).
+//      'sales_share' (old method): SKU target = target × SKU's share of pairs
+//        sold in the period, rounded to the nearest pair.
+//    Shares are shown for information in both modes. send = max(0, SKU target −
+//    on hand).
+
+export type SplitMode = 'even' | 'sales_share'
+export const SPLIT_MODES: SplitMode[] = ['even', 'sales_share']
 
 export interface WayneSettings {
   price_plain: number
@@ -31,6 +40,7 @@ export interface WayneSettings {
   trigger_multiplier: number
   consistency_pct: number
   stale_sale_days: number
+  split_mode: SplitMode
 }
 
 export const DEFAULT_WAYNE_SETTINGS: WayneSettings = {
@@ -41,6 +51,7 @@ export const DEFAULT_WAYNE_SETTINGS: WayneSettings = {
   trigger_multiplier: 2,
   consistency_pct: 20,
   stale_sale_days: 7,
+  split_mode: 'even',
 }
 
 // settings.key for each field (values stored as text in public.settings)
@@ -52,6 +63,7 @@ export const WAYNE_SETTING_KEYS: Record<keyof WayneSettings, string> = {
   trigger_multiplier: 'restock_calc_trigger_multiplier',
   consistency_pct: 'restock_calc_consistency_pct',
   stale_sale_days: 'restock_calc_stale_sale_days',
+  split_mode: 'restock_calc_split_mode',
 }
 
 export type PeriodMonths = 2 | 3
@@ -140,7 +152,7 @@ export interface WayneResult {
   months: BlockResult[]
   pairs_per_month: number | null // 1 dp
   avg_monthly_sales: number | null // RM per month over the period (total_amount ÷ months covered), 2 dp
-  target_stock: number | null
+  target_stock: number | null // total target: even split = codes × rounded-up per-code target
   restock_trigger: number | null
   on_hand: number
   pairs_to_send: number | null
@@ -156,6 +168,15 @@ export interface WayneResult {
 const round = (n: number) => Math.round(n)
 const round1 = (n: number) => Math.round(n * 10) / 10
 const round2 = (n: number) => Math.round(n * 100) / 100
+const round6 = (n: number) => Math.round(n * 1e6) / 1e6 // strips float noise before ceil
+
+/**
+ * Even split: the target for each code the store carries, rounded up to a
+ * whole pair. 0 when the store has no codes.
+ */
+export function evenSkuTarget(targetExact: number, codeCount: number): number {
+  return codeCount > 0 ? Math.ceil(round6(targetExact) / codeCount) : 0
+}
 
 export function isPeriodMonths(n: unknown): n is PeriodMonths {
   return n === 2 || n === 3
@@ -293,18 +314,21 @@ export function calcStore(input: WayneInput): WayneResult {
   for (const x of inPeriod) soldByProduct.set(x.product_id, (soldByProduct.get(x.product_id) ?? 0) + (x.quantity ?? 0))
 
   const targetExact = avg * s.target_multiplier
-  const target = round(targetExact)
   const trigger = round(avg * s.trigger_multiplier)
 
-  // Per SKU: only products already in this store's inventory; shares are
-  // taken over the pairs sold of those SKUs so the split covers the target.
+  // Per SKU: only products already in this store's inventory.
   const invIds = [...onHandBySku.keys()]
+  const isEven = s.split_mode === 'even'
+  const evenPerCode = evenSkuTarget(targetExact, invIds.length)
+  // Even split: total = codes × rounded-up per-code target (so may exceed target).
+  const target = isEven && invIds.length > 0 ? evenPerCode * invIds.length : round(targetExact)
+
   const soldInInv = invIds.reduce((a, id) => a + (soldByProduct.get(id) ?? 0), 0)
   const skus: SkuResult[] = invIds.map((id) => {
     const prod = products[id]
     const sold = soldByProduct.get(id) ?? 0
     const share = soldInInv > 0 ? sold / soldInInv : 0
-    const skuTarget = round(targetExact * share)
+    const skuTarget = isEven ? evenPerCode : round(targetExact * share)
     const qoh = onHandBySku.get(id) ?? 0
     return {
       product_id: id,
@@ -365,11 +389,16 @@ export function allocateByShare(total: number, weights: Map<string, number>, ids
 export function parseWayneSettings(rows: { key: string; value: string | null }[]): WayneSettings {
   const out = { ...DEFAULT_WAYNE_SETTINGS }
   const byKey = new Map(rows.map((r) => [r.key, r.value]))
-  for (const k of Object.keys(WAYNE_SETTING_KEYS) as (keyof WayneSettings)[]) {
+  type NumericKey = Exclude<keyof WayneSettings, 'split_mode'>
+  const numericKeys = (Object.keys(WAYNE_SETTING_KEYS) as (keyof WayneSettings)[]).filter((k): k is NumericKey => k !== 'split_mode')
+  for (const k of numericKeys) {
     const raw = byKey.get(WAYNE_SETTING_KEYS[k])
     const v = raw === undefined || raw === null || raw === '' ? NaN : Number(raw)
     if (Number.isFinite(v) && v >= 0) out[k] = v
   }
+  // anything other than 'even' / 'sales_share' falls back to the default ('even')
+  const mode = (byKey.get(WAYNE_SETTING_KEYS.split_mode) ?? '').trim()
+  if ((SPLIT_MODES as string[]).includes(mode)) out.split_mode = mode as SplitMode
   // a zero price would divide by zero
   if (out.price_plain <= 0) out.price_plain = DEFAULT_WAYNE_SETTINGS.price_plain
   if (out.price_special <= 0) out.price_special = DEFAULT_WAYNE_SETTINGS.price_special
