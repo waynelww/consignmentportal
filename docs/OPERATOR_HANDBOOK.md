@@ -604,10 +604,10 @@ The invoice month is the month the invoice covers (the October invoice is made o
 1. Settings → General → Google Drive copies: read the failure message.
 2. Open the DO or invoice and press **retry** (or **queue** if it was never queued).
    The worker uploads it within 15 minutes.
-3. To queue everything again, a super admin presses **Queue Drive backfill**.
+3. To queue everything again, a super admin or ops manager presses **Queue Drive backfill**.
 
 **Backfill.** Settings → Google Drive copies → **Queue Drive backfill** (super admin
-only) queues every DO and invoice created on or after **1 Nov 2026 (MYT)** that is
+or ops manager) queues every DO and invoice created on or after **1 Nov 2026 (MYT)** that is
 not already done. Nothing before November is touched. It is safe to press twice.
 
 **Setup (already done, do not change)**

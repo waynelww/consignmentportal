@@ -11,12 +11,12 @@ interface BackfillResult {
   invoices: { total: number; alreadyDone: number; queued: number; skippedTest: number }
 }
 
-// Settings → General. Shows the Google Drive copy queue and lets the super admin
+// Settings → General. Shows the Google Drive copy queue and lets admins
 // queue the Nov 2026 backfill. Reads use the admin RLS policy on drive_uploads.
 export default function DriveUploadsCard() {
   const [counts, setCounts] = useState<Counts | null>(null)
   const [failed, setFailed] = useState<FailedRow[]>([])
-  const [isSuper, setIsSuper] = useState(false)
+  const [canBackfill, setCanBackfill] = useState(false)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<BackfillResult | null>(null)
 
@@ -47,7 +47,7 @@ export default function DriveUploadsCard() {
       const user = data.user
       if (!user) return
       const { data: profile } = await db.from('profiles').select('role').eq('id', user.id).single()
-      setIsSuper(profile?.role === 'super_admin')
+      setCanBackfill(profile?.role === 'super_admin' || profile?.role === 'ops_manager')
     })
   }, [load])
 
@@ -88,7 +88,7 @@ export default function DriveUploadsCard() {
 
       {failed.length > 0 && (
         <div className="text-xs text-red-700 space-y-1">
-          <p className="font-medium">Recent failures (retry from the DO or invoice row, or the super admin backfill):</p>
+          <p className="font-medium">Recent failures (retry from the DO or invoice row, or the backfill):</p>
           {failed.map((f) => (
             <p key={`${f.kind}-${f.record_id}`} className="font-mono break-all">
               {f.kind === 'invoice' ? 'Invoice' : 'DO'} {f.record_id.slice(0, 8)} · {f.attempts} attempts · {f.last_error ?? 'no message'}
@@ -97,7 +97,7 @@ export default function DriveUploadsCard() {
         </div>
       )}
 
-      {isSuper && (
+      {canBackfill && (
         <div className="pt-2 border-t border-gray-100 space-y-2">
           <button
             onClick={runBackfill}
