@@ -561,10 +561,12 @@ Every delivery order (DO) and monthly commission invoice is copied to the XCMS
 Shared Drive, so the files can be found and opened without XCMS.
 
 **What is saved**
-- **Delivery orders: only once received and signed.** A DO gets a Drive copy only when
-  its status is `acknowledged`, and the copy uploaded is the signed PDF exactly as the
-  store signed it. A received DO that is not signed yet waits (stays pending) until the
-  store signs it. Drafts, confirmed, dispatched and delivered DOs are not uploaded.
+- **Delivery orders: once received.** A DO gets a Drive copy when its status is
+  `acknowledged` (received), whether or not the store has signed it. If a signed copy
+  exists, that signed PDF is uploaded exactly as the store signed it; otherwise the
+  normal DO PDF is uploaded. When the store signs a DO that is already in Drive, it is
+  re-queued and the same Drive file is replaced with the signed copy. Drafts, confirmed,
+  dispatched and delivered DOs are not uploaded.
 - **Monthly invoices (`XCSM-###`).** The same PDF the store sees: the stored copy if
   one exists, otherwise generated from the data now.
 - **Not saved:** daily sales reports, and any store flagged as a test account.

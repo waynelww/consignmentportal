@@ -22,6 +22,7 @@ interface UploadRow {
   record_id: string
   attempts: number
   drive_file_id: string | null
+  updated_at: string
 }
 
 export interface WorkerResult {
@@ -54,7 +55,7 @@ export async function runDriveWorker(): Promise<WorkerResult> {
 
   const { data: rows, error } = await svc
     .from('drive_uploads')
-    .select('id, kind, record_id, attempts, drive_file_id')
+    .select('id, kind, record_id, attempts, drive_file_id, updated_at')
     .eq('status', 'pending')
     .order('updated_at', { ascending: true })
     .limit(200)
@@ -95,7 +96,10 @@ export async function runDriveWorker(): Promise<WorkerResult> {
         bytes: rendered.bytes,
         existingFileId: row.drive_file_id,
       })
-      const { error: doneErr } = await svc
+      // Only mark done if the row was not re-queued while we were uploading
+      // (e.g. the store signed the DO meanwhile): then it stays pending and the
+      // next run uploads the newer copy.
+      const { data: doneRows, error: doneErr } = await svc
         .from('drive_uploads')
         .update({
           status: 'done',
@@ -105,8 +109,10 @@ export async function runDriveWorker(): Promise<WorkerResult> {
           updated_at: new Date().toISOString(),
         })
         .eq('id', row.id)
+        .eq('updated_at', row.updated_at)
+        .select('id')
       if (doneErr) throw new Error(`Uploaded, but could not record it: ${doneErr.message}`)
-      done++
+      if (doneRows && doneRows.length > 0) done++
     } catch (err) {
       const attempts = row.attempts + 1
       const giveUp = attempts >= MAX_ATTEMPTS
