@@ -5,6 +5,7 @@
 //
 // Rules:
 //  - Test stores (stores.is_test) are never queued (lib/stores/test-accounts.ts).
+//  - Stores that are not 'active' are never queued, same as test stores.
 //  - A delivery order is only queued once it is 'acknowledged' (received). Any
 //    other status is ignored here, and the worker only uploads its signed copy.
 //  - Invoices are queued as they are created.
@@ -21,6 +22,7 @@ export interface QueueItem {
 export interface QueueResult {
   queued: number
   skippedTest: number
+  skippedInactive: number
   skippedNotAcknowledged: number
 }
 
@@ -41,7 +43,7 @@ export async function queueDriveUploads(
   const unique = new Map<string, QueueItem>()
   for (const item of items) unique.set(item.recordId, item)
   const list = [...unique.values()]
-  if (list.length === 0) return { queued: 0, skippedTest: 0, skippedNotAcknowledged: 0 }
+  if (list.length === 0) return { queued: 0, skippedTest: 0, skippedInactive: 0, skippedNotAcknowledged: 0 }
 
   let candidates = list
   if (kind === 'delivery_order') {
@@ -51,7 +53,9 @@ export async function queueDriveUploads(
   const skippedNotAcknowledged = list.length - candidates.length
 
   const testIds = await loadTestStoreIds(svc)
-  const eligible = candidates.filter((i) => !testIds.has(i.storeId))
+  const activeIds = await activeStoreIds(svc, [...new Set(candidates.map((i) => i.storeId))])
+  const eligible = candidates.filter((i) => !testIds.has(i.storeId) && activeIds.has(i.storeId))
+  const skippedTest = candidates.filter((i) => testIds.has(i.storeId)).length
   const now = new Date().toISOString()
 
   for (let i = 0; i < eligible.length; i += BATCH) {
@@ -69,9 +73,26 @@ export async function queueDriveUploads(
   }
   return {
     queued: eligible.length,
-    skippedTest: candidates.length - eligible.length,
+    skippedTest,
+    skippedInactive: candidates.length - eligible.length - skippedTest,
     skippedNotAcknowledged,
   }
+}
+
+/** IDs (of the given list) whose store is 'active'. Other statuses (inactive, closed, ...) are not queued. */
+export async function activeStoreIds(svc: SupabaseClient, ids: string[]): Promise<Set<string>> {
+  const out = new Set<string>()
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const { data, error } = await svc
+      .from('stores')
+      .select('id, status')
+      .in('id', ids.slice(i, i + BATCH))
+    if (error) throw new Error(`Could not read store status: ${error.message}`)
+    for (const row of data ?? []) {
+      if (row.status === 'active') out.add(row.id as string)
+    }
+  }
+  return out
 }
 
 /** IDs (of the given list) whose delivery order is currently acknowledged. Missing DOs are not included. */
@@ -132,6 +153,7 @@ export interface BackfillCounts {
   alreadyDone: number // already in Drive, left alone
   queued: number
   skippedTest: number
+  skippedInactive: number
 }
 
 /**
@@ -181,5 +203,6 @@ async function backfillKind(
     alreadyDone: records.filter((r) => doneIds.has(r.id)).length,
     queued: queued.queued,
     skippedTest: queued.skippedTest,
+    skippedInactive: queued.skippedInactive,
   }
 }

@@ -569,7 +569,8 @@ Shared Drive, so the files can be found and opened without XCMS.
   dispatched and delivered DOs are not uploaded.
 - **Monthly invoices (`XCSM-###`).** The same PDF the store sees: the stored copy if
   one exists, otherwise generated from the data now.
-- **Not saved:** daily sales reports, and any store flagged as a test account.
+- **Not saved:** daily sales reports, any store flagged as a test account, and any
+  store that is not `active` (for example inactive or closed).
 - There is no "packed" status in XCMS. A DO is queued when it is received
   (acknowledged) and again when it is signed.
 
@@ -614,7 +615,7 @@ The invoice month is the month the invoice covers (the October invoice is made o
 
 **Backfill.** Settings → Google Drive copies → **Queue Drive backfill** (super admin
 or ops manager) queues every **acknowledged** DO and every invoice created on or after
-**1 Nov 2026 (MYT)** that is not already done. Nothing before November is touched. It is safe to press twice.
+**1 Nov 2026 (MYT)** for **active, non-test** stores that is not already done. Nothing before November is touched. It is safe to press twice.
 
 **Setup (already done, do not change)**
 - Vercel env: `GOOGLE_SERVICE_ACCOUNT_JSON` (full key JSON) and `GOOGLE_DRIVE_FOLDER_ID`
@@ -639,7 +640,7 @@ or ops manager) queues every **acknowledged** DO and every invoice created on or
 | `Signed delivery order could not be read from storage` / `Stored invoice…` | The file in the `do-documents` or `commission-pdfs` bucket is missing; check Supabase Storage |
 
 **Not handled (on purpose, for now)**
-- If a store is flagged as a test account after its records were queued, the worker
+- If a store is flagged as a test account, or becomes inactive, after its records were queued, the worker
   still uploads them. Clear them with the Drive status or remove them in Drive.
 - The HR receipts copy (`lib/hr/drive.ts`) is a separate OAuth connection and is not
   affected by this.
