@@ -3,8 +3,11 @@
 // upload. A queue failure is logged and never fails the user's request (the
 // record is already saved, and the backfill button can queue it again).
 //
-// Test stores (stores.is_test) are never queued. The rule lives in
-// lib/stores/test-accounts.ts; this file only uses it.
+// Rules:
+//  - Test stores (stores.is_test) are never queued (lib/stores/test-accounts.ts).
+//  - A delivery order is only queued once it is 'acknowledged' (received). Any
+//    other status is ignored here, and the worker only uploads its signed copy.
+//  - Invoices are queued as they are created.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadTestStoreIds } from '@/lib/stores/test-accounts'
@@ -18,9 +21,15 @@ export interface QueueItem {
 export interface QueueResult {
   queued: number
   skippedTest: number
+  skippedNotAcknowledged: number
 }
 
 const BATCH = 200
+
+/** A delivery order gets a Drive copy only once it is received (acknowledged). */
+export function deliveryOrderCopyWanted(status: string | null | undefined): boolean {
+  return status === 'acknowledged'
+}
 
 /** Queue (or re-queue) records. Re-queuing resets attempts and keeps the existing Drive file id. */
 export async function queueDriveUploads(
@@ -32,10 +41,17 @@ export async function queueDriveUploads(
   const unique = new Map<string, QueueItem>()
   for (const item of items) unique.set(item.recordId, item)
   const list = [...unique.values()]
-  if (list.length === 0) return { queued: 0, skippedTest: 0 }
+  if (list.length === 0) return { queued: 0, skippedTest: 0, skippedNotAcknowledged: 0 }
+
+  let candidates = list
+  if (kind === 'delivery_order') {
+    const wanted = await acknowledgedDeliveryOrderIds(svc, list.map((i) => i.recordId))
+    candidates = list.filter((i) => wanted.has(i.recordId))
+  }
+  const skippedNotAcknowledged = list.length - candidates.length
 
   const testIds = await loadTestStoreIds(svc)
-  const eligible = list.filter((i) => !testIds.has(i.storeId))
+  const eligible = candidates.filter((i) => !testIds.has(i.storeId))
   const now = new Date().toISOString()
 
   for (let i = 0; i < eligible.length; i += BATCH) {
@@ -51,7 +67,27 @@ export async function queueDriveUploads(
     const { error } = await svc.from('drive_uploads').upsert(rows, { onConflict: 'kind,record_id' })
     if (error) throw new Error(`Drive queue failed: ${error.message}`)
   }
-  return { queued: eligible.length, skippedTest: list.length - eligible.length }
+  return {
+    queued: eligible.length,
+    skippedTest: candidates.length - eligible.length,
+    skippedNotAcknowledged,
+  }
+}
+
+/** IDs (of the given list) whose delivery order is currently acknowledged. Missing DOs are not included. */
+export async function acknowledgedDeliveryOrderIds(svc: SupabaseClient, ids: string[]): Promise<Set<string>> {
+  const out = new Set<string>()
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const { data, error } = await svc
+      .from('delivery_orders')
+      .select('id, status')
+      .in('id', ids.slice(i, i + BATCH))
+    if (error) throw new Error(`Could not read delivery order status: ${error.message}`)
+    for (const row of data ?? []) {
+      if (deliveryOrderCopyWanted(row.status as string)) out.add(row.id as string)
+    }
+  }
+  return out
 }
 
 /** Same as queueDriveUploads, but logs and swallows errors. Use from request handlers. */
@@ -92,40 +128,37 @@ export async function selectAll<T>(
 }
 
 export interface BackfillCounts {
-  total: number       // records created on/after the backfill date
+  total: number       // records created on/after the backfill date (delivery orders: acknowledged only)
   alreadyDone: number // already in Drive, left alone
   queued: number
   skippedTest: number
 }
 
 /**
- * Queue every DO and invoice created on/after 1 Nov 2026 (MYT) that is not
- * already done in Drive. Done rows are not touched; pending and failed rows
- * are reset to pending.
+ * Queue every acknowledged DO and every invoice created on/after 1 Nov 2026
+ * (MYT) that is not already done in Drive. Done rows are not touched; pending
+ * and failed rows are reset to pending.
  */
 export async function backfillDriveUploads(
   svc: SupabaseClient,
 ): Promise<{ delivery_orders: BackfillCounts; invoices: BackfillCounts }> {
-  const result = {
-    delivery_orders: await backfillKind(svc, 'delivery_order', 'delivery_orders'),
-    invoices: await backfillKind(svc, 'invoice', 'commission_periods'),
+  return {
+    delivery_orders: await backfillKind(svc, 'delivery_order', 'delivery_orders', 'acknowledged'),
+    invoices: await backfillKind(svc, 'invoice', 'commission_periods', null),
   }
-  return result
 }
 
 async function backfillKind(
   svc: SupabaseClient,
   kind: DriveKind,
   table: 'delivery_orders' | 'commission_periods',
+  onlyStatus: string | null,
 ): Promise<BackfillCounts> {
-  const records = await selectAll<{ id: string; store_id: string }>((from, to) =>
-    svc
-      .from(table)
-      .select('id, store_id')
-      .gte('created_at', BACKFILL_FROM_ISO)
-      .order('id', { ascending: true })
-      .range(from, to),
-  )
+  const records = await selectAll<{ id: string; store_id: string }>((from, to) => {
+    const base = svc.from(table).select('id, store_id').gte('created_at', BACKFILL_FROM_ISO)
+    const filtered = onlyStatus ? base.eq('status', onlyStatus) : base
+    return filtered.order('id', { ascending: true }).range(from, to)
+  })
 
   const done = await selectAll<{ record_id: string }>((from, to) =>
     svc

@@ -1,4 +1,5 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
+import { sanitizePdfDeep } from './text'
 
 const PAGE_WIDTH = 595
 const PAGE_HEIGHT = 842
@@ -77,6 +78,7 @@ export async function generateStatementPdf(params: {
   // sales date, with no invoice number, status or bank-transfer reminder.
   daily?: { salesDate: string }    // e.g. "30 October 2026"
 }): Promise<Uint8Array> {
+  params = sanitizePdfDeep(params)
   const pdfDoc = await PDFDocument.create()
   let page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
 

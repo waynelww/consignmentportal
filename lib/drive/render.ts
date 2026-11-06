@@ -4,14 +4,13 @@
 //   - a stored copy (signed DO / downloaded invoice) is uploaded as-is, the same
 //     document the store sees; if it cannot be read the job fails and retries,
 //     so Drive never gets a different version from the store's;
-//   - otherwise the PDF is generated from the data now.
-// The DO copy in Drive is the internal one (cost prices shown).
+//   - otherwise an invoice is generated from the data now.
+// A DO copy in Drive is always the store-signed PDF (see renderDeliveryOrder).
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { generateDOPdf } from '@/lib/pdf/generate-do'
 import { generateStatementPdf } from '@/lib/pdf/generate-statement'
 import { assignInvoiceNo, formatInvoiceNo } from '@/lib/invoice-number'
-import { selectAll } from './queue'
+import { deliveryOrderCopyWanted, selectAll } from './queue'
 import { doFileName, invoiceFileName, storeFolderName, subfolderFor, type DriveKind } from './layout'
 
 export interface RenderedFile {
@@ -26,88 +25,41 @@ function mytDate(value: string | Date): string {
   return new Date(value).toLocaleDateString('en-MY', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: TZ })
 }
 
-export async function renderRecord(svc: SupabaseClient, kind: DriveKind, recordId: string): Promise<RenderedFile> {
+export async function renderRecord(svc: SupabaseClient, kind: DriveKind, recordId: string): Promise<RenderedFile | null> {
   return kind === 'delivery_order' ? renderDeliveryOrder(svc, recordId) : renderInvoice(svc, recordId)
 }
 
 // ── Delivery orders ──────────────────────────────────────────────────────────
 
-export async function renderDeliveryOrder(svc: SupabaseClient, doId: string): Promise<RenderedFile> {
+/**
+ * The signed copy of a received DO. Returns null (not ready) when the DO is not
+ * acknowledged or the store has not signed it yet; the worker leaves the row
+ * pending and does not count it as a failure. The signing step re-queues it.
+ */
+export async function renderDeliveryOrder(svc: SupabaseClient, doId: string): Promise<RenderedFile | null> {
   const { data: d, error } = await svc
     .from('delivery_orders')
     .select(`
-      *,
-      stores:store_id (
-        store_name, store_code, pic_name, address, city, postcode, state, pic_phone,
-        shipment_address, shipment_contact, shipment_pic
-      ),
-      delivery_order_items (
-        id, quantity, unit_cost,
-        products:product_id ( name, sku )
-      )
+      id, do_number, status, pdf_url,
+      stores:store_id ( store_name, store_code )
     `)
     .eq('id', doId)
     .single()
   if (error || !d) throw new Error('Delivery order not found')
+  if (!deliveryOrderCopyWanted(d.status as string)) return null
+  if (!d.pdf_url) return null
 
-  const store = d.stores as {
-    store_name: string; store_code: string; pic_name: string; address: string; city: string
-    postcode: string; state: string; pic_phone: string
-    shipment_address: string | null; shipment_contact: string | null; shipment_pic: string | null
-  } | null
+  const store = d.stores as unknown as { store_name: string; store_code: string } | null
   if (!store) throw new Error('Store data not found')
 
-  const base = {
-    fileName: doFileName(d.do_number),
+  const { data: file, error: dlErr } = await svc.storage.from('do-documents').download(d.pdf_url as string)
+  if (dlErr || !file) throw new Error('Signed delivery order could not be read from storage')
+  return {
+    bytes: new Uint8Array(await file.arrayBuffer()),
+    fileName: doFileName(d.do_number as string),
     folderName: storeFolderName(store.store_code, store.store_name),
     subfolder: subfolderFor('delivery_order'),
   }
-
-  if (d.pdf_url) {
-    const { data: file, error: dlErr } = await svc.storage.from('do-documents').download(d.pdf_url)
-    if (dlErr || !file) throw new Error('Signed delivery order could not be read from storage')
-    return { ...base, bytes: new Uint8Array(await file.arrayBuffer()) }
-  }
-
-  const { data: settingsRows } = await svc
-    .from('settings')
-    .select('key, value')
-    .in('key', ['company_name', 'company_address', 'company_phone', 'company_email'])
-  const settings: Record<string, string> = {}
-  for (const s of settingsRows ?? []) settings[s.key] = s.value
-
-  type ItemRaw = { quantity: number; unit_cost: number; products: { name: string; sku: string } | null }
-  const items = ((d.delivery_order_items as ItemRaw[]) ?? []).map((i) => ({
-    name: i.products?.name ?? 'Unknown Product',
-    sku: i.products?.sku ?? '-',
-    quantity: i.quantity,
-    unitCost: i.unit_cost,
-  }))
-
-  const bytes = await generateDOPdf({
-    doNumber: d.do_number,
-    createdAt: mytDate(d.created_at),
-    status: d.status,
-    storeName: store.store_name,
-    storeCode: store.store_code,
-    picName: store.pic_name,
-    address: store.address,
-    city: store.city,
-    postcode: store.postcode,
-    state: store.state,
-    picPhone: store.pic_phone,
-    shipment: { address: store.shipment_address, contact: store.shipment_contact, pic: store.shipment_pic },
-    courier: d.courier ?? undefined,
-    trackingNumber: d.tracking_number ?? undefined,
-    dispatchDate: d.dispatch_date ? mytDate(d.dispatch_date) : undefined,
-    items,
-    companyName: settings['company_name'] ?? 'Wayne Group Holding Sdn Bhd',
-    companyAddress: settings['company_address'] ?? '',
-    companyPhone: settings['company_phone'] ?? '',
-    companyEmail: settings['company_email'] ?? 'info@xocks.co',
-    showCosts: true,
-  })
-  return { ...base, bytes }
 }
 
 // ── Monthly invoices ─────────────────────────────────────────────────────────

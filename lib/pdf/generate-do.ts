@@ -1,5 +1,6 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib'
 import { shipmentLines, type ShipmentDetails } from './shipment'
+import { sanitizePdfDeep } from './text'
 
 const PAGE_WIDTH = 595
 const PAGE_HEIGHT = 842
@@ -47,6 +48,7 @@ export async function generateDOPdf(params: {
   // When present, the "Received by" line is replaced with the drawn signature
   signature?: { pngBase64: string; signedBy: string; signedAt: string }
 }): Promise<Uint8Array> {
+  params = sanitizePdfDeep(params)
   const showCosts = params.showCosts ?? true
   const pdfDoc = await PDFDocument.create()
   let page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT])

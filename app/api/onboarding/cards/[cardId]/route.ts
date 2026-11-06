@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { authoriseOnboarding, isActiveTeamMember } from '@/lib/onboarding/access'
 import { UpdateCardSchema, clean } from '@/lib/onboarding/schemas'
+import { stripInvisibleDeep } from '@/lib/text/invisible'
 
 type Params = { params: Promise<{ cardId: string }> }
 
@@ -50,6 +51,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   let body: unknown
   try {
     body = await request.json()
+    body = stripInvisibleDeep(body)
   } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
   }

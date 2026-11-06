@@ -8,6 +8,7 @@ import { stepLabel } from '@/lib/onboarding/steps'
 import { DAILY_REPORT_MAX_RECIPIENTS, normalizeRecipients, validateDailyReportSettings } from '@/lib/daily-report/settings'
 import { saveDailyReportConfig } from '@/lib/daily-report/config'
 import { queueOneDriveUpload } from '@/lib/drive/queue'
+import { stripInvisibleDeep } from '@/lib/text/invisible'
 
 function randomChars(length: number) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -73,6 +74,7 @@ export async function POST(request: NextRequest) {
   let body: unknown
   try {
     body = await request.json()
+    body = stripInvisibleDeep(body)
   } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
   }

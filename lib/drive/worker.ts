@@ -11,6 +11,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { driveFileUrl, driveRootFolderId, findOrCreateFolder, uploadOrReplacePdf } from '@/lib/google/drive'
 import { renderRecord } from './render'
 import { type DriveKind } from './layout'
+import { purgeUnwantedDeliveryOrderCopies, type PurgeResult } from './purge'
 
 export const BUDGET_MS = 40_000
 export const MAX_ATTEMPTS = 5
@@ -24,7 +25,9 @@ interface UploadRow {
 }
 
 export interface WorkerResult {
+  purge: PurgeResult | { error: string }
   processed: number
+  waiting: number     // delivery orders not signed yet: left pending
   done: number
   retried: number     // failed this run, still pending for the next run
   failed: number      // reached MAX_ATTEMPTS this run
@@ -40,6 +43,14 @@ function errorText(err: unknown): string {
 export async function runDriveWorker(): Promise<WorkerResult> {
   const started = Date.now()
   const svc = await createServiceClient()
+
+  let purge: PurgeResult | { error: string }
+  try {
+    purge = await purgeUnwantedDeliveryOrderCopies(svc)
+  } catch (err) {
+    purge = { error: err instanceof Error ? err.message : 'purge failed' }
+    console.error('[drive-purge]', purge.error)
+  }
 
   const { data: rows, error } = await svc
     .from('drive_uploads')
@@ -62,6 +73,7 @@ export async function runDriveWorker(): Promise<WorkerResult> {
   }
 
   let processed = 0
+  let waiting = 0
   let done = 0
   let retried = 0
   let failed = 0
@@ -72,6 +84,10 @@ export async function runDriveWorker(): Promise<WorkerResult> {
 
     try {
       const rendered = await renderRecord(svc, row.kind, row.record_id)
+      if (!rendered) {
+        waiting++
+        continue // not signed yet: stays pending, no attempt counted
+      }
       const folderId = await folderFor(rendered.folderName, rendered.subfolder)
       const fileId = await uploadOrReplacePdf({
         folderId,
@@ -115,7 +131,9 @@ export async function runDriveWorker(): Promise<WorkerResult> {
     .eq('status', 'pending')
 
   return {
+    purge,
     processed,
+    waiting,
     done,
     retried,
     failed,

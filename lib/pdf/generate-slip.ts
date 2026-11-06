@@ -1,5 +1,6 @@
 import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from 'pdf-lib'
 import { shipmentLines, type ShipmentDetails } from './shipment'
+import { sanitizePdfDeep } from './text'
 
 // 4 x 6 inch packing slip for a restock DO (label-printer friendly).
 // Generated on the fly from the DO's existing data — nothing is stored.
@@ -315,5 +316,5 @@ export async function buildPackingSlip(p: SlipParams): Promise<{ bytes: Uint8Arr
 }
 
 export async function generatePackingSlipPdf(p: SlipParams): Promise<Uint8Array> {
-  return (await buildPackingSlip(p)).bytes
+  return (await buildPackingSlip(sanitizePdfDeep(p))).bytes
 }
