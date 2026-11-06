@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMonthYear, cn } from '@/lib/utils'
 import type { CommissionPeriod, CommissionStatus } from '@/types'
 import { toast } from 'sonner'
+import DriveStatus from '@/components/drive/DriveStatus'
+import { useDriveRows } from '@/lib/drive/use-drive-rows'
 
 interface CommissionRow extends CommissionPeriod {
   store_name: string
@@ -32,6 +34,7 @@ export default function CommissionsPage() {
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
   const [rows, setRows] = useState<CommissionRow[]>([])
+  const driveInvoice = useDriveRows('invoice', rows.map((r) => r.id))
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [paymentRefs, setPaymentRefs] = useState<Record<string, string>>({})
@@ -291,6 +294,7 @@ export default function CommissionsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-2">
+                          <DriveStatus row={driveInvoice.rows.get(row.id)} busy={driveInvoice.busyId === row.id} onRetry={() => driveInvoice.queue(row.id)} />
                           <a
                             href={`/api/commissions/${row.id}/pdf`}
                             target="_blank"

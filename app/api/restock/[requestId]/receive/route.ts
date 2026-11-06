@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { queueOneDriveUpload } from '@/lib/drive/queue'
 
 export async function PATCH(
   _request: NextRequest,
@@ -57,7 +58,7 @@ export async function PATCH(
   // Fetch and UPDATE linked delivery_order
   const { data: deliveryOrder } = await admin
     .from('delivery_orders')
-    .select('id')
+    .select('id, store_id')
     .eq('restock_request_id', requestId)
     .single()
 
@@ -66,6 +67,7 @@ export async function PATCH(
       .from('delivery_orders')
       .update({ status: 'acknowledged', updated_at: new Date().toISOString() })
       .eq('id', deliveryOrder.id)
+    await queueOneDriveUpload(admin, 'delivery_order', deliveryOrder.id, deliveryOrder.store_id)
   }
 
   // Fetch restock request items

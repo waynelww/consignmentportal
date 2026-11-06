@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { generateDOPdf } from '@/lib/pdf/generate-do'
+import { queueOneDriveUpload } from '@/lib/drive/queue'
 
 const BUCKET = 'do-documents'
 // A drawn signature PNG is typically 5–50 KB; 500 KB is a generous ceiling
@@ -153,6 +154,9 @@ export async function POST(
   if (updateErr) {
     return Response.json({ error: 'Failed to save signed status' }, { status: 500 })
   }
+
+  // The signed copy is now the Drive copy: re-queue so the worker picks it up.
+  await queueOneDriveUpload(svc, 'delivery_order', doId, deliveryOrder.store_id)
 
   // Tell the admins — signing is the store's receipt confirmation
   await svc.from('notifications').insert({

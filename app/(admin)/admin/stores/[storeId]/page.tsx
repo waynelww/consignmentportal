@@ -7,6 +7,8 @@ export const dynamic = 'force-dynamic'
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams, useParams } from 'next/navigation'
 import Link from 'next/link'
+import DriveStatus from '@/components/drive/DriveStatus'
+import { useDriveRows } from '@/lib/drive/use-drive-rows'
 import {
   Download,
   X,
@@ -170,6 +172,8 @@ export default function StoreDetailPage() {
   const [sales, setSales] = useState<Sale[]>([])
   const [dos, setDos] = useState<DeliveryOrder[]>([])
   const [commissions, setCommissions] = useState<CommissionPeriod[]>([])
+  const driveDo = useDriveRows('delivery_order', dos.map((d) => d.id))
+  const driveInvoice = useDriveRows('invoice', commissions.map((c) => c.id))
   const [loading, setLoading] = useState(true)
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
@@ -1359,13 +1363,16 @@ export default function StoreDetailPage() {
                       </td>
                       <td className="py-2.5 px-3 text-right font-medium">{d.total_pairs}</td>
                       <td className="py-2.5 px-3 text-right">
-                        {d.pdf_url ? (
-                          <a href={d.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
-                            Download
-                          </a>
-                        ) : (
-                          <span className="text-xs text-gray-400">—</span>
-                        )}
+                        <div className="flex flex-col items-end gap-1">
+                          {d.pdf_url ? (
+                            <a href={d.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
+                              Download
+                            </a>
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                          <DriveStatus row={driveDo.rows.get(d.id)} busy={driveDo.busyId === d.id} onRetry={() => driveDo.queue(d.id)} />
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1418,6 +1425,7 @@ export default function StoreDetailPage() {
                             >
                               Invoice PDF
                             </a>
+                            <DriveStatus row={driveInvoice.rows.get(c.id)} busy={driveInvoice.busyId === c.id} onRetry={() => driveInvoice.queue(c.id)} />
                             {c.status === 'pending' && (
                               <button
                                 onClick={() => approveCommission(c.id)}

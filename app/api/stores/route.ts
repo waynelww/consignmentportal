@@ -7,6 +7,7 @@ import { clean } from '@/lib/onboarding/schemas'
 import { stepLabel } from '@/lib/onboarding/steps'
 import { DAILY_REPORT_MAX_RECIPIENTS, normalizeRecipients, validateDailyReportSettings } from '@/lib/daily-report/settings'
 import { saveDailyReportConfig } from '@/lib/daily-report/config'
+import { queueOneDriveUpload } from '@/lib/drive/queue'
 
 function randomChars(length: number) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -324,6 +325,7 @@ export async function POST(request: NextRequest) {
     }))
 
     await supabase.from('delivery_order_items').insert(doItems)
+    await queueOneDriveUpload(await createServiceClient(), 'delivery_order', deliveryOrder.id, newStore.id)
 
     // INSERT stock movements
     const movements = initial_inventory.map((item) => ({

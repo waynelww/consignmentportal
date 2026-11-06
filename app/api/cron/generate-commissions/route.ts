@@ -18,6 +18,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { sendCommissionStatementEmail } from '@/lib/email/send-email'
 import { sendPushToStore } from '@/lib/push/send-push'
 import { assignInvoiceNo } from '@/lib/invoice-number'
+import { queueOneDriveUpload } from '@/lib/drive/queue'
 
 export const maxDuration = 300 // 5 min — well above what we need, gives headroom
 
@@ -152,6 +153,7 @@ export async function GET(request: NextRequest) {
     if (periodErr || !period) return null
 
     await assignInvoiceNo(svc, period.id)
+    await queueOneDriveUpload(svc, 'invoice', period.id, store.id)
 
     const commissionStr = `RM ${commission_amount.toFixed(2)}`
     const transferStr = `RM ${xocks_revenue.toFixed(2)}`

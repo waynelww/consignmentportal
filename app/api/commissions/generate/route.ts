@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { queueOneDriveUpload } from '@/lib/drive/queue'
 
 const GenerateSchema = z.object({
   month: z.number().int().min(1).max(12),
@@ -96,6 +97,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (upsertErr || !period) continue
+    await queueOneDriveUpload(await createServiceClient(), 'invoice', period.id, store.id)
 
     generatedCount++
 

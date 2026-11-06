@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { queueDriveUploadsSafe } from '@/lib/drive/queue'
 
 const DispatchSchema = z.object({
   courier: z.string().min(1),
@@ -67,7 +68,7 @@ export async function PATCH(
   }
 
   // UPDATE linked delivery_order
-  const { error: updateDoErr } = await supabase
+  const { data: dispatchedDos, error: updateDoErr } = await supabase
     .from('delivery_orders')
     .update({
       status: 'dispatched',
@@ -77,10 +78,16 @@ export async function PATCH(
       updated_at: new Date().toISOString(),
     })
     .eq('restock_request_id', requestId)
+    .select('id, store_id')
 
   if (updateDoErr) {
     return Response.json({ error: 'Failed to update delivery order', details: updateDoErr.message }, { status: 500 })
   }
+  await queueDriveUploadsSafe(
+    await createServiceClient(),
+    'delivery_order',
+    (dispatchedDos ?? []).map((d) => ({ recordId: d.id as string, storeId: d.store_id as string })),
+  )
 
   // Notify store
   await supabase.from('notifications').insert({

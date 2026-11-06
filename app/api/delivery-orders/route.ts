@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { queueOneDriveUpload } from '@/lib/drive/queue'
 import { insertWithSequenceCode } from '@/lib/sequence-code'
 
 const CreateDoSchema = z.object({
@@ -95,6 +96,8 @@ export async function POST(request: NextRequest) {
   if (itemsErr) {
     return Response.json({ error: 'Failed to insert DO items', details: itemsErr.message }, { status: 500 })
   }
+
+  await queueOneDriveUpload(await createServiceClient(), 'delivery_order', deliveryOrder.id, store_id)
 
   return Response.json({ success: true, delivery_order_id: deliveryOrder.id, do_number: doNumber })
 }
