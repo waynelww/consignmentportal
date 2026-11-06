@@ -8,6 +8,7 @@ import type { Setting, Profile } from '@/types'
 import { toast } from 'sonner'
 import XocksTeamManager from '@/components/admin/XocksTeamManager'
 import MonthlyReportCard from '@/components/admin/MonthlyReportCard'
+import DriveUploadsCard from '@/components/admin/DriveUploadsCard'
 import { SALES_REMINDER_SETTING_KEY, SALES_REMINDER_DEFAULT_DAYS } from '@/lib/sales/last-sale'
 
 type SettingsTab = 'general' | 'users' | 'notifications' | 'team'
@@ -284,6 +285,9 @@ export default function SettingsPage() {
 
                   {/* Monthly report — test send and PDF download (emailed on the 1st by GitHub Action) */}
                   <MonthlyReportCard />
+
+                  {/* Google Drive copies of delivery orders and invoices — status and super admin backfill */}
+                  <DriveUploadsCard />
 
                   {/* Company info section — always shown for invoice purposes */}
                   <div>

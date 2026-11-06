@@ -305,6 +305,7 @@ and store page). Current test stores: AGK-001 (Wayne Store) and STR-009
 - `daily-sales-report.yml` — daily 22:00 MYT internal sales PDFs, batched (see Daily sales report).
 - `hr-report.yml` — 1st of month 10:00 MYT, emails last month's HR report (see HR).
 - `nightly-backup.yml` — nightly database backup.
+- `drive-uploads.yml` — every 15 min, uploads queued delivery orders and invoices to Google Drive (see Google Drive copies).
 - `sync-shopify-orders.yml` — every 2h, pulls Shopify orders for the
   performance dashboard.
 - Shopify `ORDERS_PAID` webhook → `/api/gang/shopify-webhook` (Gang
@@ -553,6 +554,90 @@ account for HR; they use the **staff link `/hr`**.
   `20261105_hr_drive_secrets.sql` (hr_secrets, moves the link password hash
   out of `settings`, Drive columns), then `20261106_hr_join_date_replacement.sql`
   (join_date, custom_entitlement, hr_rest_day_work, leave type replacement).
+
+## Google Drive copies (delivery orders and invoices)
+
+Every delivery order (DO) and monthly commission invoice is copied to the XCMS
+Shared Drive, so the files can be found and opened without XCMS.
+
+**What is saved**
+- **Delivery orders.** The internal copy (cost prices shown), regenerated from the
+  data whenever the DO changes. Once the store has signed it, the signed copy is
+  uploaded exactly as the store signed it.
+- **Monthly invoices (`XCSM-###`).** The same PDF the store sees: the stored copy if
+  one exists, otherwise generated from the data now.
+- **Not saved:** daily sales reports, and any store flagged as a test account.
+- There is no "packed" status in XCMS. Every change to a DO (created, edited,
+  dispatched, delivered, received, signed) queues a new copy.
+
+**Folder layout** (inside the XCMS folder, `GOOGLE_DRIVE_FOLDER_ID`):
+
+```
+XCMS/<store_code> <store_name>/Delivery Orders/<DO number>.pdf      e.g. DO-2026-0007.pdf
+XCMS/<store_code> <store_name>/Invoices/<invoice no> (<Mon YYYY>).pdf   e.g. XCSM-121 (Oct 2026).pdf
+```
+
+The invoice month is the month the invoice covers (the October invoice is made on
+1 November).
+
+**How it works**
+- Saving a DO or invoice writes a `pending` row to `drive_uploads`. Nothing uploads
+  inside the request. If that write fails, the record is still saved and the error
+  is logged (`[drive-queue]`). Use the backfill, or the "queue" link on the record.
+- `drive-uploads.yml` calls `POST /api/cron/drive-uploads` every 15 minutes. The
+  worker takes the oldest-queued rows first and stops starting new ones after 40
+  seconds, so it finishes inside Vercel's 60-second limit.
+- A re-queued DO **replaces the same Drive file**; it never makes a second copy. The
+  file id is kept in `drive_uploads.drive_file_id`.
+- **Retries:** a failure adds 1 to `attempts` and stores `last_error`. The row is
+  retried on the next run. After 5 failures it is marked `failed` and waits for an
+  admin to press retry.
+
+**Where to see it**
+- DO details modal, the store page's delivery orders, and the store page's and the
+  Commissions page's invoice rows show one of: **Open in Drive**, **Drive: pending**,
+  **Drive: failed — retry**, or **Not in Drive — queue**.
+- Settings → General → **Google Drive copies** shows the pending / done / failed
+  counts and the last five failures with their messages.
+
+**Retry a failed copy**
+1. Settings → General → Google Drive copies: read the failure message.
+2. Open the DO or invoice and press **retry** (or **queue** if it was never queued).
+   The worker uploads it within 15 minutes.
+3. To queue everything again, a super admin presses **Queue Drive backfill**.
+
+**Backfill.** Settings → Google Drive copies → **Queue Drive backfill** (super admin
+only) queues every DO and invoice created on or after **1 Nov 2026 (MYT)** that is
+not already done. Nothing before November is touched. It is safe to press twice.
+
+**Setup (already done, do not change)**
+- Vercel env: `GOOGLE_SERVICE_ACCOUNT_JSON` (full key JSON) and `GOOGLE_DRIVE_FOLDER_ID`
+  (the XCMS folder inside the Shared Drive). Never print or paste either value.
+- The service account is a Content manager on the Shared Drive. It has no My Drive
+  storage, so every Drive call sends `supportsAllDrives=true`.
+- Code: `lib/google/drive.ts` (service-account sign-in and upload),
+  `lib/drive/layout.ts` (names, pinned by `npx tsx scripts/test-drive-layout.ts`),
+  `lib/drive/queue.ts`, `lib/drive/render.ts`, `lib/drive/worker.ts`.
+- Migration: `supabase/migrations/20261106_drive_uploads.sql` (the `drive_uploads`
+  table, admin-only read). It must be applied before the worker or the status
+  columns work.
+
+**Common failures**
+
+| Message in Settings | Usual cause |
+|---|---|
+| `GOOGLE_SERVICE_ACCOUNT_JSON is not set` / `…not valid JSON` | Vercel env var missing or pasted wrongly |
+| `Google sign-in failed (invalid_grant)` | Key revoked or rotated; replace the Vercel value |
+| `Drive folder search failed (HTTP 404)` | `GOOGLE_DRIVE_FOLDER_ID` is wrong, or the service account cannot see the folder |
+| `Drive file upload failed (HTTP 403)` | Service account is not a Content manager on the Shared Drive |
+| `Signed delivery order could not be read from storage` / `Stored invoice…` | The file in the `do-documents` or `commission-pdfs` bucket is missing; check Supabase Storage |
+
+**Not handled (on purpose, for now)**
+- A deleted (cancelled) DO's Drive file is left in place.
+- If a store is flagged as a test account after its records were queued, the worker
+  still uploads them. Clear them with the Drive status or remove them in Drive.
+- The HR receipts copy (`lib/hr/drive.ts`) is a separate OAuth connection and is not
+  affected by this.
 
 ## Code map (the non-obvious parts)
 

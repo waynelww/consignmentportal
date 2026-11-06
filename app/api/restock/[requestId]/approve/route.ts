@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { queueOneDriveUpload } from '@/lib/drive/queue'
 import { insertWithSequenceCode } from '@/lib/sequence-code'
 
 const ApproveSchema = z.object({
@@ -114,6 +115,8 @@ export async function PATCH(
   if (doErr || !deliveryOrder) {
     return Response.json({ error: 'Failed to create delivery order', details: doErr?.message }, { status: 500 })
   }
+
+  await queueOneDriveUpload(await createServiceClient(), 'delivery_order', deliveryOrder.id, restockRequest.store_id)
 
   // Fetch request items to get product details
   const { data: requestItems } = await supabase

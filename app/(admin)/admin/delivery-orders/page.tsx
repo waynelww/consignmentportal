@@ -13,6 +13,8 @@ import { toast } from 'sonner'
 import { HqAvailabilityBadge, HqQtyCell, HqRefreshBar, SimilarColours, hqRowClass } from '@/components/stock/HqStock'
 import { hqAvailability, normalizeSku, type HqStockMap } from '@/lib/stock/hq-availability'
 import { suggestSimilar, type ColourSuggestion } from '@/lib/stock/colour-suggestions'
+import { fetchDriveRows, requeueDrive, type DriveRow } from '@/lib/drive/client'
+import DriveStatus from '@/components/drive/DriveStatus'
 
 interface DOWithStore extends DeliveryOrder { store_name: string }
 interface DispatchModal { open: boolean; doId: string; courier: string; tracking: string }
@@ -70,12 +72,34 @@ export default function DeliveryOrdersPage() {
   // Details modal
   const [detailDO, setDetailDO] = useState<DOWithStore | null>(null)
   const [detailItems, setDetailItems] = useState<DetailItem[] | null>(null)
+  const [detailDrive, setDetailDrive] = useState<DriveRow | null>(null)
+  const [detailDriveBusy, setDetailDriveBusy] = useState(false)
 
   const supabase = createClient()
+
+  async function loadDetailDrive(doId: string) {
+    try {
+      const rows = await fetchDriveRows(supabase, 'delivery_order', [doId])
+      setDetailDrive(rows.get(doId) ?? null)
+    } catch {
+      setDetailDrive(null)
+    }
+  }
+
+  async function queueDetailDrive(doId: string) {
+    setDetailDriveBusy(true)
+    const r = await requeueDrive('delivery_order', [doId])
+    setDetailDriveBusy(false)
+    if (!r.ok) { toast.error(`Drive: ${r.error}`); return }
+    toast.success('Queued for Drive — it uploads within 15 minutes')
+    loadDetailDrive(doId)
+  }
 
   async function openDetails(d: DOWithStore) {
     setDetailDO(d)
     setDetailItems(null)
+    setDetailDrive(null)
+    loadDetailDrive(d.id)
     const { data, error } = await supabase
       .from('delivery_order_items')
       .select('id, quantity, unit_cost, product:products(name, sku, image_url)')
@@ -229,6 +253,7 @@ export default function DeliveryOrdersPage() {
       .select('store_id, do_number, total_pairs')
       .single()
     if (error || !updated) { toast.error('Failed to update'); return }
+    void requeueDrive('delivery_order', [dispatchModal.doId])
     await supabase.from('notifications').insert({
       recipient_role: null, recipient_store_id: updated.store_id, type: 'do_delivered',
       title: 'Delivery Arrived',
@@ -246,6 +271,7 @@ export default function DeliveryOrdersPage() {
     const today = new Date().toISOString().slice(0, 10)
     setBulkDispatchSubmitting(true)
     let ok = 0, fail = 0
+    const queueIds: string[] = []
     for (const d of bulkDispatchTargets) {
       const { data: updated, error } = await supabase
         .from('delivery_orders')
@@ -256,6 +282,7 @@ export default function DeliveryOrdersPage() {
         .single()
       if (error || !updated) { fail++; continue }
       ok++
+      queueIds.push(d.id)
       await supabase.from('notifications').insert({
         recipient_role: null, recipient_store_id: updated.store_id, type: 'do_delivered',
         title: 'Delivery Arrived',
@@ -263,6 +290,7 @@ export default function DeliveryOrdersPage() {
         reference_id: d.id, reference_type: 'delivery_order', is_read: false,
       })
     }
+    if (queueIds.length) void requeueDrive('delivery_order', queueIds)
     setBulkDispatchSubmitting(false)
     setBulkDispatchModal(false); setBulkCourier(''); setBulkTracking('')
     setSelectedIds(new Set())
@@ -275,12 +303,15 @@ export default function DeliveryOrdersPage() {
   async function executeBulkDeliver() {
     if (bulkDeliverTargets.length === 0) return
     let ok = 0, fail = 0
+    const queueIds: string[] = []
     for (const d of bulkDeliverTargets) {
       const { error } = await supabase.from('delivery_orders')
         .update({ status: 'delivered', delivery_date: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString() })
         .eq('id', d.id)
       error ? fail++ : ok++
+      if (!error) queueIds.push(d.id)
     }
+    if (queueIds.length) void requeueDrive('delivery_order', queueIds)
     setSelectedIds(new Set())
     if (ok)   toast.success(`${ok} DO${ok > 1 ? 's' : ''} marked as delivered`)
     if (fail) toast.error(`${fail} failed`)
@@ -342,7 +373,7 @@ export default function DeliveryOrdersPage() {
       .update({ status: 'delivered', delivery_date: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString() })
       .eq('id', id)
     if (error) toast.error('Failed to update')
-    else { toast.success('Marked as delivered'); fetchOrders() }
+    else { void requeueDrive('delivery_order', [id]); toast.success('Marked as delivered'); fetchOrders() }
   }
 
   // ── Create DO helpers ─────────────────────────────────────────────────────
@@ -649,6 +680,9 @@ export default function DeliveryOrdersPage() {
               {detailDO.notes && (
                 <p className="text-xs text-gray-500 italic mb-4 bg-gray-50 rounded-lg px-3 py-2">{detailDO.notes}</p>
               )}
+              <div className="mb-4">
+                <DriveStatus row={detailDrive} busy={detailDriveBusy} onRetry={() => queueDetailDrive(detailDO.id)} />
+              </div>
 
               <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                 Items {detailItems ? `(${detailItems.length} SKUs · ${detailItems.reduce((s, i) => s + i.quantity, 0)} pairs)` : ''}

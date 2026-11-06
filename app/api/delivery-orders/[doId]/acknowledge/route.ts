@@ -2,6 +2,7 @@
 import { type NextRequest } from 'next/server'
 import { createClient as createSSRClient } from '@/lib/supabase/server'
 import { createClient } from '@supabase/supabase-js'
+import { queueOneDriveUpload } from '@/lib/drive/queue'
 
 // Service-role admin client — bypasses all RLS
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -152,6 +153,9 @@ export async function POST(
   if (doUpdateErr) {
     return Response.json({ error: `Failed to update DO status: ${doUpdateErr.message}` }, { status: 500 })
   }
+
+  // Drive copy shows the acknowledged status; re-queue it.
+  await queueOneDriveUpload(admin, 'delivery_order', doId, profile.store_id)
 
   // 7. Notify admins
   const { data: store } = await admin

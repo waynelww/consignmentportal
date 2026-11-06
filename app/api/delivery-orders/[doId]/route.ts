@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { queueOneDriveUpload } from '@/lib/drive/queue'
 
 // Statuses that block edit/cancel — once the store has acknowledged receipt,
 // inventory has been added and the DO is locked.
@@ -150,6 +151,8 @@ export async function PATCH(
   if (metaErr) {
     return Response.json({ error: 'Failed to update DO', details: metaErr.message }, { status: 500 })
   }
+
+  await queueOneDriveUpload(adminClient, 'delivery_order', doId, check.doRow.store_id)
 
   return Response.json({ success: true, delivery_order: updated })
 }

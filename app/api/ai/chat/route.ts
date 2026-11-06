@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { queueOneDriveUpload } from '@/lib/drive/queue'
 import { insertWithSequenceCode } from '@/lib/sequence-code'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -193,6 +194,7 @@ async function runTool(name: string, input: Record<string, unknown>, supabase: A
         items.map(i => ({ delivery_order_id: newDo.id, product_id: i.product_id, quantity: i.quantity, unit_cost: costMap.get(i.product_id) ?? 0 }))
       )
       if (itemsErr) return { error: itemsErr.message }
+      await queueOneDriveUpload(await createServiceClient(), 'delivery_order', newDo.id, input.store_id as string)
 
       return { success: true, do_number: newDo.do_number, delivery_order_id: newDo.id, total_pairs, status: 'confirmed', message: 'Delivery order created. The store can now see it as pending receiving.' }
     }
