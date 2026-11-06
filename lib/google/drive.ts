@@ -226,3 +226,15 @@ export async function uploadOrReplacePdf(params: {
 
   return createPdf(name, folderId, bytes)
 }
+
+/** Move a file to the Drive trash. A file that is already gone counts as done. */
+export async function trashDriveFile(fileId: string): Promise<void> {
+  const token = await getDriveAccessToken()
+  const res = await fetch(`${DRIVE_API}/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=id`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trashed: true }),
+  })
+  if (res.status === 404) return
+  if (!res.ok) throw await driveError(res, 'file trash')
+}

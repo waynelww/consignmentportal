@@ -7,6 +7,7 @@ import {
   DO_SUBFOLDER, INVOICE_SUBFOLDER, BACKFILL_FROM_ISO,
 } from '../lib/drive/layout'
 import { getDriveAccessToken } from '../lib/google/drive'
+import { deliveryOrderCopyWanted } from '../lib/drive/queue'
 
 // ── Layout ──────────────────────────────────────────────────────────────
 assert.equal(storeFolderName('XCSM', 'Hyperground'), 'XCSM Hyperground')
@@ -31,6 +32,11 @@ await assert.rejects(getDriveAccessToken(), (err: Error) => {
   return true
 })
 
+
+assert.equal(deliveryOrderCopyWanted('acknowledged'), true)
+for (const s of ['draft', 'confirmed', 'dispatched', 'delivered', undefined, null]) {
+  assert.equal(deliveryOrderCopyWanted(s as string), false, `${s} is not uploaded`)
+}
 
 // ── Service-account JWT (offline: fetch is stubbed) ─────────────────────
 const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })

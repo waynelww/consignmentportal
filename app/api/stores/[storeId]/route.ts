@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
+import { stripInvisibleDeep } from '@/lib/text/invisible'
 
 const UpdateStoreSchema = z.object({
   store_name: z.string().min(1).optional(),
@@ -47,6 +48,7 @@ export async function PATCH(
   let body: unknown
   try {
     body = await request.json()
+    body = stripInvisibleDeep(body)
   } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
   }

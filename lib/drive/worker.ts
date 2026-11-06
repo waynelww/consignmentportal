@@ -11,6 +11,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { driveFileUrl, driveRootFolderId, findOrCreateFolder, uploadOrReplacePdf } from '@/lib/google/drive'
 import { renderRecord } from './render'
 import { type DriveKind } from './layout'
+import { purgeUnwantedDeliveryOrderCopies, type PurgeResult } from './purge'
 
 export const BUDGET_MS = 40_000
 export const MAX_ATTEMPTS = 5
@@ -21,10 +22,13 @@ interface UploadRow {
   record_id: string
   attempts: number
   drive_file_id: string | null
+  updated_at: string
 }
 
 export interface WorkerResult {
+  purge: PurgeResult | { error: string }
   processed: number
+  waiting: number     // delivery orders not signed yet: left pending
   done: number
   retried: number     // failed this run, still pending for the next run
   failed: number      // reached MAX_ATTEMPTS this run
@@ -41,9 +45,17 @@ export async function runDriveWorker(): Promise<WorkerResult> {
   const started = Date.now()
   const svc = await createServiceClient()
 
+  let purge: PurgeResult | { error: string }
+  try {
+    purge = await purgeUnwantedDeliveryOrderCopies(svc)
+  } catch (err) {
+    purge = { error: err instanceof Error ? err.message : 'purge failed' }
+    console.error('[drive-purge]', purge.error)
+  }
+
   const { data: rows, error } = await svc
     .from('drive_uploads')
-    .select('id, kind, record_id, attempts, drive_file_id')
+    .select('id, kind, record_id, attempts, drive_file_id, updated_at')
     .eq('status', 'pending')
     .order('updated_at', { ascending: true })
     .limit(200)
@@ -62,6 +74,7 @@ export async function runDriveWorker(): Promise<WorkerResult> {
   }
 
   let processed = 0
+  let waiting = 0
   let done = 0
   let retried = 0
   let failed = 0
@@ -72,6 +85,10 @@ export async function runDriveWorker(): Promise<WorkerResult> {
 
     try {
       const rendered = await renderRecord(svc, row.kind, row.record_id)
+      if (!rendered) {
+        waiting++
+        continue // not signed yet: stays pending, no attempt counted
+      }
       const folderId = await folderFor(rendered.folderName, rendered.subfolder)
       const fileId = await uploadOrReplacePdf({
         folderId,
@@ -79,7 +96,10 @@ export async function runDriveWorker(): Promise<WorkerResult> {
         bytes: rendered.bytes,
         existingFileId: row.drive_file_id,
       })
-      const { error: doneErr } = await svc
+      // Only mark done if the row was not re-queued while we were uploading
+      // (e.g. the store signed the DO meanwhile): then it stays pending and the
+      // next run uploads the newer copy.
+      const { data: doneRows, error: doneErr } = await svc
         .from('drive_uploads')
         .update({
           status: 'done',
@@ -89,8 +109,10 @@ export async function runDriveWorker(): Promise<WorkerResult> {
           updated_at: new Date().toISOString(),
         })
         .eq('id', row.id)
+        .eq('updated_at', row.updated_at)
+        .select('id')
       if (doneErr) throw new Error(`Uploaded, but could not record it: ${doneErr.message}`)
-      done++
+      if (doneRows && doneRows.length > 0) done++
     } catch (err) {
       const attempts = row.attempts + 1
       const giveUp = attempts >= MAX_ATTEMPTS
@@ -115,7 +137,9 @@ export async function runDriveWorker(): Promise<WorkerResult> {
     .eq('status', 'pending')
 
   return {
+    purge,
     processed,
+    waiting,
     done,
     retried,
     failed,

@@ -5,13 +5,13 @@
 //     document the store sees; if it cannot be read the job fails and retries,
 //     so Drive never gets a different version from the store's;
 //   - otherwise the PDF is generated from the data now.
-// The DO copy in Drive is the internal one (cost prices shown).
+// A DO copy is the signed PDF once the store has signed it, else the normal DO PDF.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { generateDOPdf } from '@/lib/pdf/generate-do'
 import { generateStatementPdf } from '@/lib/pdf/generate-statement'
 import { assignInvoiceNo, formatInvoiceNo } from '@/lib/invoice-number'
-import { selectAll } from './queue'
+import { deliveryOrderCopyWanted, selectAll } from './queue'
 import { doFileName, invoiceFileName, storeFolderName, subfolderFor, type DriveKind } from './layout'
 
 export interface RenderedFile {
@@ -26,13 +26,20 @@ function mytDate(value: string | Date): string {
   return new Date(value).toLocaleDateString('en-MY', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: TZ })
 }
 
-export async function renderRecord(svc: SupabaseClient, kind: DriveKind, recordId: string): Promise<RenderedFile> {
+export async function renderRecord(svc: SupabaseClient, kind: DriveKind, recordId: string): Promise<RenderedFile | null> {
   return kind === 'delivery_order' ? renderDeliveryOrder(svc, recordId) : renderInvoice(svc, recordId)
 }
 
 // ── Delivery orders ──────────────────────────────────────────────────────────
 
-export async function renderDeliveryOrder(svc: SupabaseClient, doId: string): Promise<RenderedFile> {
+/**
+ * A received DO (status acknowledged). Uploads the stored signed PDF when the
+ * store has signed it; otherwise the normal DO PDF generated from the data now.
+ * When the store signs later, the signing step re-queues it and the Drive file
+ * is replaced with the signed copy. Returns null when the DO is not acknowledged
+ * (the worker leaves the row pending and does not count it as a failure).
+ */
+export async function renderDeliveryOrder(svc: SupabaseClient, doId: string): Promise<RenderedFile | null> {
   const { data: d, error } = await svc
     .from('delivery_orders')
     .select(`
@@ -49,8 +56,9 @@ export async function renderDeliveryOrder(svc: SupabaseClient, doId: string): Pr
     .eq('id', doId)
     .single()
   if (error || !d) throw new Error('Delivery order not found')
+  if (!deliveryOrderCopyWanted(d.status as string)) return null
 
-  const store = d.stores as {
+  const store = d.stores as unknown as {
     store_name: string; store_code: string; pic_name: string; address: string; city: string
     postcode: string; state: string; pic_phone: string
     shipment_address: string | null; shipment_contact: string | null; shipment_pic: string | null
@@ -58,13 +66,13 @@ export async function renderDeliveryOrder(svc: SupabaseClient, doId: string): Pr
   if (!store) throw new Error('Store data not found')
 
   const base = {
-    fileName: doFileName(d.do_number),
+    fileName: doFileName(d.do_number as string),
     folderName: storeFolderName(store.store_code, store.store_name),
     subfolder: subfolderFor('delivery_order'),
   }
 
   if (d.pdf_url) {
-    const { data: file, error: dlErr } = await svc.storage.from('do-documents').download(d.pdf_url)
+    const { data: file, error: dlErr } = await svc.storage.from('do-documents').download(d.pdf_url as string)
     if (dlErr || !file) throw new Error('Signed delivery order could not be read from storage')
     return { ...base, bytes: new Uint8Array(await file.arrayBuffer()) }
   }
@@ -85,9 +93,9 @@ export async function renderDeliveryOrder(svc: SupabaseClient, doId: string): Pr
   }))
 
   const bytes = await generateDOPdf({
-    doNumber: d.do_number,
-    createdAt: mytDate(d.created_at),
-    status: d.status,
+    doNumber: d.do_number as string,
+    createdAt: mytDate(d.created_at as string),
+    status: d.status as string,
     storeName: store.store_name,
     storeCode: store.store_code,
     picName: store.pic_name,
@@ -97,15 +105,15 @@ export async function renderDeliveryOrder(svc: SupabaseClient, doId: string): Pr
     state: store.state,
     picPhone: store.pic_phone,
     shipment: { address: store.shipment_address, contact: store.shipment_contact, pic: store.shipment_pic },
-    courier: d.courier ?? undefined,
-    trackingNumber: d.tracking_number ?? undefined,
-    dispatchDate: d.dispatch_date ? mytDate(d.dispatch_date) : undefined,
+    courier: (d.courier as string | null) ?? undefined,
+    trackingNumber: (d.tracking_number as string | null) ?? undefined,
+    dispatchDate: d.dispatch_date ? mytDate(d.dispatch_date as string) : undefined,
     items,
     companyName: settings['company_name'] ?? 'Wayne Group Holding Sdn Bhd',
     companyAddress: settings['company_address'] ?? '',
     companyPhone: settings['company_phone'] ?? '',
     companyEmail: settings['company_email'] ?? 'info@xocks.co',
-    showCosts: true,
+    showCosts: true, // Drive is internal: cost prices shown
   })
   return { ...base, bytes }
 }

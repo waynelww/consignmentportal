@@ -561,14 +561,17 @@ Every delivery order (DO) and monthly commission invoice is copied to the XCMS
 Shared Drive, so the files can be found and opened without XCMS.
 
 **What is saved**
-- **Delivery orders.** The internal copy (cost prices shown), regenerated from the
-  data whenever the DO changes. Once the store has signed it, the signed copy is
-  uploaded exactly as the store signed it.
+- **Delivery orders: once received.** A DO gets a Drive copy when its status is
+  `acknowledged` (received), whether or not the store has signed it. If a signed copy
+  exists, that signed PDF is uploaded exactly as the store signed it; otherwise the
+  normal DO PDF is uploaded. When the store signs a DO that is already in Drive, it is
+  re-queued and the same Drive file is replaced with the signed copy. Drafts, confirmed,
+  dispatched and delivered DOs are not uploaded.
 - **Monthly invoices (`XCSM-###`).** The same PDF the store sees: the stored copy if
   one exists, otherwise generated from the data now.
 - **Not saved:** daily sales reports, and any store flagged as a test account.
-- There is no "packed" status in XCMS. Every change to a DO (created, edited,
-  dispatched, delivered, received, signed) queues a new copy.
+- There is no "packed" status in XCMS. A DO is queued when it is received
+  (acknowledged) and again when it is signed.
 
 **Folder layout** (inside the XCMS folder, `GOOGLE_DRIVE_FOLDER_ID`):
 
@@ -584,6 +587,9 @@ The invoice month is the month the invoice covers (the October invoice is made o
 - Saving a DO or invoice writes a `pending` row to `drive_uploads`. Nothing uploads
   inside the request. If that write fails, the record is still saved and the error
   is logged (`[drive-queue]`). Use the backfill, or the "queue" link on the record.
+- **Clean-up runs first in every worker run.** Any `delivery_order` copy whose DO is
+  no longer `acknowledged` (or no longer exists) is moved to the Drive trash and its
+  queue row deleted. A failed trash keeps the row for the next run.
 - `drive-uploads.yml` calls `POST /api/cron/drive-uploads` every 15 minutes. The
   worker takes the oldest-queued rows first and stops starting new ones after 40
   seconds, so it finishes inside Vercel's 60-second limit.
@@ -607,8 +613,8 @@ The invoice month is the month the invoice covers (the October invoice is made o
 3. To queue everything again, a super admin or ops manager presses **Queue Drive backfill**.
 
 **Backfill.** Settings → Google Drive copies → **Queue Drive backfill** (super admin
-or ops manager) queues every DO and invoice created on or after **1 Nov 2026 (MYT)** that is
-not already done. Nothing before November is touched. It is safe to press twice.
+or ops manager) queues every **acknowledged** DO and every invoice created on or after
+**1 Nov 2026 (MYT)** that is not already done. Nothing before November is touched. It is safe to press twice.
 
 **Setup (already done, do not change)**
 - Vercel env: `GOOGLE_SERVICE_ACCOUNT_JSON` (full key JSON) and `GOOGLE_DRIVE_FOLDER_ID`
@@ -633,7 +639,6 @@ not already done. Nothing before November is touched. It is safe to press twice.
 | `Signed delivery order could not be read from storage` / `Stored invoice…` | The file in the `do-documents` or `commission-pdfs` bucket is missing; check Supabase Storage |
 
 **Not handled (on purpose, for now)**
-- A deleted (cancelled) DO's Drive file is left in place.
 - If a store is flagged as a test account after its records were queued, the worker
   still uploads them. Clear them with the Drive status or remove them in Drive.
 - The HR receipts copy (`lib/hr/drive.ts`) is a separate OAuth connection and is not
