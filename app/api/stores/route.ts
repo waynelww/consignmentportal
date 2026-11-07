@@ -8,6 +8,7 @@ import { stepLabel } from '@/lib/onboarding/steps'
 import { DAILY_REPORT_MAX_RECIPIENTS, normalizeRecipients, validateDailyReportSettings } from '@/lib/daily-report/settings'
 import { saveDailyReportConfig } from '@/lib/daily-report/config'
 import { queueOneDriveUpload } from '@/lib/drive/queue'
+import { uploadDriveAfterResponse } from '@/lib/drive/now'
 import { stripInvisibleDeep } from '@/lib/text/invisible'
 
 function randomChars(length: number) {
@@ -54,6 +55,8 @@ const CreateStoreSchema = z.object({
   onboarding_card_id: z.string().uuid().optional(),
   onboarding_moved_by_member_id: z.string().uuid().optional(),
 })
+
+export const maxDuration = 60 // room for the Drive upload after the response
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -328,6 +331,7 @@ export async function POST(request: NextRequest) {
 
     await supabase.from('delivery_order_items').insert(doItems)
     await queueOneDriveUpload(await createServiceClient(), 'delivery_order', deliveryOrder.id, newStore.id)
+    uploadDriveAfterResponse('delivery_order', [deliveryOrder.id])
 
     // INSERT stock movements
     const movements = initial_inventory.map((item) => ({

@@ -1,8 +1,9 @@
 /**
  * POST /api/cron/drive-uploads
- * Runs every 15 minutes from .github/workflows/drive-uploads.yml (Vercel Hobby
- * allows only 2 crons, so this is not a Vercel cron). Uploads queued delivery
- * orders and invoices to the XCMS Shared Drive. See lib/drive/worker.ts.
+ * Runs from .github/workflows/drive-uploads.yml (Vercel Hobby allows only 2
+ * crons, so this is not a Vercel cron). Uploads queued delivery orders and
+ * invoices to the XCMS Shared Drive. A backup: most rows are uploaded right
+ * after the request that queued them (lib/drive/now.ts). See lib/drive/worker.ts.
  */
 import { type NextRequest } from 'next/server'
 import { runDriveWorker } from '@/lib/drive/worker'

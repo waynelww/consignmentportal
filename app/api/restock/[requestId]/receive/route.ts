@@ -2,6 +2,9 @@ import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { queueOneDriveUpload } from '@/lib/drive/queue'
+import { uploadDriveAfterResponse } from '@/lib/drive/now'
+
+export const maxDuration = 60 // room for the Drive upload after the response
 
 export async function PATCH(
   _request: NextRequest,
@@ -68,6 +71,7 @@ export async function PATCH(
       .update({ status: 'acknowledged', updated_at: new Date().toISOString() })
       .eq('id', deliveryOrder.id)
     await queueOneDriveUpload(admin, 'delivery_order', deliveryOrder.id, deliveryOrder.store_id)
+    uploadDriveAfterResponse('delivery_order', [deliveryOrder.id])
   }
 
   // Fetch restock request items

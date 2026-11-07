@@ -305,7 +305,7 @@ and store page). Current test stores: AGK-001 (Wayne Store) and STR-009
 - `daily-sales-report.yml` — daily 22:00 MYT internal sales PDFs, batched (see Daily sales report).
 - `hr-report.yml` — 1st of month 10:00 MYT, emails last month's HR report (see HR).
 - `nightly-backup.yml` — nightly database backup.
-- `drive-uploads.yml` — every 15 min, uploads queued delivery orders and invoices to Google Drive (see Google Drive copies).
+- `drive-uploads.yml` — scheduled every 15 min (in practice GitHub runs it only every few hours), uploads any delivery orders and invoices still queued for Google Drive. A backup: most copies upload right away (see Google Drive copies).
 - `sync-shopify-orders.yml` — every 2h, pulls Shopify orders for the
   performance dashboard.
 - Shopify `ORDERS_PAID` webhook → `/api/gang/shopify-webhook` (Gang
@@ -585,15 +585,32 @@ The invoice month is the month the invoice covers (the October invoice is made o
 1 November).
 
 **How it works**
-- Saving a DO or invoice writes a `pending` row to `drive_uploads`. Nothing uploads
-  inside the request. If that write fails, the record is still saved and the error
-  is logged (`[drive-queue]`). Use the backfill, or the "queue" link on the record.
+- Saving a DO or invoice writes a `pending` row to `drive_uploads`. If that write
+  fails, the record is still saved and the error is logged (`[drive-queue]`). Use the
+  backfill, or the "queue" link on the record.
+- **Uploaded right away.** When the row is queued by a store receiving (acknowledging)
+  or signing a DO, a restock being received (`/api/restock/[requestId]/receive`), an
+  admin edit that leaves a DO acknowledged, a new store's initial DO (created
+  acknowledged), by an invoice being generated (Commissions → generate) or created
+  on view (`/api/commissions/ensure`), or by an admin retry / queue
+  (`/api/drive/requeue`), that row is uploaded just after the response is sent
+  (Next.js `after()`, `lib/drive/now.ts`). The user never waits for Google. It uses
+  the same upload code as the worker, including "only mark done if not re-queued".
+  Any error there is only logged (`[drive-now]`): the row stays `pending` with no
+  attempt counted, and the scheduled worker retries it.
+- **Monthly invoices:** after the 1st-of-month invoice cron queues its invoices, it
+  runs the worker in the same invocation with what is left of the 40-second budget.
+  Invoices it does not reach stay pending for the scheduled worker.
+- Other places that queue (restock approve/dispatch, the AI chat, the backfill)
+  still wait for the scheduled worker.
 - **Clean-up runs first in every worker run.** Any `delivery_order` copy whose DO is
   no longer `acknowledged` (or no longer exists) is moved to the Drive trash and its
   queue row deleted. A failed trash keeps the row for the next run.
-- `drive-uploads.yml` calls `POST /api/cron/drive-uploads` every 15 minutes. The
-  worker takes the oldest-queued rows first and stops starting new ones after 40
-  seconds, so it finishes inside Vercel's 60-second limit.
+- **Backup schedule:** `drive-uploads.yml` calls `POST /api/cron/drive-uploads`
+  (scheduled every 15 minutes, but GitHub often runs it only every few hours). It
+  picks up anything still pending: failed immediate uploads, retries, and rows
+  queued elsewhere. Keep it. The worker takes the oldest-queued rows first and stops
+  starting new ones after 40 seconds, so it finishes inside Vercel's 60-second limit.
 - A re-queued DO **replaces the same Drive file**; it never makes a second copy. The
   file id is kept in `drive_uploads.drive_file_id`.
 - **Retries:** a failure adds 1 to `attempts` and stores `last_error`. The row is
@@ -610,7 +627,9 @@ The invoice month is the month the invoice covers (the October invoice is made o
 **Retry a failed copy**
 1. Settings → General → Google Drive copies: read the failure message.
 2. Open the DO or invoice and press **retry** (or **queue** if it was never queued).
-   The worker uploads it within 15 minutes.
+   It uploads within a few seconds (refresh to see **Open in Drive**). If it still
+   shows pending, the immediate upload failed; check Vercel logs for `[drive-now]`.
+   The scheduled worker will retry it.
 3. To queue everything again, a super admin or ops manager presses **Queue Drive backfill**.
 
 **Backfill.** Settings → Google Drive copies → **Queue Drive backfill** (super admin
@@ -624,7 +643,8 @@ or ops manager) queues every **acknowledged** DO and every invoice created on or
   storage, so every Drive call sends `supportsAllDrives=true`.
 - Code: `lib/google/drive.ts` (service-account sign-in and upload),
   `lib/drive/layout.ts` (names, pinned by `npx tsx scripts/test-drive-layout.ts`),
-  `lib/drive/queue.ts`, `lib/drive/render.ts`, `lib/drive/worker.ts`.
+  `lib/drive/queue.ts`, `lib/drive/render.ts`, `lib/drive/worker.ts`,
+  `lib/drive/now.ts` (immediate upload after the response).
 - Migration: `supabase/migrations/20261106_drive_uploads.sql` (the `drive_uploads`
   table, admin-only read). It must be applied before the worker or the status
   columns work.

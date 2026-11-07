@@ -2,10 +2,13 @@ import { type NextRequest } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { generateDOPdf } from '@/lib/pdf/generate-do'
 import { queueOneDriveUpload } from '@/lib/drive/queue'
+import { uploadDriveAfterResponse } from '@/lib/drive/now'
 
 const BUCKET = 'do-documents'
 // A drawn signature PNG is typically 5–50 KB; 500 KB is a generous ceiling
 const MAX_SIGNATURE_CHARS = 700_000
+
+export const maxDuration = 60 // room for the Drive upload after the response
 
 export async function POST(
   request: NextRequest,
@@ -157,6 +160,7 @@ export async function POST(
 
   // The signed copy is now the Drive copy: re-queue so the worker picks it up.
   await queueOneDriveUpload(svc, 'delivery_order', doId, deliveryOrder.store_id)
+  uploadDriveAfterResponse('delivery_order', [doId])
 
   // Tell the admins — signing is the store's receipt confirmation
   await svc.from('notifications').insert({

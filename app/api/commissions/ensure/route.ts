@@ -9,6 +9,7 @@ import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { assignInvoiceNo } from '@/lib/invoice-number'
 import { queueOneDriveUpload } from '@/lib/drive/queue'
+import { uploadDriveAfterResponse } from '@/lib/drive/now'
 
 const Schema = z.object({
   month: z.number().int().min(1).max(12),
@@ -20,6 +21,8 @@ function calcCommission(totalAmount: number, commissionRate: number) {
   const commission = Number((totalAmount * (commissionRate / 100)).toFixed(2))
   return { commission_amount: commission, xocks_revenue: Number((totalAmount - commission).toFixed(2)) }
 }
+
+export const maxDuration = 60 // room for the Drive upload after the response
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -123,6 +126,7 @@ export async function POST(request: NextRequest) {
 
   await assignInvoiceNo(svc, period.id)
   await queueOneDriveUpload(svc, 'invoice', period.id, targetStoreId)
+  uploadDriveAfterResponse('invoice', [period.id])
 
   // Notify the store
   await svc.from('notifications').insert({

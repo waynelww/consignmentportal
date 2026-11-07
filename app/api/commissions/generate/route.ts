@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { queueOneDriveUpload } from '@/lib/drive/queue'
+import { uploadDriveAfterResponse } from '@/lib/drive/now'
 
 const GenerateSchema = z.object({
   month: z.number().int().min(1).max(12),
@@ -13,7 +14,10 @@ function calcCommission(totalAmount: number, commissionRate: number) {
   return { commission_amount: commission, xocks_revenue: Number((totalAmount - commission).toFixed(2)) }
 }
 
+export const maxDuration = 60 // room for the Drive uploads after the response
+
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now()
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
@@ -59,6 +63,7 @@ export async function POST(request: NextRequest) {
   const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 
   let generatedCount = 0
+  const queuedInvoiceIds: string[] = []
 
   for (const store of stores) {
     // Query sales for this store in the period
@@ -98,6 +103,7 @@ export async function POST(request: NextRequest) {
 
     if (upsertErr || !period) continue
     await queueOneDriveUpload(await createServiceClient(), 'invoice', period.id, store.id)
+    queuedInvoiceIds.push(period.id)
 
     generatedCount++
 
@@ -114,5 +120,6 @@ export async function POST(request: NextRequest) {
     })
   }
 
+  uploadDriveAfterResponse('invoice', queuedInvoiceIds, startedAt)
   return Response.json({ success: true, generated: generatedCount })
 }
