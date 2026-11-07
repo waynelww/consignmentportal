@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { queueOneDriveUpload } from '@/lib/drive/queue'
+import { uploadDriveAfterResponse } from '@/lib/drive/now'
 
 // Statuses that block edit/cancel — once the store has acknowledged receipt,
 // inventory has been added and the DO is locked.
@@ -58,6 +59,8 @@ async function ensureAdminAndUnlocked(
 
   return { user, doRow }
 }
+
+export const maxDuration = 60 // room for the Drive upload after the response
 
 export async function PATCH(
   request: NextRequest,
@@ -153,6 +156,7 @@ export async function PATCH(
   }
 
   await queueOneDriveUpload(adminClient, 'delivery_order', doId, check.doRow.store_id)
+  if (updated?.status === 'acknowledged') uploadDriveAfterResponse('delivery_order', [doId])
 
   return Response.json({ success: true, delivery_order: updated })
 }

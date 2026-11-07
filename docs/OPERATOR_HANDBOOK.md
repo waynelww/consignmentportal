@@ -589,7 +589,9 @@ The invoice month is the month the invoice covers (the October invoice is made o
   fails, the record is still saved and the error is logged (`[drive-queue]`). Use the
   backfill, or the "queue" link on the record.
 - **Uploaded right away.** When the row is queued by a store receiving (acknowledging)
-  or signing a DO, by an invoice being generated (Commissions → generate) or created
+  or signing a DO, a restock being received (`/api/restock/[requestId]/receive`), an
+  admin edit that leaves a DO acknowledged, a new store's initial DO (created
+  acknowledged), by an invoice being generated (Commissions → generate) or created
   on view (`/api/commissions/ensure`), or by an admin retry / queue
   (`/api/drive/requeue`), that row is uploaded just after the response is sent
   (Next.js `after()`, `lib/drive/now.ts`). The user never waits for Google. It uses
@@ -599,8 +601,8 @@ The invoice month is the month the invoice covers (the October invoice is made o
 - **Monthly invoices:** after the 1st-of-month invoice cron queues its invoices, it
   runs the worker in the same invocation with what is left of the 40-second budget.
   Invoices it does not reach stay pending for the scheduled worker.
-- Other places that queue (DO edits, restock approve/dispatch/receive, the store
-  list, the AI chat, the backfill) still wait for the scheduled worker.
+- Other places that queue (restock approve/dispatch, the AI chat, the backfill)
+  still wait for the scheduled worker.
 - **Clean-up runs first in every worker run.** Any `delivery_order` copy whose DO is
   no longer `acknowledged` (or no longer exists) is moved to the Drive trash and its
   queue row deleted. A failed trash keeps the row for the next run.
