@@ -3,6 +3,7 @@ import { type NextRequest } from 'next/server'
 import { createClient as createSSRClient } from '@/lib/supabase/server'
 import { createClient } from '@supabase/supabase-js'
 import { queueOneDriveUpload } from '@/lib/drive/queue'
+import { uploadDriveAfterResponse } from '@/lib/drive/now'
 
 // Service-role admin client — bypasses all RLS
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -12,6 +13,8 @@ function getAdminClient(): any {
   if (!url || !key) throw new Error('Missing Supabase env vars (URL or SERVICE_ROLE_KEY)')
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } })
 }
+
+export const maxDuration = 60 // room for the Drive upload after the response
 
 export async function POST(
   _request: NextRequest,
@@ -156,6 +159,7 @@ export async function POST(
 
   // Drive copy shows the acknowledged status; re-queue it.
   await queueOneDriveUpload(admin, 'delivery_order', doId, profile.store_id)
+  uploadDriveAfterResponse('delivery_order', [doId])
 
   // 7. Notify admins
   const { data: store } = await admin

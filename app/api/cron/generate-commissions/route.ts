@@ -11,6 +11,9 @@
  *   2. Email + Web Push are queued via `after()` so the response can
  *      return immediately and Vercel keeps the function alive in the
  *      background — no extra cost, no extra timeout pressure.
+ *   3. The Drive worker runs in the background too, with whatever is left of
+ *      the Drive worker's time budget, so the new invoices reach Drive now
+ *      instead of waiting for the scheduled drive-uploads run.
  */
 import { type NextRequest } from 'next/server'
 import { after } from 'next/server'
@@ -19,6 +22,7 @@ import { sendCommissionStatementEmail } from '@/lib/email/send-email'
 import { sendPushToStore } from '@/lib/push/send-push'
 import { assignInvoiceNo } from '@/lib/invoice-number'
 import { queueOneDriveUpload } from '@/lib/drive/queue'
+import { BUDGET_MS, runDriveWorker } from '@/lib/drive/worker'
 
 export const maxDuration = 300 // 5 min — well above what we need, gives headroom
 
@@ -244,6 +248,26 @@ export async function GET(request: NextRequest) {
       `[cron generate-commissions] background fan-out done · ` +
       `emails=${emails} push=${pushSent}`,
     )
+  })
+
+  // Upload the invoices just queued to Google Drive in this same invocation,
+  // with the remaining time budget. Whatever is left stays pending for the
+  // scheduled /api/cron/drive-uploads run.
+  after(async () => {
+    const budgetMs = BUDGET_MS - (Date.now() - start)
+    if (budgetMs <= 0) {
+      console.log('[cron generate-commissions] no time left for Drive uploads; left for the scheduled worker')
+      return
+    }
+    try {
+      const r = await runDriveWorker({ budgetMs })
+      console.log(
+        `[cron generate-commissions] drive uploads · processed=${r.processed} done=${r.done} ` +
+        `retried=${r.retried} failed=${r.failed} pending=${r.pending_remaining} ${r.elapsed_ms}ms`,
+      )
+    } catch (err) {
+      console.error('[cron generate-commissions] drive uploads', err instanceof Error ? err.message : err)
+    }
   })
 
   const critical_ms = Date.now() - start

@@ -2,17 +2,21 @@
  * POST /api/drive/requeue   body: { kind: 'delivery_order' | 'invoice', ids: uuid[] }
  * Admin only (super_admin, ops_manager). Queues (or re-queues) records for the
  * Drive worker. Used by the admin "Retry" button and by admin pages after a
- * client-side status change. Only queues; never uploads here.
+ * client-side status change. Queued rows are uploaded right after the response
+ * (lib/drive/now.ts); anything not finished is left for the scheduled worker.
  */
 import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { queueDriveUploads } from '@/lib/drive/queue'
+import { uploadDriveAfterResponse } from '@/lib/drive/now'
 
 const Body = z.object({
   kind: z.enum(['delivery_order', 'invoice']),
   ids: z.array(z.string().uuid()).min(1).max(200),
 })
+
+export const maxDuration = 60 // room for the Drive uploads after the response
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -39,5 +43,6 @@ export async function POST(request: NextRequest) {
     kind,
     (rows ?? []).map((r) => ({ recordId: r.id as string, storeId: r.store_id as string })),
   )
+  uploadDriveAfterResponse(kind, (rows ?? []).map((r) => r.id as string))
   return Response.json({ success: true, ...result, not_found: ids.length - (rows ?? []).length })
 }
