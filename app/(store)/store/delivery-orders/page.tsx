@@ -7,6 +7,7 @@ import { formatMYDate, cn } from '@/lib/utils'
 import type { DeliveryOrder, DeliveryOrderItem, Product } from '@/types'
 import { toast } from 'sonner'
 import { useStore } from '@/components/store/StoreContext'
+import { needsStoreSignature } from '@/lib/delivery-orders/initial-signature'
 
 interface DOItem extends DeliveryOrderItem {
   product: Product
@@ -270,8 +271,10 @@ export default function StoreDeliveryOrdersPage() {
     }
   }
 
+  // A new store's first DO waits here until it is signed; it is not listed as received until then.
+  const waitingSignature = orders.filter(needsStoreSignature)
   const pending = orders.filter((o) => ['confirmed', 'dispatched', 'delivered'].includes(o.status))
-  const history = orders.filter((o) => o.status === 'acknowledged')
+  const history = orders.filter((o) => o.status === 'acknowledged' && !needsStoreSignature(o))
 
   if (loading) {
     return (
@@ -288,6 +291,50 @@ export default function StoreDeliveryOrdersPage() {
 
   return (
     <div className="px-4 py-5 space-y-6 max-w-lg mx-auto">
+      {/* First DO waiting for the store's signature */}
+      {waitingSignature.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+            Waiting for your signature
+            <span className="ml-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
+              {waitingSignature.length}
+            </span>
+          </h2>
+          <div className="space-y-3">
+            {waitingSignature.map((order) => (
+              <div key={order.id} className="bg-white rounded-xl shadow-sm p-4 border border-amber-200">
+                <p className="text-sm font-medium text-gray-800 font-mono">{order.do_number}</p>
+                <p className="text-xs text-gray-400 mb-2">
+                  {order.total_pairs} pairs · {formatMYDate(order.created_at)}
+                </p>
+                <p className="text-xs text-gray-500 mb-3">
+                  This is your first delivery order. Sign it to confirm you have received this stock.
+                </p>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setSigningDO(order)}
+                    className="w-full py-3 bg-[#0A0A0A] text-[#FFD700] rounded-xl font-semibold text-sm hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <PenLine size={16} />
+                    Sign &amp; Save
+                  </button>
+                  <a
+                    href={`/api/delivery-orders/${order.id}/pdf?inline`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-3 border border-gray-200 text-gray-700 rounded-xl font-semibold text-sm hover:bg-gray-50 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <FileText size={16} />
+                    View DO Document (PDF)
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Pending/incoming DOs */}
       <section>
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">

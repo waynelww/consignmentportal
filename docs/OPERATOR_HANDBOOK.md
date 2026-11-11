@@ -696,6 +696,33 @@ or ops manager) queues every **acknowledged** DO and every invoice created on or
 - The HR receipts copy (`lib/hr/drive.ts`) is a separate OAuth connection and is not
   affected by this.
 
+## First delivery order: store signature
+
+A new store's first DO (`do_type` `initial`) is created already **Shop Received**
+(acknowledged) with its stock added, in `app/api/stores/route.ts`. That stock step
+is unchanged and the store does **not** receive the DO again. The store signs it
+instead, which confirms the stock arrived.
+
+- **Who must sign:** only initial DOs created **from 11 Nov 2026 (MYT)** on, that
+  are acknowledged and have no `pdf_url`. Older stores' initial DOs are never
+  flagged. The cutoff is `INITIAL_DO_SIGNATURE_FROM` and the rule is
+  `needsStoreSignature`, both in `lib/delivery-orders/initial-signature.ts`
+  (pinned by `npx tsx scripts/test-initial-do-signature.ts`).
+- **Store app** (Delivery Orders): the DO sits under **Waiting for your
+  signature** at the top, with Sign & Save. The store dashboard shows a yellow
+  "Please sign your first delivery order" card that links there, until it is signed.
+  After signing, the DO moves to Previously Received as normal.
+- **Admin:** a **Not signed** badge on the DO in the Delivery Orders list and
+  details, and in the store page's DO list.
+- **Welcome message** (Add Store and Reset password & resend login) asks the owner
+  to sign their first DO under Delivery Orders after logging in. Same text in both
+  (`lib/stores/welcome-message.ts`, pinned by `npx tsx scripts/test-store-login.ts`).
+- Signing uses the existing `POST /api/delivery-orders/[doId]/sign` route, unchanged.
+  It re-queues the Drive copy, so the Drive file that was an unsigned DO PDF is
+  replaced with the signed one (see Google Drive copies).
+- Only the signature is new. Stock, DO numbers and the Drive upload on creation
+  behave as before.
+
 ## Code map (the non-obvious parts)
 
 - `lib/gang/` — tickets (`draw_month`, MAX+1), first-timer codes, phone
@@ -711,6 +738,8 @@ or ops manager) queues every **acknowledged** DO and every invoice created on or
 - `lib/events/target-calc.ts` — Event Target Calculator maths (single source
   of truth; pinned by `scripts/test-event-target-calc.ts`, run with
   `npx tsx`).
+- `lib/delivery-orders/initial-signature.ts` — which initial DOs the store must sign
+  (cutoff date + rule; used by the store app and the admin badges).
 - `app/api/cron/` — endpoints driven by GitHub Actions, gated by
   `Authorization: Bearer CRON_SECRET` or `?key=CRON_SECRET`.
 - Roles (`profiles.role`): `super_admin` (Wayne) > `ops_manager` (staff) >

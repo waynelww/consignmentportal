@@ -22,6 +22,8 @@ For security, please change your password after first login:
 
 Need help? Check the tutorial guide in the Account tab.
 
+After you log in, please sign your first delivery order under Delivery Orders.
+
 Welcome aboard! 🧦`
 
 assert.equal(
