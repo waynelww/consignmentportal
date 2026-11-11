@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams, useParams } from 'next/navigation'
 import Link from 'next/link'
 import DriveStatus from '@/components/drive/DriveStatus'
+import { needsStoreSignature } from '@/lib/delivery-orders/initial-signature'
 import { useDriveRows } from '@/lib/drive/use-drive-rows'
 import {
   Download,
@@ -1366,6 +1367,11 @@ export default function StoreDetailPage() {
                         )}>
                           {d.status}
                         </span>
+                        {needsStoreSignature(d) && (
+                          <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                            Not signed
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 px-3 text-gray-500 text-xs">
                         {d.dispatch_date ? formatMYDate(d.dispatch_date) : '—'}

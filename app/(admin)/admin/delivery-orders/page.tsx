@@ -15,6 +15,7 @@ import { hqAvailability, normalizeSku, type HqStockMap } from '@/lib/stock/hq-av
 import { suggestSimilar, type ColourSuggestion } from '@/lib/stock/colour-suggestions'
 import { fetchDriveRows, requeueDrive, type DriveRow } from '@/lib/drive/client'
 import DriveStatus from '@/components/drive/DriveStatus'
+import { needsStoreSignature } from '@/lib/delivery-orders/initial-signature'
 
 interface DOWithStore extends DeliveryOrder { store_name: string }
 interface DispatchModal { open: boolean; doId: string; courier: string; tracking: string }
@@ -600,6 +601,11 @@ export default function DeliveryOrdersPage() {
                                 Signed
                               </span>
                             )}
+                            {needsStoreSignature(d) && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 whitespace-nowrap">
+                                Not signed
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="px-4 py-3 text-gray-500 text-xs">{d.dispatch_date ? formatMYDate(d.dispatch_date) : '—'}</td>
@@ -664,6 +670,11 @@ export default function DeliveryOrdersPage() {
                 <span className={cn('inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-medium', statusColor(detailDO.status))}>
                   {statusLabel(detailDO.status)}
                 </span>
+                {needsStoreSignature(detailDO) && (
+                  <span className="inline-block mt-1 ml-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                    Not signed
+                  </span>
+                )}
               </div>
               <button onClick={() => setDetailDO(null)}><X size={18} className="text-gray-400 hover:text-gray-600" /></button>
             </div>

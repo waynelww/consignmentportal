@@ -9,6 +9,7 @@ import { formatCurrency, timeAgo, formatMYDate } from '@/lib/utils'
 import type { Sale } from '@/types'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/components/store/StoreContext'
+import { needsStoreSignature, type SignableDO } from '@/lib/delivery-orders/initial-signature'
 
 interface DashboardData {
   todaySales: number
@@ -60,6 +61,24 @@ export default function DashboardPage() {
   // Sales the user marked for removal (qty -> 0)
   const [removedSaleIds, setRemovedSaleIds] = useState<Set<string>>(new Set())
   const [editSubmitting, setEditSubmitting] = useState(false)
+
+  // Reminder until the store signs its first delivery order (checked on each visit).
+  const [firstDoUnsigned, setFirstDoUnsigned] = useState(false)
+  useEffect(() => {
+    if (!storeId) return
+    let cancelled = false
+    createClient()
+      .from('delivery_orders')
+      .select('do_type, status, pdf_url, created_at')
+      .eq('store_id', storeId)
+      .eq('do_type', 'initial')
+      .eq('status', 'acknowledged')
+      .is('pdf_url', null)
+      .then(({ data: rows }: { data: SignableDO[] | null }) => {
+        if (!cancelled) setFirstDoUnsigned((rows ?? []).some(needsStoreSignature))
+      })
+    return () => { cancelled = true }
+  }, [storeId])
 
   const loadDashboard = useCallback(async () => {
     if (!storeId) return
@@ -257,6 +276,19 @@ export default function DashboardPage() {
           Refresh
         </button>
       </div>
+
+      {firstDoUnsigned && (
+        <Link
+          href="/store/delivery-orders"
+          className="flex items-center justify-between gap-3 bg-[#FFD700] rounded-xl shadow-sm p-4"
+        >
+          <div>
+            <p className="text-sm font-semibold text-[#0A0A0A]">Please sign your first delivery order</p>
+            <p className="text-xs text-[#0A0A0A]/70 mt-0.5">Open Delivery Orders to sign and save it</p>
+          </div>
+          <ChevronRight size={18} className="text-[#0A0A0A] shrink-0" />
+        </Link>
+      )}
 
       {/* Today */}
       <section>
