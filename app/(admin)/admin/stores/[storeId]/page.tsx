@@ -43,6 +43,7 @@ import StoreStaffManager from '@/components/admin/StoreStaffManager'
 import { TestBadge } from '@/components/shared/test-badge'
 import { DailyReportSettings } from '@/components/admin/DailyReportSettings'
 import { DailyReportTestCard } from '@/components/admin/DailyReportTestCard'
+import { StoreLoginCard } from '@/components/admin/StoreLoginCard'
 import { validateDailyReportSettings } from '@/lib/daily-report/settings'
 import { OFF_CONFIG, type DailyReportConfig } from '@/lib/daily-report/config'
 
@@ -877,6 +878,14 @@ export default function StoreDetailPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Store login: owner's login email + reset password (admins only) */}
+                <StoreLoginCard
+                  storeId={storeId}
+                  storeName={store.store_name}
+                  picName={store.pic_name}
+                  picPhone={store.pic_phone}
+                />
 
                 {/* Quick actions */}
                 <div className="bg-gray-50 rounded-xl p-5">

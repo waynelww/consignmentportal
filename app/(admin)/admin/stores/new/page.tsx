@@ -11,7 +11,9 @@ import { z } from 'zod'
 import { Check, Copy, ChevronRight, ArrowLeft, Search, X, Sparkles, MessageCircle, Plus, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
-import { MALAYSIAN_STATES, generateRef, cn } from '@/lib/utils'
+import { MALAYSIAN_STATES, cn } from '@/lib/utils'
+import { buildWelcomeMessage, whatsappUrl } from '@/lib/stores/welcome-message'
+import { generateTempPassword } from '@/lib/stores/temp-password'
 import type { Product, StoreTypeRow } from '@/types'
 import { useXocksTeam } from '@/components/admin/useXocksTeam'
 import { DailyReportSettings } from '@/components/admin/DailyReportSettings'
@@ -217,7 +219,7 @@ function NewStorePage() {
   })
 
   useEffect(() => {
-    setTempPassword(generateRef(10))
+    setTempPassword(generateTempPassword())
     // Fetch active store types
     fetch('/api/store-types?active=1')
       .then((r) => r.json())
@@ -443,24 +445,13 @@ function NewStorePage() {
   const loginEmail = form3.watch('login_email') || step1Data?.email || ''
 
   function welcomeMessage() {
-    const storeName = step1Data?.store_name || 'your store'
-    return `Hi ${step1Data?.pic_name ?? 'there'}! 👋
-
-Welcome to Xocks. Here are your login details for ${storeName}:
-
-🔗 Login link: ${loginUrl}
-📧 Email: ${loginEmail}
-🔑 Temporary password: ${tempPassword}
-
-For security, please change your password after first login:
-1. Log in with the password above
-2. Tap the Account tab at the bottom
-3. Tap "Change Password"
-4. Set a strong password you'll remember
-
-Need help? Check the tutorial guide in the Account tab.
-
-Welcome aboard! 🧦`
+    return buildWelcomeMessage({
+      picName: step1Data?.pic_name,
+      storeName: step1Data?.store_name,
+      loginUrl,
+      email: loginEmail,
+      password: tempPassword,
+    })
   }
 
   function copyWelcomeMessage() {
@@ -468,12 +459,7 @@ Welcome aboard! 🧦`
   }
 
   function shareWhatsApp() {
-    const phone = (step1Data?.pic_phone ?? '').replace(/\D/g, '')
-    const text = encodeURIComponent(welcomeMessage())
-    // strip leading 0 and prepend 60 if Malaysian local number
-    let intl = phone
-    if (phone.startsWith('0')) intl = '60' + phone.slice(1)
-    window.open(`https://wa.me/${intl}?text=${text}`, '_blank')
+    window.open(whatsappUrl(step1Data?.pic_phone, welcomeMessage()), '_blank')
   }
 
   // Default quantity for any newly-ticked SKU. When this changes (via the
