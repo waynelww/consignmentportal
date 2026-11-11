@@ -11,8 +11,9 @@ import { z } from 'zod'
 import { Check, Copy, ChevronRight, ArrowLeft, Search, X, Sparkles, MessageCircle, Plus, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
-import { MALAYSIAN_STATES, generateRef, cn } from '@/lib/utils'
+import { MALAYSIAN_STATES, cn } from '@/lib/utils'
 import { buildWelcomeMessage, whatsappUrl } from '@/lib/stores/welcome-message'
+import { generateTempPassword } from '@/lib/stores/temp-password'
 import type { Product, StoreTypeRow } from '@/types'
 import { useXocksTeam } from '@/components/admin/useXocksTeam'
 import { DailyReportSettings } from '@/components/admin/DailyReportSettings'
@@ -218,7 +219,7 @@ function NewStorePage() {
   })
 
   useEffect(() => {
-    setTempPassword(generateRef(10))
+    setTempPassword(generateTempPassword())
     // Fetch active store types
     fetch('/api/store-types?active=1')
       .then((r) => r.json())

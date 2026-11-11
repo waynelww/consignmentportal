@@ -303,18 +303,29 @@ message again. Admins only (super admin or ops manager).
 
 1. Open **Stores → the store → Overview**. The **Store login** box shows the
    login email (the account's email, which can differ from the store's Email).
-2. Press **Reset password & resend login** and confirm. The owner's current
+2. Pick who you are under **Working as** (the same name as Follow-ups and
+   Onboarding). The reset button stays off until you do.
+3. Press **Reset password & resend login** and confirm. The owner's current
    password stops working straight away.
-3. The new temporary password and the welcome message appear **once**. Press
+4. The new temporary password and the welcome message appear **once**. Press
    **Copy**, or **Send on WhatsApp** (to the store's PIC phone), before you
    leave the tab. Leaving the tab or pressing **Done** clears it from the screen.
-4. The password is not stored, logged or emailed. If it is lost, reset again.
-5. Resets are **not recorded** yet: the store has no activity log. Note the
-   reset yourself until one is added.
+5. The password is not stored, logged or emailed. If it is lost, reset again.
+6. Every reset is written to **store history** (who did it, and when). The
+   last few entries show under the Store login box.
+   - If the box shows a red "NOT recorded in store history" warning, the password
+     was still reset. Write the reset down by hand and tell whoever runs the
+     database.
 
-- API: `POST /api/stores/[storeId]/reset-login` (`GET` returns only the email).
-- Code: `lib/stores/temp-password.ts`, `lib/stores/welcome-message.ts` (the
-  same message as Add Store), `components/admin/StoreLoginCard.tsx`.
+- API: `GET /api/stores/[storeId]/reset-login` returns the login email and recent
+  history (never a password). `POST` takes `{ by_member_id }` and returns the
+  password once.
+- Table: `store_history` (append-only, admins can read, service role writes).
+  Migration `supabase/migrations/20261111_store_history.sql` must be applied
+  before resets can be recorded.
+- Code: `lib/stores/temp-password.ts` (also used by Add Store),
+  `lib/stores/welcome-message.ts` (the same message as Add Store),
+  `components/admin/StoreLoginCard.tsx`.
 
 ## Automation inventory (GitHub Actions + webhooks)
 
