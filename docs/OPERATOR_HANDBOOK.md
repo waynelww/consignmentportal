@@ -296,6 +296,26 @@ and store page). Current test stores: AGK-001 (Wayne Store) and STR-009
   (`loadTestStoreIds` + `isTestStore`). Every report filters with it; do not
   add a second rule.
 
+## Resend a store owner's login
+
+For a store owner who has forgotten their password or needs the welcome
+message again. Admins only (super admin or ops manager).
+
+1. Open **Stores → the store → Overview**. The **Store login** box shows the
+   login email (the account's email, which can differ from the store's Email).
+2. Press **Reset password & resend login** and confirm. The owner's current
+   password stops working straight away.
+3. The new temporary password and the welcome message appear **once**. Press
+   **Copy**, or **Send on WhatsApp** (to the store's PIC phone), before you
+   leave the tab. Leaving the tab or pressing **Done** clears it from the screen.
+4. The password is not stored, logged or emailed. If it is lost, reset again.
+5. Resets are **not recorded** yet: the store has no activity log. Note the
+   reset yourself until one is added.
+
+- API: `POST /api/stores/[storeId]/reset-login` (`GET` returns only the email).
+- Code: `lib/stores/temp-password.ts`, `lib/stores/welcome-message.ts` (the
+  same message as Add Store), `components/admin/StoreLoginCard.tsx`.
+
 ## Automation inventory (GitHub Actions + webhooks)
 
 - `monthly-invoices.yml` — 1st + 2nd of month, generates commission invoices.
