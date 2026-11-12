@@ -344,8 +344,14 @@ export default function DeliveryOrdersPage() {
     setEditItems((prev) => prev.map((i) => i.product_id === productId ? { ...i, quantity: qty } : i))
   }
   function editRemove(productId: string) { setEditItems((prev) => prev.filter((i) => i.product_id !== productId)) }
+  function editTypeQty(productId: string, raw: string) {
+    const q = raw === '' ? 0 : Math.max(0, Math.floor(Number(raw) || 0))
+    setEditItems((prev) => prev.map((i) => i.product_id === productId ? { ...i, quantity: q } : i))
+  }
   async function submitEdit() {
     if (!editingDo || editItems.length === 0) { toast.error('At least one SKU is required'); return }
+    const missing = skusMissingPairs(editItems)
+    if (missing.length > 0) { toast.error(`Enter pairs for: ${missing.join(', ')}`); return }
     setEditSubmitting(true)
     try {
       const res = await fetch(`/api/delivery-orders/${editingDo.id}`, {
@@ -393,6 +399,16 @@ export default function DeliveryOrdersPage() {
     setCreateItems((prev) => prev.map((i) => i.product_id === productId ? { ...i, quantity: qty } : i))
   }
   function createRemove(productId: string) { setCreateItems((prev) => prev.filter((i) => i.product_id !== productId)) }
+  // Typing in the pairs box: empty = 0 (kept on the line, flagged), never removes the line.
+  function createTypeQty(productId: string, raw: string) {
+    const q = raw === '' ? 0 : Math.max(0, Math.floor(Number(raw) || 0))
+    setCreateItems((prev) => prev.map((i) => i.product_id === productId ? { ...i, quantity: q } : i))
+  }
+  // Lines still without pairs block saving (both Create DO and Edit DO).
+  function skusMissingPairs(items: CreateDOItem[]): string[] {
+    return items.filter((i) => i.product_id && i.quantity <= 0)
+      .map((i) => products.find((p) => p.id === i.product_id)?.sku ?? '?')
+  }
 
   // Suggested restock qty is simply the store's own threshold — predictable
   // and easy to reason about (restock threshold 5 → suggest sending 5).
@@ -424,6 +440,8 @@ export default function DeliveryOrdersPage() {
     if (!createStore) { toast.error('Select a store'); return }
     const validItems = createItems.filter((i) => i.product_id && i.quantity > 0)
     if (validItems.length === 0) { toast.error('Add at least one product'); return }
+    const missing = skusMissingPairs(createItems)
+    if (missing.length > 0) { toast.error(`Enter pairs for: ${missing.join(', ')}`); return }
     setSubmitting(true)
     try {
       const res = await fetch('/api/delivery-orders', {
@@ -969,8 +987,10 @@ export default function DeliveryOrdersPage() {
                               </div>
                               <div className="flex items-center gap-1 shrink-0">
                                 <button type="button" onClick={() => createSetQty(item.product_id, item.quantity - 1)} className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200">−</button>
-                                <input type="number" min={1} value={item.quantity} onChange={(e) => createSetQty(item.product_id, Number(e.target.value) || 1)}
-                                  className="w-14 h-7 text-center text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]" />
+                                <input type="number" min={0} value={item.quantity > 0 ? item.quantity : ''} placeholder="enter pairs"
+                                  onChange={(e) => createTypeQty(item.product_id, e.target.value)} onFocus={(e) => e.target.select()}
+                                  className={cn('w-20 h-7 text-center text-sm rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] placeholder:text-[10px] placeholder:text-amber-800',
+                                    item.quantity > 0 ? 'border border-gray-200' : 'border-2 border-amber-500 bg-amber-100')} />
                                 <button type="button" onClick={() => createSetQty(item.product_id, item.quantity + 1)} className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200">+</button>
                                 <button type="button" onClick={() => createRemove(item.product_id)} className="ml-1 text-gray-400 hover:text-red-500"><X size={14} /></button>
                               </div>
@@ -1070,8 +1090,10 @@ export default function DeliveryOrdersPage() {
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                               <button type="button" onClick={() => editSetQty(item.product_id, item.quantity - 1)} className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200">−</button>
-                              <input type="number" min={1} value={item.quantity} onChange={(e) => editSetQty(item.product_id, Number(e.target.value) || 1)}
-                                className="w-16 h-8 px-2 text-sm font-bold border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-center" />
+                              <input type="number" min={0} value={item.quantity > 0 ? item.quantity : ''} placeholder="enter pairs"
+                                onChange={(e) => editTypeQty(item.product_id, e.target.value)} onFocus={(e) => e.target.select()}
+                                className={cn('w-24 h-8 px-2 text-sm font-bold rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-center placeholder:text-[10px] placeholder:text-amber-800',
+                                  item.quantity > 0 ? 'border border-gray-200' : 'border-2 border-amber-500 bg-amber-100')} />
                               <button type="button" onClick={() => editSetQty(item.product_id, item.quantity + 1)} className="w-7 h-7 rounded-lg bg-gray-100 text-gray-600 text-xs font-bold hover:bg-gray-200">+</button>
                               <button type="button" onClick={() => editRemove(item.product_id)} className="w-7 h-7 rounded-lg bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100 ml-1" title="Remove"><Trash2 size={12} /></button>
                             </div>

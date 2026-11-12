@@ -293,8 +293,9 @@ you press **Create DO**, **Save** or the store's save, as before.
   clear quantity, goes to "Could not read".
 - **Replace current items** (on by default): the read becomes the list. Off: the read is
   added to the existing items and repeated SKUs are summed.
-- Only lines with pairs are added. A SKU with no quantity is listed in the note and not
-  added, so no zero-pair line reaches a DO or a store's first stock.
+- A SKU with no quantity is added with its pairs box empty and highlighted, and is listed in
+  the note. **Create DO**, **Edit DO** and **Add Store** refuse to save until every line has
+  pairs above 0, so no zero-pair line reaches a DO or a store's first stock.
 - **No Show (V codes)** are never sold to consignment: reported as unread, never added.
 - **Cuts:** a line with only Ankle, Half or Crew sets the cut for the lines below. A colour
   in more than one cut is never guessed: it is reported with the possible SKUs.

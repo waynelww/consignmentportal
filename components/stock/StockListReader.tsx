@@ -109,12 +109,11 @@ export function StockListPanel({
   const [busy, setBusy] = useState<'ai' | 'photo' | 'add' | null>(null)
   const [note, setNote] = useState<Note | null>(null)
 
-  // Only lines with pairs are added. A SKU with no quantity is listed in the
-  // note and left out, so no zero-pair line can reach a DO or a store's stock.
+  // Every read line goes into Items. A line with no quantity comes in with an
+  // empty pairs box, highlighted, and the parent blocks saving until it has pairs.
   function apply(read: StockListLineIn[], result: Omit<Note, 'read'>) {
-    const withPairs = read.filter((l) => l.quantity > 0)
-    onApply(mergeLines(items, withPairs, replace))
-    setNote({ read: withPairs.length, ...result })
+    onApply(mergeLines(items, read, replace))
+    setNote({ read: read.length, ...result })
   }
 
   function readList() {
@@ -286,7 +285,9 @@ export function StockListPanel({
             Read {note.read} item{note.read === 1 ? '' : 's'}. Check the quantities before saving.
           </p>
           {note.noQuantity.length > 0 && (
-            <p>No quantity on {note.noQuantity.join(', ')}, so not added. Find each SKU with the search and type the pairs.</p>
+            <p>
+              No quantity on {note.noQuantity.join(', ')}. Added with the pairs box empty (highlighted). Enter the pairs before saving.
+            </p>
           )}
           {note.notFound.length > 0 && <p>Not an active SKU: {note.notFound.join(', ')}.</p>}
           {note.unread.length > 0 && (

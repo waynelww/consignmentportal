@@ -392,6 +392,11 @@ function NewStorePage() {
 
   async function onStep3(data: Step3Data) {
     if (!step1Data || !step2Data) return
+    const missing = selections.filter((s) => s.selected && s.quantity <= 0).map((s) => s.product.sku)
+    if (missing.length > 0) {
+      toast.error(`Enter pairs for: ${missing.join(', ')}`)
+      return
+    }
     setSubmitting(true)
 
     try {
@@ -1260,14 +1265,15 @@ function NewStorePage() {
                                 <input
                                   type="number"
                                   min={0}
-                                  value={sel.quantity}
+                                  value={sel.quantity > 0 ? sel.quantity : ''}
+                                  placeholder="enter pairs"
                                   onChange={(e) => {
                                     const v = e.target.value
-                                    // Treat empty as 0 but let the user clear+retype freely
+                                    // Empty = no pairs yet (highlighted, blocks saving); the row stays
                                     updateQty(sel.product_id, v === '' ? 0 : Math.max(0, Math.floor(Number(v) || 0)))
                                   }}
                                   onFocus={(e) => e.target.select()}
-                                  className="w-20 h-8 px-2 text-sm font-bold border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-center"
+                                  className={`w-24 h-8 px-2 text-sm font-bold rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-center placeholder:text-[10px] placeholder:text-amber-800 ${sel.quantity > 0 ? 'border border-gray-200' : 'border-2 border-amber-500 bg-amber-100'}`}
                                 />
                                 <button
                                   type="button"
