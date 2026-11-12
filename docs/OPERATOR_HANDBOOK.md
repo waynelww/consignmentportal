@@ -405,10 +405,47 @@ Node 22 is the known-good version.
   nothing), assigns invoice numbers, notifies stores (in-app + email + push).
   A sweep retry runs on the 2nd.
 - **By the 7th** — stores transfer `xocks_revenue` (bank details are on the
-  invoice: WAYNE GROUP HOLDING SDN BHD · CIMB BANK · 8605806682) and upload
-  receipts; admin reviews in Payments.
+  invoice, from Settings → Company Info; see "Commission invoice layout" below)
+  and upload receipts; admin reviews in Payments.
 - **Gang draw** — tickets are scoped to the current Malaysia-time month
   (`draw_month`); winners drawn manually, announced on WhatsApp end of month.
+
+## Commission invoice layout and bank details
+
+The monthly `XCSM-###` invoice is a plain A4 page (white, grey labels, dashed
+rules, no header bar). Code: `lib/pdf/generate-statement.ts` (invoice builder).
+The store's download route (`app/api/commissions/[periodId]/pdf/route.ts`) and
+the Drive renderer (`lib/drive/render.ts`) both call it, so they print the same thing.
+
+- **Layout:** company name and address/contact (top left) · title · STORE
+  INFORMATION (left) and invoice details (right) · product table with the header
+  repeated on extra pages · TOTAL under a dashed rule · bank details and payment
+  reference (bottom left) · total sales revenue, store commission and amount to
+  transfer (bottom right) · footer · "Page X of Y" on every page.
+- **No payment reminder.** The old transfer-within-N-days line and the 10%
+  late-payment line are gone. `paymentTermsDays` is still passed but not printed.
+- **Company Info** (Settings → Company Info) feeds the top-left block:
+  `company_name`, `company_address`, `company_contact`. The block has no separate
+  phone, email or registration-number fields, so only the address and the contact
+  line print. A registration number is not printed (no setting exists for it).
+- **Bank details** are editable in Settings → Company Info:
+  `company_bank_name`, `company_bank_account_name`, `company_bank_account_no`.
+  Settings opens with the current values filled in; the first Save stores them.
+  No migration is needed. An empty field falls back to its current value
+  (CIMB Bank / Wayne Group Holding Sdn Bhd / 8605806682) in `lib/pdf/bank-details.ts`.
+- **Commission rounding:** each row's commission is a sum of sale commissions, so
+  rounding rows to the sen can differ from the stored total (XCSM-119: rows
+  235.71, total 235.67). `lib/pdf/commission-rows.ts` uses largest-remainder
+  rounding so the printed rows add up exactly to `commission_periods.commission_amount`.
+  Only the printed figures change; no stored amount is touched.
+- **Stored PDFs don't change.** The download route saves an invoice's PDF to
+  `commission-pdfs` (`pdf_url`) the first time it is downloaded; that copy is then
+  served as-is. Invoices with a stored copy keep the old layout. Invoices that have
+  not been downloaded yet get the new layout whenever they are generated, and their
+  Drive copy is rendered at upload time. A Drive file already uploaded is not
+  re-rendered unless it is requeued.
+- Changing the layout or the rounding: run `npx tsx scripts/test-commission-rows.ts`
+  and `npx tsc --noEmit -p tsconfig.json`, then check a generated invoice on the live site.
 
 ## Monthly report (PDF + Excel)
 
@@ -448,8 +485,8 @@ without at least one recipient (also enforced by a DB check).
   from the daily run (`lib/stores/test-accounts.ts`).
 - "Sales that day" = `sales.sale_date` = that day, keyed in before 22:00 MYT.
   Entries keyed after 22:00 are not in that day's report.
-- PDF: the commission invoice layout (`lib/pdf/generate-statement.ts`, daily
-  mode): titled "Daily Sales Report", with the sales date in place of the
+- PDF: its own layout in `lib/pdf/generate-statement.ts` (daily mode, unchanged
+  when the monthly invoice was redesigned): titled "Daily Sales Report", with the sales date in place of the
   invoice number. Sales only: product, code, quantity, price, amount, keyed in
   by, with totals for pairs and sales (RM). No commission figures, payout box,
   amount to transfer, XCSM number or bank details. The email shows pairs and
@@ -758,7 +795,11 @@ instead, which confirms the stock arrived.
 - `lib/shopify/` — GraphQL client (`gang-perk.ts` exports `shopifyGraphQL`),
   order lookup, discount creation, inventory sync.
 - `lib/invoice-number.ts` — XCSM numbering.
-- `lib/pdf/generate-statement.ts` — the commission invoice PDF (pdf-lib).
+- `lib/pdf/generate-statement.ts` — the commission invoice PDF (pdf-lib) and
+  the daily sales report PDF (`daily` mode). See "Commission invoice layout".
+- `lib/pdf/commission-rows.ts` — makes invoice COMMISSION rows add up to the
+  period total (pinned by `npx tsx scripts/test-commission-rows.ts`).
+- `lib/pdf/bank-details.ts` — invoice bank settings keys and fallback values.
 - `lib/pdf/generate-slip.ts` — 4 x 6 in packing slip for restock DOs
   ("Print slip" in the DO details modal → `/api/delivery-orders/[id]/pdf?slip&inline`,
   admins only, generated every time, nothing stored). One column → two

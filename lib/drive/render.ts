@@ -10,6 +10,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { generateDOPdf } from '@/lib/pdf/generate-do'
 import { generateStatementPdf } from '@/lib/pdf/generate-statement'
+import { BANK_SETTING_KEYS } from '@/lib/pdf/bank-details'
+import { fitCommissionRows } from '@/lib/pdf/commission-rows'
 import { assignInvoiceNo, formatInvoiceNo } from '@/lib/invoice-number'
 import { deliveryOrderCopyWanted, selectAll } from './queue'
 import { doFileName, invoiceFileName, storeFolderName, subfolderFor, type DriveKind } from './layout'
@@ -163,7 +165,7 @@ export async function renderInvoice(svc: SupabaseClient, periodId: string): Prom
   const { data: settingsRows } = await svc
     .from('settings')
     .select('key, value')
-    .in('key', ['company_name', 'company_address', 'company_contact'])
+    .in('key', ['company_name', 'company_address', 'company_contact', ...Object.values(BANK_SETTING_KEYS)])
   const settings: Record<string, string> = {}
   for (const row of settingsRows ?? []) settings[row.key] = row.value
 
@@ -236,7 +238,12 @@ export async function renderInvoice(svc: SupabaseClient, periodId: string): Prom
     companyName: settings['company_name'],
     companyAddress: settings['company_address'],
     companyContact: settings['company_contact'],
-    items: Array.from(lineMap.values()),
+    bank: {
+      bankName: settings[BANK_SETTING_KEYS.bankName],
+      accountName: settings[BANK_SETTING_KEYS.accountName],
+      accountNo: settings[BANK_SETTING_KEYS.accountNo],
+    },
+    items: fitCommissionRows(Array.from(lineMap.values()), p.commission_amount),
     totalUnits: p.total_units_sold,
     totalRevenue: p.total_revenue,
     totalCommission: p.commission_amount,
