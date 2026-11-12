@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { generateStatementPdf } from '@/lib/pdf/generate-statement'
+import { BANK_SETTING_KEYS } from '@/lib/pdf/bank-details'
 import { assignInvoiceNo, formatInvoiceNo } from '@/lib/invoice-number'
 
 const BUCKET = 'commission-pdfs'
@@ -110,7 +111,7 @@ export async function GET(
   const { data: settingsRows } = await supabase
     .from('settings')
     .select('key, value')
-    .in('key', ['company_name', 'company_address', 'company_contact'])
+    .in('key', ['company_name', 'company_address', 'company_contact', ...Object.values(BANK_SETTING_KEYS)])
 
   const settingsMap: Record<string, string> = {}
   for (const row of settingsRows ?? []) settingsMap[row.key] = row.value
@@ -197,6 +198,11 @@ export async function GET(
     companyName: settingsMap['company_name'],
     companyAddress: settingsMap['company_address'],
     companyContact: settingsMap['company_contact'],
+    bank: {
+      bankName: settingsMap[BANK_SETTING_KEYS.bankName],
+      accountName: settingsMap[BANK_SETTING_KEYS.accountName],
+      accountNo: settingsMap[BANK_SETTING_KEYS.accountNo],
+    },
     items: Array.from(lineMap.values()),
     totalUnits: period.total_units_sold,
     totalRevenue: period.total_revenue,

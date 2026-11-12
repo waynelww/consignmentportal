@@ -10,6 +10,7 @@ import XocksTeamManager from '@/components/admin/XocksTeamManager'
 import MonthlyReportCard from '@/components/admin/MonthlyReportCard'
 import DriveUploadsCard from '@/components/admin/DriveUploadsCard'
 import { SALES_REMINDER_SETTING_KEY, SALES_REMINDER_DEFAULT_DAYS } from '@/lib/sales/last-sale'
+import { BANK_SETTING_KEYS, BANK_DEFAULTS } from '@/lib/pdf/bank-details'
 
 type SettingsTab = 'general' | 'users' | 'notifications' | 'team'
 
@@ -57,6 +58,10 @@ export default function SettingsPage() {
     setSettings(s)
     const map: Record<string, string> = {}
     for (const item of s) map[item.key] = item.value
+    // Bank details not saved yet show the current invoice values; the first Save stores them.
+    map[BANK_SETTING_KEYS.bankName] ??= BANK_DEFAULTS.bankName
+    map[BANK_SETTING_KEYS.accountName] ??= BANK_DEFAULTS.accountName
+    map[BANK_SETTING_KEYS.accountNo] ??= BANK_DEFAULTS.accountNo
     setEditedSettings(map)
     setSettingsLoading(false)
   }, [])
@@ -108,7 +113,7 @@ export default function SettingsPage() {
     setSavingSettings(true)
     const allEdited: Record<string, string> = { ...editedSettings, [SALES_REMINDER_SETTING_KEY]: String(reminderDays) }
     // Ensure company info keys are always included even if new
-    for (const key of ['company_name', 'company_address', 'company_contact']) {
+    for (const key of ['company_name', 'company_address', 'company_contact', ...Object.values(BANK_SETTING_KEYS)]) {
       if (!(key in allEdited)) allEdited[key] = ''
     }
     const updates = Object.entries(allEdited)
@@ -297,6 +302,9 @@ export default function SettingsPage() {
                         { key: 'company_name', label: 'Company Name', placeholder: 'Wayne Group Holding Sdn Bhd' },
                         { key: 'company_address', label: 'Company Address', placeholder: 'Kuala Lumpur, Malaysia' },
                         { key: 'company_contact', label: 'Contact Email / Phone', placeholder: 'hello@xocks.co' },
+                        { key: BANK_SETTING_KEYS.bankName, label: 'Bank Name', placeholder: BANK_DEFAULTS.bankName },
+                        { key: BANK_SETTING_KEYS.accountName, label: 'Bank Account Name', placeholder: BANK_DEFAULTS.accountName },
+                        { key: BANK_SETTING_KEYS.accountNo, label: 'Bank Account Number', placeholder: BANK_DEFAULTS.accountNo },
                       ].map(({ key, label, placeholder }) => (
                         <div key={key} className="flex items-center gap-4">
                           <div className="flex-1 min-w-0">

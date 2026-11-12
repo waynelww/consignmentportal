@@ -405,10 +405,66 @@ Node 22 is the known-good version.
   nothing), assigns invoice numbers, notifies stores (in-app + email + push).
   A sweep retry runs on the 2nd.
 - **By the 7th** — stores transfer `xocks_revenue` (bank details are on the
-  invoice: WAYNE GROUP HOLDING SDN BHD · CIMB BANK · 8605806682) and upload
-  receipts; admin reviews in Payments.
+  invoice, from Settings → Company Info; see "Commission invoice layout" below)
+  and upload receipts; admin reviews in Payments.
 - **Gang draw** — tickets are scoped to the current Malaysia-time month
   (`draw_month`); winners drawn manually, announced on WhatsApp end of month.
+
+## Commission invoice layout and bank details
+
+Two invoice layouts exist. The period decides which one is used
+(`usesLegacyInvoiceLayout` in `lib/pdf/generate-statement.ts`):
+
+- **Period October 2026 or earlier: legacy layout.** Code:
+  `lib/pdf/generate-statement-legacy.ts`, a verbatim copy of the layout on `main`
+  before the redesign. Figures, wording, the payment reminder and the fixed bank
+  line are exactly as before. Do not edit that file.
+- **Period November 2026 onward: new plain A4 layout.** Code: the invoice builder in
+  `lib/pdf/generate-statement.ts`. Both the store download route
+  (`app/api/commissions/[periodId]/pdf/route.ts`) and the Drive renderer
+  (`lib/drive/render.ts`) use it, so they print the same thing.
+
+New layout:
+
+- **Page:** company name and address/contact (top left) · title · STORE
+  INFORMATION (left: store, PIC, address, wrapped) and the details block (right) ·
+  product table with the header repeated on extra pages · dashed rule and TOTAL ·
+  bank details and payment reference (bottom left) · total sales revenue, store
+  commission and amount to transfer (bottom right) · footer · "Page X of Y".
+- **Right-hand block:** INVOICE NO, STATEMENT PERIOD, GENERATED, STATUS (PAID in
+  green), PAYMENT REFERENCE (the period's stored `payment_reference`, when set) and
+  PAID ON (when a paid date is set). The bottom-left payment reference is the
+  `XCSM-### / STORE-CODE – Month YYYY` string, as on the legacy layout.
+- **No payment reminder.** The transfer-within-N-days line and the 10% late-payment
+  line are removed. `paymentTermsDays` is still passed but not printed.
+- **Figures are unchanged.** Commission rows are the same per-product, per-staff sums
+  as before. No rounding adjustment is applied, so rows can differ from the total by
+  a few sen, as they always did. The TOTAL row and the amount to transfer are the
+  stored period values.
+- **Address:** the store address now wraps in full. The legacy layout cut it at
+  60 characters. This is the only change the layout brief asked for in the content.
+- **Company Info** (Settings → Company Info) feeds the top-left block:
+  `company_name`, `company_address`, `company_contact`. There are no separate
+  phone, email or registration-number fields, so none of those print.
+- **Bank details** are editable in Settings → Company Info:
+  `company_bank_name`, `company_bank_account_name`, `company_bank_account_no`.
+  Settings opens with the current values filled in; the first Save stores them.
+  No migration is needed. An empty field falls back to its current value
+  (CIMB Bank / Wayne Group Holding Sdn Bhd / 8605806682) in `lib/pdf/bank-details.ts`.
+  The legacy layout keeps its fixed bank line and does not read these settings.
+
+Stored PDFs and Drive are not changed by this:
+
+- The download route serves a stored PDF (`pdf_url`) as it is. It generates and
+  stores a PDF only when `pdf_url` is empty. Nothing regenerates a stored invoice.
+- The Drive renderer uses the stored PDF when one exists. Otherwise it generates the
+  PDF at upload time. Saving settings does not queue anything. Drive uploads are queued
+  only by the existing actions (invoice generation, `commissions/ensure`, retry and
+  backfill). The backfill covers invoices created from 1 Nov 2026 only, so October 2026
+  and earlier invoices are never re-queued by it.
+
+Changing the layout: run `npx tsc --noEmit -p tsconfig.json`, then check a generated
+invoice on the live site. Never change the legacy file.
 
 ## Monthly report (PDF + Excel)
 
@@ -448,8 +504,8 @@ without at least one recipient (also enforced by a DB check).
   from the daily run (`lib/stores/test-accounts.ts`).
 - "Sales that day" = `sales.sale_date` = that day, keyed in before 22:00 MYT.
   Entries keyed after 22:00 are not in that day's report.
-- PDF: the commission invoice layout (`lib/pdf/generate-statement.ts`, daily
-  mode): titled "Daily Sales Report", with the sales date in place of the
+- PDF: its own layout in `lib/pdf/generate-statement.ts` (daily mode, unchanged
+  when the monthly invoice was redesigned): titled "Daily Sales Report", with the sales date in place of the
   invoice number. Sales only: product, code, quantity, price, amount, keyed in
   by, with totals for pairs and sales (RM). No commission figures, payout box,
   amount to transfer, XCSM number or bank details. The email shows pairs and
@@ -758,7 +814,11 @@ instead, which confirms the stock arrived.
 - `lib/shopify/` — GraphQL client (`gang-perk.ts` exports `shopifyGraphQL`),
   order lookup, discount creation, inventory sync.
 - `lib/invoice-number.ts` — XCSM numbering.
-- `lib/pdf/generate-statement.ts` — the commission invoice PDF (pdf-lib).
+- `lib/pdf/generate-statement.ts` — the commission invoice PDF (pdf-lib) and
+  the daily sales report PDF (`daily` mode). See "Commission invoice layout".
+- `lib/pdf/generate-statement-legacy.ts` — the invoice layout for periods up to
+  October 2026 (verbatim copy of the pre-redesign generator; do not edit).
+- `lib/pdf/bank-details.ts` — invoice bank settings keys and fallback values.
 - `lib/pdf/generate-slip.ts` — 4 x 6 in packing slip for restock DOs
   ("Print slip" in the DO details modal → `/api/delivery-orders/[id]/pdf?slip&inline`,
   admins only, generated every time, nothing stored). One column → two
