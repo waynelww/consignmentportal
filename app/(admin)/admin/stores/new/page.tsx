@@ -17,6 +17,7 @@ import { generateTempPassword } from '@/lib/stores/temp-password'
 import type { Product, StoreTypeRow } from '@/types'
 import { useXocksTeam } from '@/components/admin/useXocksTeam'
 import { DailyReportSettings } from '@/components/admin/DailyReportSettings'
+import { StockListToggle, StockListPanel } from '@/components/stock/StockListReader'
 import { validateDailyReportSettings } from '@/lib/daily-report/settings'
 
 // ── Step schemas ──────────────────────────────────────────────────────────────
@@ -181,6 +182,7 @@ function NewStorePage() {
   // Step 2 two-phase: 'pick' for ticking SKUs, 'quantities' for setting amounts
   const [pickPhase, setPickPhase] = useState<'pick' | 'quantities'>('pick')
   const [search, setSearch] = useState('')
+  const [pasteOpen, setPasteOpen] = useState(false)
 
   // "Opened by" — active Xocks team members, with inline quick-add
   const team = useXocksTeam()
@@ -502,6 +504,16 @@ function NewStorePage() {
 
   function clearAll() {
     setSelections((prev) => prev.map((s) => ({ ...s, selected: false })))
+  }
+
+  // Paste/photo reader result: ticks exactly the SKUs in the list, with their pairs.
+  function applyStockList(next: { product_id: string; quantity: number }[]) {
+    const byId = new Map(next.map((l) => [l.product_id, l.quantity]))
+    setSelections((prev) =>
+      prev.map((s) =>
+        byId.has(s.product_id) ? { ...s, selected: true, quantity: byId.get(s.product_id)! } : { ...s, selected: false }
+      )
+    )
   }
 
   // Filtered list for the pick phase
@@ -994,6 +1006,7 @@ function NewStorePage() {
                       )}
                     </div>
                     <div className="flex gap-2 shrink-0">
+                      <StockListToggle open={pasteOpen} onClick={() => setPasteOpen((v) => !v)} />
                       <button
                         type="button"
                         onClick={selectAllRecommended}
@@ -1010,6 +1023,16 @@ function NewStorePage() {
                       </button>
                     </div>
                   </div>
+
+                  {pasteOpen && (
+                    <div className="mb-3">
+                      <StockListPanel
+                        products={selections.map((s) => s.product)}
+                        items={selectedItems.map((s) => ({ product_id: s.product_id, quantity: s.quantity }))}
+                        onApply={applyStockList}
+                      />
+                    </div>
+                  )}
 
                   {/* Selected tracker — live list of everything ticked so far */}
                   {selectedItems.length > 0 && (

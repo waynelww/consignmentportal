@@ -16,6 +16,7 @@ import { suggestSimilar, type ColourSuggestion } from '@/lib/stock/colour-sugges
 import { fetchDriveRows, requeueDrive, type DriveRow } from '@/lib/drive/client'
 import DriveStatus from '@/components/drive/DriveStatus'
 import { needsStoreSignature } from '@/lib/delivery-orders/initial-signature'
+import { StockListToggle, StockListPanel } from '@/components/stock/StockListReader'
 
 interface DOWithStore extends DeliveryOrder { store_name: string }
 interface DispatchModal { open: boolean; doId: string; courier: string; tracking: string }
@@ -60,6 +61,7 @@ export default function DeliveryOrdersPage() {
   const [createNotes, setCreateNotes] = useState('')
   const [createItems, setCreateItems] = useState<CreateDOItem[]>([])
   const [createSearch, setCreateSearch] = useState('')
+  const [createPasteOpen, setCreatePasteOpen] = useState(false)
   const [submitting, setSubmitting]   = useState(false)
   const [understocked, setUnderstocked] = useState<UnderstockedItem[]>([])
   const [loadingUnderstocked, setLoadingUnderstocked] = useState(false)
@@ -67,6 +69,7 @@ export default function DeliveryOrdersPage() {
   const [editItems, setEditItems]     = useState<CreateDOItem[]>([])
   const [editNotes, setEditNotes]     = useState('')
   const [editSearch, setEditSearch]   = useState('')
+  const [editPasteOpen, setEditPasteOpen] = useState(false)
   const [editSubmitting, setEditSubmitting] = useState(false)
   const [cancellingDoId, setCancellingDoId] = useState<string | null>(null)
 
@@ -907,11 +910,14 @@ export default function DeliveryOrdersPage() {
 
               <div>
                 <label className="text-xs font-medium text-gray-600 block mb-1">Products *</label>
-                <div className="relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <input type="text" value={createSearch} onChange={(e) => setCreateSearch(e.target.value)}
-                    placeholder="Search by SKU or name (e.g. A54, Ankle, Patches)"
-                    className="w-full h-10 pl-9 pr-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]" />
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1 min-w-0">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    <input type="text" value={createSearch} onChange={(e) => setCreateSearch(e.target.value)}
+                      placeholder="Search by SKU or name (e.g. A54, Ankle, Patches)"
+                      className="w-full h-10 pl-9 pr-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]" />
+                  </div>
+                  <StockListToggle open={createPasteOpen} onClick={() => setCreatePasteOpen((v) => !v)} />
                 </div>
                 {(() => {
                   const q = createSearch.trim().toLowerCase()
@@ -931,6 +937,11 @@ export default function DeliveryOrdersPage() {
                     </div>
                   )
                 })()}
+                {createPasteOpen && (
+                  <div className="mt-3">
+                    <StockListPanel products={products} items={createItems} onApply={setCreateItems} />
+                  </div>
+                )}
                 <div className="mt-3">
                   <p className="text-xs font-semibold text-gray-600 mb-2">Items ({createItems.length} SKU{createItems.length !== 1 ? 's' : ''} · {createItems.reduce((s, i) => s + i.quantity, 0)} pairs)</p>
                   {createItems.length === 0
@@ -1003,11 +1014,14 @@ export default function DeliveryOrdersPage() {
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               <div>
                 <label className="text-xs font-semibold text-gray-600 block mb-1">Add a SKU</label>
-                <div className="relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <input type="text" value={editSearch} onChange={(e) => setEditSearch(e.target.value)}
-                    placeholder="Search by SKU or name…"
-                    className="w-full h-10 pl-9 pr-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]" />
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1 min-w-0">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    <input type="text" value={editSearch} onChange={(e) => setEditSearch(e.target.value)}
+                      placeholder="Search by SKU or name…"
+                      className="w-full h-10 pl-9 pr-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]" />
+                  </div>
+                  <StockListToggle open={editPasteOpen} onClick={() => setEditPasteOpen((v) => !v)} />
                 </div>
                 {editSearch.trim() && (
                   <div className="mt-1 border border-gray-200 rounded-lg max-h-48 overflow-y-auto bg-white shadow-sm">
@@ -1025,6 +1039,11 @@ export default function DeliveryOrdersPage() {
                 )}
               </div>
               <div>
+                {editPasteOpen && (
+                  <div className="mb-3">
+                    <StockListPanel products={products} items={editItems} onApply={setEditItems} />
+                  </div>
+                )}
                 <p className="text-xs font-semibold text-gray-600 mb-2">Items ({editItems.length} SKU{editItems.length !== 1 ? 's' : ''} · {editItems.reduce((s, i) => s + i.quantity, 0)} pairs)</p>
                 {editItems.length === 0
                   ? <p className="text-xs text-gray-400 py-4 text-center bg-gray-50 rounded-lg">No items yet.</p>
