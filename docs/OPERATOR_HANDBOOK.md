@@ -273,6 +273,34 @@ or DO are skipped. Anything that is not a Plain Series code gets no suggestion.
 - **Store restock request** shows the similar colour codes and names only, never
   quantities.
 
+## Stock list reader (paste or photo)
+
+Turns a store's restock list into SKUs and pairs. It appears as **Paste list / photo**
+next to the SKU search on the **Create DO** and **Edit DO** modals, and in the
+**Add Store** initial stock step. It only fills the Items list. Nothing saves until
+you press **Create DO**, **Save** or the store's save, as before.
+
+- **Read list** (no AI): pure parser in `lib/stock-list/parse.ts`. Test with
+  `npx tsx scripts/test-stock-list-parse.ts`. Change a rule there and in the test together.
+- **Read with AI** (text, plus any photos) and **Read photo** (photos only): `POST
+  /api/stock-list/ai-read`, admins only (super_admin, ops_manager). Same Anthropic key
+  (`ANTHROPIC_API_KEY`) and model as the AI chat. The rules are in the system prompt in
+  `app/api/stock-list/ai-read/route.ts`.
+- Photos: JPG or PNG, up to 4. The browser resizes each to about 1600px JPEG (about
+  1.2 MB at most) so the request stays under Vercel's 4.5 MB body limit. Photos are never
+  stored or logged.
+- The AI reply is checked against **active** products. A SKU that is not active, or has no
+  clear quantity, goes to "Could not read".
+- **Replace current items** (on by default): the read becomes the list. Off: the read is
+  added to the existing items and repeated SKUs are summed.
+- A SKU with no quantity is added with its pairs box empty and highlighted, and is listed in
+  the note. **Create DO**, **Edit DO** and **Add Store** refuse to save until every line has
+  pairs above 0, so no zero-pair line reaches a DO or a store's first stock.
+- **No Show (V codes)** are never sold to consignment: reported as unread, never added.
+- **Cuts:** a line with only Ankle, Half or Crew sets the cut for the lines below. A colour
+  in more than one cut is never guessed: it is reported with the possible SKUs.
+- The note always says "Check the quantities before saving." Re-read the Items list before saving.
+
 ## Test accounts (`stores.is_test`)
 
 Stores used for staff training and system testing are flagged with the

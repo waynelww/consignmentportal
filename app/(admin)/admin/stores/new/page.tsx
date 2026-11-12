@@ -17,6 +17,7 @@ import { generateTempPassword } from '@/lib/stores/temp-password'
 import type { Product, StoreTypeRow } from '@/types'
 import { useXocksTeam } from '@/components/admin/useXocksTeam'
 import { DailyReportSettings } from '@/components/admin/DailyReportSettings'
+import { StockListToggle, StockListPanel } from '@/components/stock/StockListReader'
 import { validateDailyReportSettings } from '@/lib/daily-report/settings'
 
 // ── Step schemas ──────────────────────────────────────────────────────────────
@@ -181,6 +182,7 @@ function NewStorePage() {
   // Step 2 two-phase: 'pick' for ticking SKUs, 'quantities' for setting amounts
   const [pickPhase, setPickPhase] = useState<'pick' | 'quantities'>('pick')
   const [search, setSearch] = useState('')
+  const [pasteOpen, setPasteOpen] = useState(false)
 
   // "Opened by" — active Xocks team members, with inline quick-add
   const team = useXocksTeam()
@@ -390,6 +392,11 @@ function NewStorePage() {
 
   async function onStep3(data: Step3Data) {
     if (!step1Data || !step2Data) return
+    const missing = selections.filter((s) => s.selected && s.quantity <= 0).map((s) => s.product.sku)
+    if (missing.length > 0) {
+      toast.error(`Enter pairs for: ${missing.join(', ')}`)
+      return
+    }
     setSubmitting(true)
 
     try {
@@ -502,6 +509,16 @@ function NewStorePage() {
 
   function clearAll() {
     setSelections((prev) => prev.map((s) => ({ ...s, selected: false })))
+  }
+
+  // Paste/photo reader result: ticks exactly the SKUs in the list, with their pairs.
+  function applyStockList(next: { product_id: string; quantity: number }[]) {
+    const byId = new Map(next.map((l) => [l.product_id, l.quantity]))
+    setSelections((prev) =>
+      prev.map((s) =>
+        byId.has(s.product_id) ? { ...s, selected: true, quantity: byId.get(s.product_id)! } : { ...s, selected: false }
+      )
+    )
   }
 
   // Filtered list for the pick phase
@@ -994,6 +1011,7 @@ function NewStorePage() {
                       )}
                     </div>
                     <div className="flex gap-2 shrink-0">
+                      <StockListToggle open={pasteOpen} onClick={() => setPasteOpen((v) => !v)} />
                       <button
                         type="button"
                         onClick={selectAllRecommended}
@@ -1010,6 +1028,16 @@ function NewStorePage() {
                       </button>
                     </div>
                   </div>
+
+                  {pasteOpen && (
+                    <div className="mb-3">
+                      <StockListPanel
+                        products={selections.map((s) => s.product)}
+                        items={selectedItems.map((s) => ({ product_id: s.product_id, quantity: s.quantity }))}
+                        onApply={applyStockList}
+                      />
+                    </div>
+                  )}
 
                   {/* Selected tracker — live list of everything ticked so far */}
                   {selectedItems.length > 0 && (
@@ -1237,14 +1265,15 @@ function NewStorePage() {
                                 <input
                                   type="number"
                                   min={0}
-                                  value={sel.quantity}
+                                  value={sel.quantity > 0 ? sel.quantity : ''}
+                                  placeholder="enter pairs"
                                   onChange={(e) => {
                                     const v = e.target.value
-                                    // Treat empty as 0 but let the user clear+retype freely
+                                    // Empty = no pairs yet (highlighted, blocks saving); the row stays
                                     updateQty(sel.product_id, v === '' ? 0 : Math.max(0, Math.floor(Number(v) || 0)))
                                   }}
                                   onFocus={(e) => e.target.select()}
-                                  className="w-20 h-8 px-2 text-sm font-bold border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-center"
+                                  className={`w-24 h-8 px-2 text-sm font-bold rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] text-center placeholder:text-[10px] placeholder:text-amber-800 ${sel.quantity > 0 ? 'border border-gray-200' : 'border-2 border-amber-500 bg-amber-100'}`}
                                 />
                                 <button
                                   type="button"
