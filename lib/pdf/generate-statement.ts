@@ -1,6 +1,7 @@
 import { PDFDocument, PageSizes, PDFFont, PDFPage, rgb, StandardFonts } from 'pdf-lib'
 import { sanitizePdfDeep } from './text'
 import { BANK_DEFAULTS, type BankDetails } from './bank-details'
+import { generateLegacyStatementPdf } from './generate-statement-legacy'
 
 // ── Daily sales report page (A5-ish sheet, unchanged layout) ────────────────────
 const PAGE_WIDTH = 595
@@ -135,9 +136,17 @@ export interface StatementParams {
   daily?: { salesDate: string }    // e.g. "30 October 2026"
 }
 
+// Invoices for October 2026 and earlier keep the layout they were issued with.
+export function usesLegacyInvoiceLayout(periodYear: number, periodMonth: number): boolean {
+  return periodYear < 2026 || (periodYear === 2026 && periodMonth <= 10)
+}
+
 export async function generateStatementPdf(params: StatementParams): Promise<Uint8Array> {
-  const clean = sanitizePdfDeep(params)
-  return clean.daily ? buildDailyReportPdf(clean) : buildInvoicePdf(clean)
+  if (params.daily) return buildDailyReportPdf(sanitizePdfDeep(params))
+  if (usesLegacyInvoiceLayout(params.periodYear, params.periodMonth)) {
+    return generateLegacyStatementPdf(params)
+  }
+  return buildInvoicePdf(sanitizePdfDeep(params))
 }
 
 // ── Daily sales report ──────────────────────────────────────────────────────────
@@ -448,7 +457,7 @@ async function buildInvoicePdf(params: StatementParams): Promise<Uint8Array> {
     if (withTableHeader) drawTableHeader()
   }
 
-  const companyName = params.companyName?.trim() || DEFAULT_COMPANY
+  const companyName = params.companyName ?? DEFAULT_COMPANY
   const monthYear = `${MONTH_NAMES[params.periodMonth - 1]} ${params.periodYear}`
   const periodLabel = monthYear
 
@@ -500,10 +509,10 @@ async function buildInvoicePdf(params: StatementParams): Promise<Uint8Array> {
   if (params.invoiceNo) rightRow('INVOICE NO', params.invoiceNo)
   rightRow('STATEMENT PERIOD', periodLabel)
   rightRow('GENERATED', params.generatedDate)
-  const status = (params.status ?? '').trim()
-  const isPaid = status === 'paid'
-  if (status) rightRow('STATUS', status.toUpperCase(), isPaid ? GREEN : INK)
-  if (isPaid && params.paidAt) rightRow('PAID ON', params.paidAt)
+  const status = params.status ?? ''
+  rightRow('STATUS', status.toUpperCase(), status === 'paid' ? GREEN : INK)
+  if (params.paymentReference) rightRow('PAYMENT REFERENCE', params.paymentReference)
+  if (params.paidAt) rightRow('PAID ON', params.paidAt)
 
   y = Math.min(ly, ry) - 12
 
@@ -589,8 +598,8 @@ async function buildInvoicePdf(params: StatementParams): Promise<Uint8Array> {
   fy -= 16
   textCentre('Thank you for your partnership with Xocks!', fy, 8.5, bold, INK)
   fy -= 12
-  const contactLine = params.companyContact?.trim()
-    ? `For enquiries, contact us at ${params.companyContact.trim()} or WhatsApp your account manager.`
+  const contactLine = params.companyContact
+    ? `For enquiries, contact us at ${params.companyContact} or WhatsApp your account manager.`
     : 'For enquiries, contact us at hello@xocks.co or WhatsApp your account manager.'
   textCentre(contactLine, fy, 7.5, regular, MUTED)
   fy -= 11

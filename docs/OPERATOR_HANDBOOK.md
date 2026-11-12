@@ -412,40 +412,59 @@ Node 22 is the known-good version.
 
 ## Commission invoice layout and bank details
 
-The monthly `XCSM-###` invoice is a plain A4 page (white, grey labels, dashed
-rules, no header bar). Code: `lib/pdf/generate-statement.ts` (invoice builder).
-The store's download route (`app/api/commissions/[periodId]/pdf/route.ts`) and
-the Drive renderer (`lib/drive/render.ts`) both call it, so they print the same thing.
+Two invoice layouts exist. The period decides which one is used
+(`usesLegacyInvoiceLayout` in `lib/pdf/generate-statement.ts`):
 
-- **Layout:** company name and address/contact (top left) · title · STORE
-  INFORMATION (left) and invoice details (right) · product table with the header
-  repeated on extra pages · TOTAL under a dashed rule · bank details and payment
-  reference (bottom left) · total sales revenue, store commission and amount to
-  transfer (bottom right) · footer · "Page X of Y" on every page.
-- **No payment reminder.** The old transfer-within-N-days line and the 10%
-  late-payment line are gone. `paymentTermsDays` is still passed but not printed.
+- **Period October 2026 or earlier: legacy layout.** Code:
+  `lib/pdf/generate-statement-legacy.ts`, a verbatim copy of the layout on `main`
+  before the redesign. Figures, wording, the payment reminder and the fixed bank
+  line are exactly as before. Do not edit that file.
+- **Period November 2026 onward: new plain A4 layout.** Code: the invoice builder in
+  `lib/pdf/generate-statement.ts`. Both the store download route
+  (`app/api/commissions/[periodId]/pdf/route.ts`) and the Drive renderer
+  (`lib/drive/render.ts`) use it, so they print the same thing.
+
+New layout:
+
+- **Page:** company name and address/contact (top left) · title · STORE
+  INFORMATION (left: store, PIC, address, wrapped) and the details block (right) ·
+  product table with the header repeated on extra pages · dashed rule and TOTAL ·
+  bank details and payment reference (bottom left) · total sales revenue, store
+  commission and amount to transfer (bottom right) · footer · "Page X of Y".
+- **Right-hand block:** INVOICE NO, STATEMENT PERIOD, GENERATED, STATUS (PAID in
+  green), PAYMENT REFERENCE (the period's stored `payment_reference`, when set) and
+  PAID ON (when a paid date is set). The bottom-left payment reference is the
+  `XCSM-### / STORE-CODE – Month YYYY` string, as on the legacy layout.
+- **No payment reminder.** The transfer-within-N-days line and the 10% late-payment
+  line are removed. `paymentTermsDays` is still passed but not printed.
+- **Figures are unchanged.** Commission rows are the same per-product, per-staff sums
+  as before. No rounding adjustment is applied, so rows can differ from the total by
+  a few sen, as they always did. The TOTAL row and the amount to transfer are the
+  stored period values.
+- **Address:** the store address now wraps in full. The legacy layout cut it at
+  60 characters. This is the only change the layout brief asked for in the content.
 - **Company Info** (Settings → Company Info) feeds the top-left block:
-  `company_name`, `company_address`, `company_contact`. The block has no separate
-  phone, email or registration-number fields, so only the address and the contact
-  line print. A registration number is not printed (no setting exists for it).
+  `company_name`, `company_address`, `company_contact`. There are no separate
+  phone, email or registration-number fields, so none of those print.
 - **Bank details** are editable in Settings → Company Info:
   `company_bank_name`, `company_bank_account_name`, `company_bank_account_no`.
   Settings opens with the current values filled in; the first Save stores them.
   No migration is needed. An empty field falls back to its current value
   (CIMB Bank / Wayne Group Holding Sdn Bhd / 8605806682) in `lib/pdf/bank-details.ts`.
-- **Commission rounding:** each row's commission is a sum of sale commissions, so
-  rounding rows to the sen can differ from the stored total (XCSM-119: rows
-  235.71, total 235.67). `lib/pdf/commission-rows.ts` uses largest-remainder
-  rounding so the printed rows add up exactly to `commission_periods.commission_amount`.
-  Only the printed figures change; no stored amount is touched.
-- **Stored PDFs don't change.** The download route saves an invoice's PDF to
-  `commission-pdfs` (`pdf_url`) the first time it is downloaded; that copy is then
-  served as-is. Invoices with a stored copy keep the old layout. Invoices that have
-  not been downloaded yet get the new layout whenever they are generated, and their
-  Drive copy is rendered at upload time. A Drive file already uploaded is not
-  re-rendered unless it is requeued.
-- Changing the layout or the rounding: run `npx tsx scripts/test-commission-rows.ts`
-  and `npx tsc --noEmit -p tsconfig.json`, then check a generated invoice on the live site.
+  The legacy layout keeps its fixed bank line and does not read these settings.
+
+Stored PDFs and Drive are not changed by this:
+
+- The download route serves a stored PDF (`pdf_url`) as it is. It generates and
+  stores a PDF only when `pdf_url` is empty. Nothing regenerates a stored invoice.
+- The Drive renderer uses the stored PDF when one exists. Otherwise it generates the
+  PDF at upload time. Saving settings does not queue anything. Drive uploads are queued
+  only by the existing actions (invoice generation, `commissions/ensure`, retry and
+  backfill). The backfill covers invoices created from 1 Nov 2026 only, so October 2026
+  and earlier invoices are never re-queued by it.
+
+Changing the layout: run `npx tsc --noEmit -p tsconfig.json`, then check a generated
+invoice on the live site. Never change the legacy file.
 
 ## Monthly report (PDF + Excel)
 
@@ -797,8 +816,8 @@ instead, which confirms the stock arrived.
 - `lib/invoice-number.ts` — XCSM numbering.
 - `lib/pdf/generate-statement.ts` — the commission invoice PDF (pdf-lib) and
   the daily sales report PDF (`daily` mode). See "Commission invoice layout".
-- `lib/pdf/commission-rows.ts` — makes invoice COMMISSION rows add up to the
-  period total (pinned by `npx tsx scripts/test-commission-rows.ts`).
+- `lib/pdf/generate-statement-legacy.ts` — the invoice layout for periods up to
+  October 2026 (verbatim copy of the pre-redesign generator; do not edit).
 - `lib/pdf/bank-details.ts` — invoice bank settings keys and fallback values.
 - `lib/pdf/generate-slip.ts` — 4 x 6 in packing slip for restock DOs
   ("Print slip" in the DO details modal → `/api/delivery-orders/[id]/pdf?slip&inline`,

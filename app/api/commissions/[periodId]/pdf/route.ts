@@ -2,7 +2,6 @@ import { type NextRequest } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { generateStatementPdf } from '@/lib/pdf/generate-statement'
 import { BANK_SETTING_KEYS } from '@/lib/pdf/bank-details'
-import { fitCommissionRows } from '@/lib/pdf/commission-rows'
 import { assignInvoiceNo, formatInvoiceNo } from '@/lib/invoice-number'
 
 const BUCKET = 'commission-pdfs'
@@ -204,7 +203,7 @@ export async function GET(
       accountName: settingsMap[BANK_SETTING_KEYS.accountName],
       accountNo: settingsMap[BANK_SETTING_KEYS.accountNo],
     },
-    items: fitCommissionRows(Array.from(lineMap.values()), period.commission_amount),
+    items: Array.from(lineMap.values()),
     totalUnits: period.total_units_sold,
     totalRevenue: period.total_revenue,
     totalCommission: period.commission_amount,

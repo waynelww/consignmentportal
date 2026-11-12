@@ -11,7 +11,6 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { generateDOPdf } from '@/lib/pdf/generate-do'
 import { generateStatementPdf } from '@/lib/pdf/generate-statement'
 import { BANK_SETTING_KEYS } from '@/lib/pdf/bank-details'
-import { fitCommissionRows } from '@/lib/pdf/commission-rows'
 import { assignInvoiceNo, formatInvoiceNo } from '@/lib/invoice-number'
 import { deliveryOrderCopyWanted, selectAll } from './queue'
 import { doFileName, invoiceFileName, storeFolderName, subfolderFor, type DriveKind } from './layout'
@@ -243,7 +242,7 @@ export async function renderInvoice(svc: SupabaseClient, periodId: string): Prom
       accountName: settings[BANK_SETTING_KEYS.accountName],
       accountNo: settings[BANK_SETTING_KEYS.accountNo],
     },
-    items: fitCommissionRows(Array.from(lineMap.values()), p.commission_amount),
+    items: Array.from(lineMap.values()),
     totalUnits: p.total_units_sold,
     totalRevenue: p.total_revenue,
     totalCommission: p.commission_amount,
