@@ -113,7 +113,7 @@ export default function SettingsPage() {
     setSavingSettings(true)
     const allEdited: Record<string, string> = { ...editedSettings, [SALES_REMINDER_SETTING_KEY]: String(reminderDays) }
     // Ensure company info keys are always included even if new
-    for (const key of ['company_name', 'company_address', 'company_contact', ...Object.values(BANK_SETTING_KEYS)]) {
+    for (const key of ['company_name', 'company_reg_number', 'company_address', 'company_contact', ...Object.values(BANK_SETTING_KEYS)]) {
       if (!(key in allEdited)) allEdited[key] = ''
     }
     const updates = Object.entries(allEdited)
@@ -300,6 +300,7 @@ export default function SettingsPage() {
                     <div className="space-y-3">
                       {[
                         { key: 'company_name', label: 'Company Name', placeholder: 'Wayne Group Holding Sdn Bhd' },
+                        { key: 'company_reg_number', label: 'Registration No.', placeholder: '1543772-U' },
                         { key: 'company_address', label: 'Company Address', placeholder: 'Kuala Lumpur, Malaysia' },
                         { key: 'company_contact', label: 'Contact Email / Phone', placeholder: 'hello@xocks.co' },
                         { key: BANK_SETTING_KEYS.bankName, label: 'Bank Name', placeholder: BANK_DEFAULTS.bankName },

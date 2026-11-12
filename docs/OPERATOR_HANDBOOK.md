@@ -444,8 +444,10 @@ New layout:
 - **Address:** the store address now wraps in full. The legacy layout cut it at
   60 characters. This is the only change the layout brief asked for in the content.
 - **Company Info** (Settings → Company Info) feeds the top-left block:
-  `company_name`, `company_address`, `company_contact`. There are no separate
-  phone, email or registration-number fields, so none of those print.
+  `company_name`, `company_reg_number`, `company_address`, `company_contact`.
+  The registration number prints in brackets after the company name
+  (e.g. `WAYNE GROUP HOLDING SDN BHD (1543772-U)`) and is left out when empty.
+  There are no separate phone or email fields, so those do not print.
 - **Bank details** are editable in Settings → Company Info:
   `company_bank_name`, `company_bank_account_name`, `company_bank_account_no`.
   Settings opens with the current values filled in; the first Save stores them.

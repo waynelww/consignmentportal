@@ -164,7 +164,7 @@ export async function renderInvoice(svc: SupabaseClient, periodId: string): Prom
   const { data: settingsRows } = await svc
     .from('settings')
     .select('key, value')
-    .in('key', ['company_name', 'company_address', 'company_contact', ...Object.values(BANK_SETTING_KEYS)])
+    .in('key', ['company_name', 'company_reg_number', 'company_address', 'company_contact', ...Object.values(BANK_SETTING_KEYS)])
   const settings: Record<string, string> = {}
   for (const row of settingsRows ?? []) settings[row.key] = row.value
 
@@ -237,6 +237,7 @@ export async function renderInvoice(svc: SupabaseClient, periodId: string): Prom
     companyName: settings['company_name'],
     companyAddress: settings['company_address'],
     companyContact: settings['company_contact'],
+    companyRegNumber: settings['company_reg_number'],
     bank: {
       bankName: settings[BANK_SETTING_KEYS.bankName],
       accountName: settings[BANK_SETTING_KEYS.accountName],
