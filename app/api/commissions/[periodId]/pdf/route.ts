@@ -111,7 +111,7 @@ export async function GET(
   const { data: settingsRows } = await supabase
     .from('settings')
     .select('key, value')
-    .in('key', ['company_name', 'company_address', 'company_contact', ...Object.values(BANK_SETTING_KEYS)])
+    .in('key', ['company_name', 'company_reg_number', 'company_address', 'company_contact', ...Object.values(BANK_SETTING_KEYS)])
 
   const settingsMap: Record<string, string> = {}
   for (const row of settingsRows ?? []) settingsMap[row.key] = row.value
@@ -198,6 +198,7 @@ export async function GET(
     companyName: settingsMap['company_name'],
     companyAddress: settingsMap['company_address'],
     companyContact: settingsMap['company_contact'],
+    companyRegNumber: settingsMap['company_reg_number'],
     bank: {
       bankName: settingsMap[BANK_SETTING_KEYS.bankName],
       accountName: settingsMap[BANK_SETTING_KEYS.accountName],

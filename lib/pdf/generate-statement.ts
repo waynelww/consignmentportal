@@ -113,6 +113,8 @@ export interface StatementParams {
   companyName?: string
   companyAddress?: string
   companyContact?: string
+  // New invoice layout only (November 2026 onward): printed after the company name.
+  companyRegNumber?: string
   // Invoice only: bank account for the transfer. Empty fields use BANK_DEFAULTS.
   bank?: BankDetails
   items: Array<{
@@ -462,7 +464,8 @@ async function buildInvoicePdf(params: StatementParams): Promise<Uint8Array> {
   const periodLabel = monthYear
 
   // ── Company (top left) ───────────────────────────────────────────────────────
-  text(companyName.toUpperCase(), INV_MARGIN, y, 11, bold, INK)
+  const regNo = params.companyRegNumber?.trim()
+  text(`${companyName.toUpperCase()}${regNo ? ` (${regNo})` : ''}`, INV_MARGIN, y, 11, bold, INK)
   y -= 14
 
   const companyLines: string[] = []
