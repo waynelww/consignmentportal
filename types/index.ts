@@ -65,7 +65,14 @@ export interface Profile {
   store_id: string | null
   created_at: string
   updated_at: string
+  // Store owner guided tour (migration 20261116_store_owner_tour.sql)
+  tour_status?: TourStatus | null
+  tour_step?: number | null
+  tour_lang?: 'en' | 'bm'
+  tour_completed_at?: string | null
 }
+
+export type TourStatus = 'new' | 'offer' | 'snoozed' | 'declined' | 'in_progress' | 'completed'
 
 export interface Store {
   id: string

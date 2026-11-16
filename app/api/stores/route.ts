@@ -210,6 +210,7 @@ export async function POST(request: NextRequest) {
       phone: pic_phone,
       role: 'store_owner',
       store_id: newStore.id,
+      tour_status: 'new', // guided tour: welcome sheet on first login
     })
 
   if (profileErr) {

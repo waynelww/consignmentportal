@@ -41,6 +41,7 @@ import type {
 } from '@/types'
 import { toast } from 'sonner'
 import StoreStaffManager from '@/components/admin/StoreStaffManager'
+import StoreTourStatus from '@/components/admin/StoreTourStatus'
 import { TestBadge } from '@/components/shared/test-badge'
 import { DailyReportSettings } from '@/components/admin/DailyReportSettings'
 import { DailyReportTestCard } from '@/components/admin/DailyReportTestCard'
@@ -879,6 +880,9 @@ export default function StoreDetailPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Owner guided-tour status (read-only) */}
+                <StoreTourStatus storeId={storeId} />
 
                 {/* Store login: owner's login email + reset password (admins only) */}
                 <StoreLoginCard

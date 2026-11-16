@@ -10,6 +10,7 @@ import type { Sale } from '@/types'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/components/store/StoreContext'
 import { needsStoreSignature, type SignableDO } from '@/lib/delivery-orders/initial-signature'
+import { START_TOUR_EVENT } from '@/components/store/tour/StoreTour'
 
 interface DashboardData {
   todaySales: number
@@ -261,13 +262,24 @@ export default function DashboardPage() {
     <div className="px-4 py-5 space-y-6 max-w-lg mx-auto">
       {/* Top action bar — Guide + refresh (own row, no overlap) */}
       <div className="flex items-center justify-between gap-3 pb-1">
-        <Link
-          href="/store/help"
-          className="flex items-center gap-1.5 text-xs font-semibold text-[#0A0A0A] bg-[#FFD700] px-3 py-2 rounded-lg shadow-sm"
-        >
-          <BookOpen size={14} />
-          Tutorial Guide
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/store/help"
+            data-tour="home-guide"
+            className="flex items-center gap-1.5 text-xs font-semibold text-[#0A0A0A] bg-[#FFD700] px-3 py-2 rounded-lg shadow-sm"
+          >
+            <BookOpen size={14} />
+            Tutorial Guide
+          </Link>
+          <button
+            type="button"
+            data-tour="home-start-tour"
+            onClick={() => window.dispatchEvent(new Event(START_TOUR_EVENT))}
+            className="flex items-center gap-1.5 text-xs font-semibold text-[#0A0A0A] bg-white border border-[#FFD700] px-3 py-2 rounded-lg shadow-sm"
+          >
+            Start tour
+          </button>
+        </div>
         <button
           onClick={loadDashboard}
           className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 px-2 py-1.5 rounded-lg"
@@ -291,7 +303,7 @@ export default function DashboardPage() {
       )}
 
       {/* Today */}
-      <section>
+      <section data-tour="home-today">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Today</h2>
         </div>
@@ -314,7 +326,7 @@ export default function DashboardPage() {
         {loading ? (
           <SkeletonCard />
         ) : (
-          <div className="bg-[#0A0A0A] rounded-xl p-5">
+          <div data-tour="home-earnings" className="bg-[#0A0A0A] rounded-xl p-5">
             <p className="text-xs text-gray-400 mb-0.5">Earnings this month</p>
             <p className="text-4xl font-bold text-[#FFD700] mt-1">{formatCurrency(data?.monthCommission ?? 0)}</p>
             <div className="mt-4 grid grid-cols-3 gap-3 text-center">
@@ -366,7 +378,7 @@ export default function DashboardPage() {
         >
           Record a Sale
         </Link>
-        <div className="grid grid-cols-2 gap-3">
+        <div data-tour="home-actions" className="grid grid-cols-2 gap-3">
           <Link
             href="/store/restock-request"
             className="block w-full h-14 bg-white border-2 border-[#0A0A0A] text-[#0A0A0A] rounded-xl font-semibold text-sm text-center leading-[52px] shadow-sm hover:bg-gray-50 transition-colors"
@@ -383,7 +395,7 @@ export default function DashboardPage() {
       </section>
 
       {/* Recent transactions — grouped by sale_group_id */}
-      <section>
+      <section data-tour="home-recent">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Recent Transactions</h2>
           <Link href="/store/sales-history" className="text-xs text-[#0A0A0A] font-medium underline">

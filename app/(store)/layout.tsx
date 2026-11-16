@@ -9,6 +9,7 @@ import { StoreProvider } from '@/components/store/StoreContext'
 import NavItem from '@/components/store/NavItem'
 import { StaffPicker } from '@/components/store/StaffPicker'
 import SalesReminderBanner from '@/components/store/SalesReminderBanner'
+import StoreTour from '@/components/store/tour/StoreTour'
 import type { Store, Profile } from '@/types'
 
 interface StoreLayoutData {
@@ -88,6 +89,7 @@ export default async function StoreLayout({ children }: { children: React.ReactN
         <StoreProvider storeId={storeId} store={store}>
           <SalesReminderBanner />
           {children}
+          <StoreTour />
         </StoreProvider>
       </main>
 
