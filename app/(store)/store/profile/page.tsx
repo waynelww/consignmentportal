@@ -275,7 +275,7 @@ export default function InfoPage() {
       {tab === 'me' && (
         <div className="space-y-4 pb-4">
           {/* Login & security card */}
-          <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
+          <div data-tour="info-security" className="bg-white rounded-xl shadow-sm p-4 space-y-3">
             <div className="flex items-center gap-2 mb-1">
               <Lock size={16} className="text-gray-400" />
               <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Login & Security</span>
@@ -523,7 +523,7 @@ export default function InfoPage() {
       </div>
 
       {/* ── Pay the balance to ─────────────────────────────────────────────────── */}
-      <div className="rounded-2xl overflow-hidden shadow-lg" style={{ background: 'linear-gradient(160deg, #111 0%, #1a1a1a 100%)', border: '1px solid #2a2a2a' }}>
+      <div data-tour="info-pay" className="rounded-2xl overflow-hidden shadow-lg" style={{ background: 'linear-gradient(160deg, #111 0%, #1a1a1a 100%)', border: '1px solid #2a2a2a' }}>
         {/* Header */}
         <div className="px-5 pt-5 pb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -605,7 +605,7 @@ export default function InfoPage() {
           <div className="h-10 bg-white/10 rounded w-2/3" />
         </div>
       ) : (
-        <div className="bg-[#0A0A0A] rounded-xl p-5">
+        <div data-tour="info-commission" className="bg-[#0A0A0A] rounded-xl p-5">
           <p className="text-gray-400 text-xs mb-0.5">{currentMonthLabel} — Live</p>
           <p className="text-sm text-gray-400">Commission earned this month</p>
           <p className="text-4xl font-bold text-[#FFD700] mt-1">{formatCurrency(mtdCommission)}</p>
@@ -632,7 +632,7 @@ export default function InfoPage() {
       )}
 
       {/* ── Past invoices ──────────────────────────────────────────────────────── */}
-      <section>
+      <section data-tour="info-invoices">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Past Invoices</h2>
 
         {loading ? (

@@ -121,7 +121,7 @@ export default function InventoryPage() {
       </div>
 
       {/* Filter tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 snap-x">
+      <div data-tour="inv-filters" className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 snap-x">
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -235,7 +235,7 @@ export default function InventoryPage() {
 
       {/* Summary bar */}
       {!loading && inventory.length > 0 && (
-        <div className="bg-[#0A0A0A] rounded-xl p-4 flex justify-between items-center">
+        <div data-tour="inv-total" className="bg-[#0A0A0A] rounded-xl p-4 flex justify-between items-center">
           <div>
             <p className="text-xs text-gray-400">Total Pairs on Hand</p>
             <p className="text-2xl font-bold text-[#FFD700]">{totalPairs}</p>

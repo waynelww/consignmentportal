@@ -293,7 +293,7 @@ export default function StoreDeliveryOrdersPage() {
     <div className="px-4 py-5 space-y-6 max-w-lg mx-auto">
       {/* First DO waiting for the store's signature */}
       {waitingSignature.length > 0 && (
-        <section>
+        <section data-tour="do-signature">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
             Waiting for your signature
             <span className="ml-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
@@ -336,7 +336,7 @@ export default function StoreDeliveryOrdersPage() {
       )}
 
       {/* Pending/incoming DOs */}
-      <section>
+      <section data-tour="do-incoming">
         <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
           Incoming Deliveries {pending.length > 0 && (
             <span className="ml-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold">
@@ -456,7 +456,7 @@ export default function StoreDeliveryOrdersPage() {
 
       {/* Received history */}
       {history.length > 0 && (
-        <section>
+        <section data-tour="do-previous">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
             Previously Received
           </h2>

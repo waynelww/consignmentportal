@@ -360,7 +360,7 @@ export default function RecordSalePage() {
       </div>
 
       {/* Search + scan */}
-      <div className="flex gap-2">
+      <div data-tour="sale-search" className="flex gap-2">
         <div className="relative flex-1">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
           <input
@@ -469,7 +469,7 @@ export default function RecordSalePage() {
 
       {/* Sticky confirm bar when cart has items */}
       {cartCount > 0 && (
-        <div className="fixed bottom-[72px] left-0 right-0 px-4 pb-2 z-40">
+        <div data-tour="sale-cart-bar" className="fixed bottom-[72px] left-0 right-0 px-4 pb-2 z-40">
           <button
             onClick={() => setCartOpen(true)}
             className="w-full max-w-lg mx-auto flex items-center justify-between h-14 rounded-xl bg-[#0A0A0A] text-white px-5 shadow-xl"
@@ -592,6 +592,7 @@ export default function RecordSalePage() {
                 </div>
               ) : (
                 <button
+                  data-tour="sale-promo"
                   onClick={() => setPromoPickerOpen(true)}
                   disabled={promos.length === 0}
                   className={cn(
@@ -633,6 +634,7 @@ export default function RecordSalePage() {
               {/* Who is keying in this sale */}
               <button
                 type="button"
+                data-tour="sale-keyed-by"
                 onClick={() => setStaffSheetOpen(true)}
                 className={cn(
                   'w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs',
@@ -643,6 +645,7 @@ export default function RecordSalePage() {
                 <span className="font-bold truncate ml-2">{selectedStaff ? selectedStaff.name : 'Select staff'}</span>
               </button>
               <button
+                data-tour="sale-confirm"
                 onClick={confirmOrder}
                 disabled={submitting}
                 className={cn(

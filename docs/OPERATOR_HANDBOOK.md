@@ -429,6 +429,58 @@ message again. Admins only (super admin or ops manager).
   `SPEED_ADMIN_CODE` env var (set in Vercel; add to `.env.local` if
   working on it locally).
 
+## Store owner guided tour
+
+An overlay tour for store owners in the store app (`/store/*`). It only adds
+an overlay: pages keep their layout and behaviour. Apart from the tour mount
+in `app/(store)/layout.tsx`, the only edits to store pages are `data-tour="..."`
+attributes.
+
+**Migration:** `supabase/migrations/20261116_store_owner_tour.sql`. Apply it
+with `apply_migration` after operator OK, and **before** deploying the code
+that inserts `tour_status` (Add Store), or the insert fails on the unknown column.
+
+**Data (`profiles`):**
+- `tour_status`: `new` | `offer` | `snoozed` | `declined` | `in_progress` | `completed`. Null = no tour (non-owners).
+- `tour_step`: the stable step id (1–21), saved as the owner moves through the tour.
+- `tour_lang`: `en` | `bm`, saved from the EN/BM switch.
+- `tour_completed_at`: set on finish. A replay keeps the original date.
+- Existing store owners were backfilled to `offer`. Add Store creates the profile as `new`.
+- The browser role can update only the four `tour_*` columns (column grant). Its other profile
+  writes (name, phone, role, store) go through the service-role API, as before.
+
+**What shows, and when:**
+
+| Status | On the next browser session in the store app |
+|---|---|
+| `new` | Welcome sheet (👋) → Start / Maybe later |
+| `offer`, `snoozed` | Offer popup (✨) → Start / Maybe later / No thanks |
+| `in_progress` | "Continue your tour?" at the saved step → Continue / Not now |
+| `completed`, `declined` | Nothing. Replay from **Home → Start tour** |
+
+- Maybe later → `snoozed`. No thanks → `declined`. Skip mid-tour → `in_progress` + `tour_step`. Finish → `completed` + `tour_completed_at`.
+- "Next login" = the next time the browser session starts (sessionStorage). Within one session the prompt appears at most once.
+- A popup that gets no answer stays `offer`, so it comes back next session until the owner answers.
+- Replays from Home do not downgrade a `completed` status.
+
+**Steps and copy:** `lib/tour/content.ts` (EN and BM). Step ids are stored in
+`tour_step`, so **never renumber**. Add new steps at the end, or migrate the data.
+Step 15 (first DO signature) is dropped unless the store has an initial DO that
+still needs its signature (`needsStoreSignature`, `lib/delivery-orders/initial-signature.ts`).
+Targets are CSS selectors tried in order: the first visible match wins, so a step
+whose item is missing (empty cart, no history) falls back to the nearest section.
+Bottom-nav tabs and the bell are found by their `href`, so they need no attribute.
+
+**Logic:** `components/store/tour/StoreTour.tsx` (mounted in the store layout), with pure helpers in `lib/tour/logic.ts`.
+`data-tour` attributes are on the Home, Sales, Inventory, Deliveries and Info sections.
+The **Start tour** button is next to Tutorial Guide on Home (event `xcms:start-tour`).
+
+**Admin:** store Overview → **Owner tour** card (`components/admin/StoreTourStatus.tsx`).
+It is read-only: Not started / Snoozed / Declined / In progress at step N / Completed on <date>.
+
+**Don't:** add `data-tour` to elements that would change layout or styling, or move
+the help page (`/store/help`), which stays as it is.
+
 ## Running in claude.ai/code (cloud)
 
 The cloud environment starts from a fresh clone — anything not in GitHub
