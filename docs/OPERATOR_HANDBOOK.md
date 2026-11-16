@@ -821,7 +821,7 @@ instead, which confirms the stock arrived.
 - `lib/pdf/generate-statement-legacy.ts` — the invoice layout for periods up to
   October 2026 (verbatim copy of the pre-redesign generator; do not edit).
 - `lib/pdf/bank-details.ts` — invoice bank settings keys and fallback values.
-- `lib/pdf/generate-slip.ts` — 4 x 6 in packing slip for restock DOs
+- `lib/pdf/generate-slip.ts` — 4 x 6 in packing slip for restock and initial DOs
   ("Print slip" in the DO details modal → `/api/delivery-orders/[id]/pdf?slip&inline`,
   admins only, generated every time, nothing stored). One column → two
   columns → extra labels; pinned by `npx tsx scripts/test-packing-slip.ts`.
