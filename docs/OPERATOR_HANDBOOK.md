@@ -227,7 +227,7 @@ only. Nothing else (no other Shopify location) feeds these numbers.
   Delivery Orders) runs the same sync as the nightly job and shows "Shopify stock
   updated <time>". It must finish within Vercel's 60s limit.
 - **Nightly:** `/api/cron/sync-shopify-inventory` (Vercel cron, 03:30 MYT) refreshes
-  the same numbers.
+  the same numbers. An hourly run does too (see "Hourly Shopify inventory sync").
 - Migration: `supabase/migrations/20261108_products_hq_stock.sql` adds the two
   columns. It must be applied before the refresh or the restock screens work.
   The old `shopify_inventory_qty` columns are no longer written and are still
@@ -355,8 +355,52 @@ message again. Admins only (super admin or ops manager).
   `lib/stores/welcome-message.ts` (the same message as Add Store),
   `components/admin/StoreLoginCard.tsx`.
 
+## Hourly Shopify inventory sync (Supabase pg_cron)
+
+- **What:** every hour on the hour (`0 * * * *`, UTC) the database calls
+  `/api/cron/sync-shopify-inventory`, the same sync as the Refresh button and the
+  03:30 MYT Vercel cron. It keeps the Office (HQ) stock, SKUs and photos fresh
+  during the day. Why it runs from the database: GitHub Actions schedules run
+  hours late, and Vercel Hobby only allows daily crons.
+- **Pieces:** pg_cron job `xcms-shopify-sync-hourly` runs
+  `select run_hourly_shopify_sync()`. That function inserts a single-use row in
+  `cron_tokens` (job `shopify-inventory`) and POSTs the token in an
+  `x-cron-token` header with pg_net. The route accepts a token once, within 10
+  minutes, then deletes it. Migration: `supabase/migrations/20261116_shopify_hourly_sync_cron.sql`.
+  It must be applied before the job does anything.
+- **Secrets:** none for this job. Nothing is stored in the database or pg_cron.
+  The token is a throwaway that expires in 10 minutes and is deleted on use.
+  Shopify and service keys stay in the Vercel environment variables.
+- **Check it:** run in the Supabase SQL editor.
+
+  ```sql
+  -- Did pg_cron fire it? Status, timing and any error for each run.
+  select runid, status, return_message, start_time, end_time
+  from cron.job_run_details
+  where jobid = (select jobid from cron.job where jobname = 'xcms-shopify-sync-hourly')
+  order by start_time desc
+  limit 10;
+
+  -- Did the HTTP call succeed? status_code 200 means the sync ran.
+  select id, status_code, timed_out, error_msg, created
+  from net._http_response
+  order by created desc
+  limit 10;
+  ```
+
+  `cron.job_run_details` only shows that the function ran. The HTTP status is in
+  `net._http_response`, which keeps responses for a short time only. For the
+  summary lines, check the Vercel function logs for `[cron sync-shopify-inventory]`.
+- **Pause:** `select cron.unschedule('xcms-shopify-sync-hourly');`
+  This stops only the hourly job. The 03:30 MYT Vercel cron and the Refresh button
+  keep working. To resume, re-run the `cron.schedule(...)` line in the migration.
+- **History:** hourly runs are recorded as source `nightly` in
+  `product_sku_changes`, the same as the 03:30 run. The source does not say which
+  trigger ran.
+
 ## Automation inventory (GitHub Actions + webhooks)
 
+- Supabase pg_cron `xcms-shopify-sync-hourly` — hourly Shopify inventory sync (see "Hourly Shopify inventory sync"). Lives in the database, not GitHub.
 - `monthly-invoices.yml` — 1st + 2nd of month, generates commission invoices.
 - `monthly-report.yml` — 1st of month 09:30 MYT, emails last month's report
   (PDF + Excel) to `monthly_report_email`. See "Monthly report" below.

@@ -1,18 +1,49 @@
 /**
- * GET /api/cron/sync-shopify-inventory
- * Daily Vercel Cron — refreshes Shopify links, SKUs and photos (lib/shopify/catalogue-match.ts),
+ * GET or POST /api/cron/sync-shopify-inventory
+ * Refreshes Shopify links, SKUs and photos (lib/shopify/catalogue-match.ts),
  * then products.hq_available_qty from the Shopify Office (HQ) location.
- * Schedule: 03:30 MY time = 19:30 UTC (30 min after the image sync to avoid
- * hammering the Shopify API at the exact same moment).
+ *
+ * Callers:
+ *  - Vercel Cron, daily 03:30 MY time = 19:30 UTC (GET, Authorization: Bearer CRON_SECRET).
+ *    30 min after the image sync to avoid hammering the Shopify API at the same moment.
+ *  - Supabase pg_cron, hourly (POST, single-use x-cron-token from cron_tokens).
+ *    See supabase/migrations/20261116_shopify_hourly_sync_cron.sql.
  */
 import { type NextRequest } from 'next/server'
 import { syncShopifyInventory } from '@/lib/shopify/sync-inventory'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export const maxDuration = 60
 
-export async function GET(request: NextRequest) {
+const CRON_TOKEN_JOB = 'shopify-inventory'
+const CRON_TOKEN_TTL_MS = 10 * 60 * 1000
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+async function isAuthorised(request: NextRequest): Promise<boolean> {
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (authHeader === `Bearer ${process.env.CRON_SECRET}`) return true
+
+  const token = request.headers.get('x-cron-token')
+  if (!token || !UUID_RE.test(token)) return false
+
+  // Single use: one atomic delete that matches only a fresh token for this job.
+  const { data, error } = await createAdminClient()
+    .from('cron_tokens')
+    .delete()
+    .eq('token', token)
+    .eq('job', CRON_TOKEN_JOB)
+    .gte('created_at', new Date(Date.now() - CRON_TOKEN_TTL_MS).toISOString())
+    .select('token')
+
+  if (error) {
+    console.error('[cron sync-shopify-inventory] cron token check failed:', error.message)
+    return false
+  }
+  return (data?.length ?? 0) > 0
+}
+
+async function runSync(request: NextRequest) {
+  if (!(await isAuthorised(request))) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -35,4 +66,13 @@ export async function GET(request: NextRequest) {
   for (const line of result.summary) console.log(`[cron sync-shopify-inventory] ${line}`)
 
   return Response.json({ ok: true, duration_ms, ...result })
+}
+
+export async function GET(request: NextRequest) {
+  return runSync(request)
+}
+
+// pg_net sends POST from the hourly pg_cron job.
+export async function POST(request: NextRequest) {
+  return runSync(request)
 }
