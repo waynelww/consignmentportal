@@ -14,7 +14,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createServiceClient } from '@/lib/supabase/server'
-import { driveFileUrl, driveRootFolderId, findOrCreateFolder, uploadOrReplacePdf } from '@/lib/google/drive'
+import { driveFileUrl, driveRootFolderId, findOrCreateFolder, uploadOrReplaceFile } from '@/lib/google/drive'
 import { renderRecord } from './render'
 import { type DriveKind } from './layout'
 import { purgeUnwantedDeliveryOrderCopies, type PurgeResult } from './purge'
@@ -70,10 +70,11 @@ async function uploadRow(svc: SupabaseClient, row: UploadRow, folderFor: FolderF
   const rendered = await renderRecord(svc, row.kind, row.record_id)
   if (!rendered) return 'waiting' // not acknowledged: stays pending, no attempt counted
   const folderId = await folderFor(rendered.folderName, rendered.subfolder)
-  const fileId = await uploadOrReplacePdf({
+  const fileId = await uploadOrReplaceFile({
     folderId,
     name: rendered.fileName,
     bytes: rendered.bytes,
+    mimeType: rendered.mimeType,
     existingFileId: row.drive_file_id,
   })
   // Only mark done if the row was not re-queued while we were uploading

@@ -12,6 +12,10 @@
  */
 import { type NextRequest } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { queueOneDriveUpload } from '@/lib/drive/queue'
+import { uploadDriveAfterResponse } from '@/lib/drive/now'
+
+export const maxDuration = 60 // room for the Google Drive copy after the response
 
 const MAX_BYTES = 4 * 1024 * 1024   // 4 MB — safe within Vercel's 4.5 MB limit
 const ALLOWED_TYPES = new Set([
@@ -25,6 +29,7 @@ const EXT_MAP: Record<string, string> = {
 }
 
 export async function POST(request: NextRequest) {
+  const requestStartedAt = Date.now()
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
@@ -144,6 +149,12 @@ export async function POST(request: NextRequest) {
       }),
     ),
   )
+
+  // Google Drive copy: queue it, then upload it right after the response.
+  // Test and inactive stores are skipped by the queue. The file replaces the
+  // same Drive file on every re-upload (same receipt row id).
+  await queueOneDriveUpload(svc, 'payment_receipt', receipt.id, profile.store_id)
+  uploadDriveAfterResponse('payment_receipt', [receipt.id], requestStartedAt)
 
   return Response.json({ success: true, receipt })
 }

@@ -10,7 +10,7 @@ import { formatCurrency, formatMonthYear } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { Store as StoreType, CommissionPeriod, Sale } from '@/types'
 import { useStore } from '@/components/store/StoreContext'
-import PaymentReceiptCard from '@/components/store/PaymentReceiptCard'
+import PaymentReceiptCard, { ReceiptUploadButton, canUploadReceipt } from '@/components/store/PaymentReceiptCard'
 
 function getMYNow() {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur' }))
@@ -673,15 +673,18 @@ export default function InfoPage() {
                         {formatCurrency(period.commission_amount)}
                       </p>
                     </div>
-                    <a
-                      href={`/api/commissions/${period.id}/pdf`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1.5 text-xs bg-[#0A0A0A] text-white font-medium px-3 py-1.5 rounded-lg ml-3 shrink-0 mt-0.5"
-                    >
-                      <FileText size={12} />
-                      Invoice
-                    </a>
+                    <div className="flex items-center gap-2 ml-3 shrink-0 mt-0.5">
+                      {canUploadReceipt(period) && <ReceiptUploadButton period={period} onChanged={load} />}
+                      <a
+                        href={`/api/commissions/${period.id}/pdf`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 text-xs bg-[#0A0A0A] text-white font-medium px-3 py-1.5 rounded-lg"
+                      >
+                        <FileText size={12} />
+                        Invoice
+                      </a>
+                    </div>
                   </div>
 
                   {period.status === 'paid' && (

@@ -164,14 +164,14 @@ async function findFileByName(name: string, folderId: string): Promise<string | 
   return body.files?.[0]?.id ?? null
 }
 
-/** Overwrite a file's PDF content. Returns false when Drive says the file no longer exists. */
-async function replaceContent(fileId: string, bytes: Uint8Array): Promise<boolean> {
+/** Overwrite a file's content. Returns false when Drive says the file no longer exists. */
+async function replaceContent(fileId: string, bytes: Uint8Array, mimeType: string): Promise<boolean> {
   const token = await getDriveAccessToken()
   const res = await fetch(
     `${UPLOAD_API}/files/${encodeURIComponent(fileId)}?uploadType=media&supportsAllDrives=true&fields=id`,
     {
       method: 'PATCH',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/pdf' },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': mimeType },
       body: Buffer.from(bytes),
     },
   )
@@ -180,14 +180,30 @@ async function replaceContent(fileId: string, bytes: Uint8Array): Promise<boolea
   return true
 }
 
-async function createPdf(name: string, folderId: string, bytes: Uint8Array): Promise<string> {
+/**
+ * Change a file's name only (no content). Returns false when Drive says the file
+ * no longer exists. Used on replace and by the one-off rename of existing files.
+ */
+export async function renameDriveFile(fileId: string, name: string): Promise<boolean> {
+  const token = await getDriveAccessToken()
+  const res = await fetch(`${DRIVE_API}/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=id`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (res.status === 404) return false
+  if (!res.ok) throw await driveError(res, 'file rename')
+  return true
+}
+
+async function createFile(name: string, folderId: string, bytes: Uint8Array, mimeType: string): Promise<string> {
   const token = await getDriveAccessToken()
   const boundary = `xcms${randomUUID()}`
-  const metadata = JSON.stringify({ name, parents: [folderId], mimeType: 'application/pdf' })
+  const metadata = JSON.stringify({ name, parents: [folderId], mimeType })
   const body = Buffer.concat([
     Buffer.from(
       `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n` +
-      `--${boundary}\r\nContent-Type: application/pdf\r\n\r\n`,
+      `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`,
     ),
     Buffer.from(bytes),
     Buffer.from(`\r\n--${boundary}--`),
@@ -206,25 +222,41 @@ async function createPdf(name: string, folderId: string, bytes: Uint8Array): Pro
 }
 
 /**
- * Put a PDF in a folder without making duplicates:
- *  1. known file id (from an earlier upload) → overwrite that file's content;
+ * Put a file in a folder without making duplicates:
+ *  1. known file id (from an earlier upload) → overwrite that file's content
+ *     and set its name (a receipt may have changed extension);
  *  2. otherwise a file with the same name already in the folder (left behind
  *     by a run that uploaded but did not record it) → overwrite that one;
  *  3. otherwise create it.
  */
+export async function uploadOrReplaceFile(params: {
+  folderId: string
+  name: string
+  bytes: Uint8Array
+  mimeType?: string
+  existingFileId?: string | null
+}): Promise<string> {
+  const { folderId, name, bytes, existingFileId } = params
+  const mimeType = params.mimeType ?? 'application/pdf'
+  if (existingFileId && (await replaceContent(existingFileId, bytes, mimeType))) {
+    await renameDriveFile(existingFileId, name)
+    return existingFileId
+  }
+
+  const sameName = await findFileByName(name, folderId)
+  if (sameName && (await replaceContent(sameName, bytes, mimeType))) return sameName
+
+  return createFile(name, folderId, bytes, mimeType)
+}
+
+/** PDF convenience wrapper (delivery orders and invoices). */
 export async function uploadOrReplacePdf(params: {
   folderId: string
   name: string
   bytes: Uint8Array
   existingFileId?: string | null
 }): Promise<string> {
-  const { folderId, name, bytes, existingFileId } = params
-  if (existingFileId && (await replaceContent(existingFileId, bytes))) return existingFileId
-
-  const sameName = await findFileByName(name, folderId)
-  if (sameName && (await replaceContent(sameName, bytes))) return sameName
-
-  return createPdf(name, folderId, bytes)
+  return uploadOrReplaceFile({ ...params, mimeType: 'application/pdf' })
 }
 
 /** Move a file to the Drive trash. A file that is already gone counts as done. */

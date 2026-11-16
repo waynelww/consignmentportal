@@ -769,10 +769,49 @@ account for HR; they use the **staff link `/hr`**.
   out of `settings`, Drive columns), then `20261106_hr_join_date_replacement.sql`
   (join_date, custom_entitlement, hr_rest_day_work, leave type replacement).
 
-## Google Drive copies (delivery orders and invoices)
+## Payment receipts (store upload)
 
-Every delivery order (DO) and monthly commission invoice is copied to the XCMS
-Shared Drive, so the files can be found and opened without XCMS.
+Stores pay Xocks their transfer amount (`xocks_revenue`) for each monthly invoice and
+upload the proof of payment here. An admin confirms or rejects it in Payments.
+
+**Store side** (`components/store/PaymentReceiptCard.tsx`, shown on the Commissions
+page and the store profile's Past Invoices card; English only, not in the tour's
+language switch)
+- Unpaid invoices with an amount to transfer get an **Upload receipt** button in the
+  invoice's header row, left of the **Invoice** button (outline style). It becomes
+  **Upload again** after a rejection.
+- The picker offers camera, photos or files. Accepted: JPG, PNG, WEBP, HEIC or PDF.
+  Photos over 4 MB are resized in the browser (up to 2400 px, JPEG). A PDF over 4 MB
+  is refused with a message; the store must send a smaller file.
+- Upload goes to `POST /api/payments/receipts` (`period_id` + `file`). Re-uploading
+  replaces the receipt for that invoice; the row id stays the same.
+- Card states: **Receipt sent · Xocks will check it shortly** (with the file name);
+  **Receipt rejected** with the admin's note; **Payment receipt verified by Xocks**
+  once paid. A green note always tells the store to tap Upload receipt, or to send it
+  to the WhatsApp group.
+- Helper: `lib/receipts/prepare-file.ts` (type check, 4 MB check, image resize).
+  The server enforces the same limits.
+
+**Admin side**: Payments → the **Receipt** column shows **View** (the file) and the
+Drive status under it: **Open in Drive**, **Drive: pending**, **Drive: failed — retry**,
+or **Not in Drive — queue**.
+
+**Google Drive copy:** every upload or replacement is copied to Drive right away (see
+"Google Drive copies"). Test and inactive stores are not copied.
+
+**Status and history:** the receipt row (`payment_receipts`) keeps `status`
+(`submitted` / `confirmed` / `rejected`), `admin_notes` and `reviewed_by`. Confirming
+marks the invoice paid. Nothing is deleted by a re-upload: the file in storage (bucket
+`payment-receipts`) is kept under a new path, and the Drive copy is replaced.
+
+**Migration:** `supabase/migrations/20261116_drive_payment_receipts.sql` must be applied
+before receipt copies can be queued. Until then the upload still works and the copy is
+logged as `[drive-queue]` and not queued.
+
+## Google Drive copies (delivery orders, invoices and payment receipts)
+
+Every delivery order (DO), monthly commission invoice and store payment receipt is copied
+to the XCMS Shared Drive, so the files can be found and opened without XCMS.
 
 **What is saved**
 - **Delivery orders: once received.** A DO gets a Drive copy when its status is
@@ -783,6 +822,9 @@ Shared Drive, so the files can be found and opened without XCMS.
   dispatched and delivered DOs are not uploaded.
 - **Monthly invoices (`XCSM-###`).** The same PDF the store sees: the stored copy if
   one exists, otherwise generated from the data now.
+- **Payment receipts.** The file the store uploaded, unchanged, with its own type
+  (JPG, PNG, WEBP, HEIC or PDF). The record is the receipt (`payment_receipts.id`), so
+  each invoice has one Drive file that a re-upload replaces. See "Payment receipts".
 - **Not saved:** daily sales reports, any store flagged as a test account, and any
   store that is not `active` (for example inactive or closed).
 - There is no "packed" status in XCMS. A DO is queued when it is received
@@ -791,12 +833,25 @@ Shared Drive, so the files can be found and opened without XCMS.
 **Folder layout** (inside the XCMS folder, `GOOGLE_DRIVE_FOLDER_ID`):
 
 ```
-XCMS/<store_code> <store_name>/Delivery Orders/<DO number>.pdf      e.g. DO-2026-0007.pdf
-XCMS/<store_code> <store_name>/Invoices/<invoice no> (<Mon YYYY>).pdf   e.g. XCSM-121 (Oct 2026).pdf
+XCMS/<store_code> <store_name>/Delivery Orders/<store_name> – <Month YYYY> (<DO number>).pdf
+                                  e.g. Niqez Store Enterprise – November 2026 (DO-2026-0062).pdf
+XCMS/<store_code> <store_name>/Invoices/<store_name> – <Month YYYY>.pdf
+                                  e.g. HYPRGROUND HOLDING SDN BHD – October 2026.pdf
+XCMS/<store_code> <store_name>/Payment Receipts/<store_name> – <Month YYYY>.<ext>
+                                  e.g. HYPRGROUND HOLDING SDN BHD – October 2026.jpg
 ```
 
-The invoice month is the month the invoice covers (the October invoice is made on
-1 November).
+**One naming style for every file**, with an en dash (–):
+- **Invoice:** Month YYYY is the month the invoice covers (the October invoice is made on
+  1 November but is named October 2026).
+- **Delivery order:** Month YYYY is the month the DO was created, in Malaysia time (a DO
+  created 31 Oct 2026 at 8.30 pm is November 2026). The DO number is in brackets, so
+  several DOs for one store in one month have different names.
+- **Payment receipt:** the invoice's month, with the file's own extension.
+- Characters Windows and Drive do not allow (`/ \ : * ? " < > |`) are removed from every
+  file name. Folder names are unchanged.
+- Existing Drive files were renamed to these names with the one-off step below. Files
+  uploaded after that get the new name directly.
 
 **How it works**
 - Saving a DO or invoice writes a `pending` row to `drive_uploads`. If that write
@@ -807,7 +862,8 @@ The invoice month is the month the invoice covers (the October invoice is made o
   admin edit that leaves a DO acknowledged, a new store's initial DO (created
   acknowledged), by an invoice being generated (Commissions → generate) or created
   on view (`/api/commissions/ensure`), or by an admin retry / queue
-  (`/api/drive/requeue`), that row is uploaded just after the response is sent
+  (`/api/drive/requeue`), or a store uploading or replacing a payment receipt
+  (`/api/payments/receipts`), that row is uploaded just after the response is sent
   (Next.js `after()`, `lib/drive/now.ts`). The user never waits for Google. It uses
   the same upload code as the worker, including "only mark done if not re-queued".
   Any error there is only logged (`[drive-now]`): the row stays `pending` with no
@@ -835,6 +891,7 @@ The invoice month is the month the invoice covers (the October invoice is made o
 - DO details modal, the store page's delivery orders, and the store page's and the
   Commissions page's invoice rows show one of: **Open in Drive**, **Drive: pending**,
   **Drive: failed — retry**, or **Not in Drive — queue**.
+- Admin Payments page: the same status under each receipt's **View** link.
 - Settings → General → **Google Drive copies** shows the pending / done / failed
   counts and the last five failures with their messages.
 
@@ -845,6 +902,19 @@ The invoice month is the month the invoice covers (the October invoice is made o
    shows pending, the immediate upload failed; check Vercel logs for `[drive-now]`.
    The scheduled worker will retry it.
 3. To queue everything again, a super admin or ops manager presses **Queue Drive backfill**.
+
+**Rename existing files (one-off).** Files uploaded before the naming change keep their old
+names until this is run. Settings → General → Google Drive copies → **Rename Drive files to
+new names** (super admin or ops manager):
+1. Confirm. The button works through every done Drive copy in batches, renaming each file
+   in place by its stored Drive file id. Only the name is changed: nothing is re-uploaded
+   and file contents are not read. It can be pressed again if the connection drops.
+2. The result shows how many were checked, **renamed**, **missing in Drive** (the file was
+   deleted in Drive, so there is nothing to rename) and **failed**, with the first failures
+   and their messages. A failed file keeps its old name; press the button again after fixing
+   the cause (usually the Drive permissions, see the table under "Common failures").
+- API: `POST /api/drive/rename-files` with `{ after }` from the previous response, until
+  `finished` is true. Code: `lib/drive/rename.ts`.
 
 **Backfill.** Settings → Google Drive copies → **Queue Drive backfill** (super admin
 or ops manager) queues every **acknowledged** DO and every invoice created on or after
@@ -857,11 +927,15 @@ or ops manager) queues every **acknowledged** DO and every invoice created on or
   storage, so every Drive call sends `supportsAllDrives=true`.
 - Code: `lib/google/drive.ts` (service-account sign-in and upload),
   `lib/drive/layout.ts` (names, pinned by `npx tsx scripts/test-drive-layout.ts`),
-  `lib/drive/queue.ts`, `lib/drive/render.ts`, `lib/drive/worker.ts`,
-  `lib/drive/now.ts` (immediate upload after the response).
+  `lib/drive/queue.ts`, `lib/drive/render.ts` (`renderPaymentReceipt` for receipts),
+  `lib/drive/worker.ts`, `lib/drive/now.ts` (immediate upload after the response),
+  `lib/drive/rename.ts` (one-off rename of existing files).
 - Migration: `supabase/migrations/20261106_drive_uploads.sql` (the `drive_uploads`
   table, admin-only read). It must be applied before the worker or the status
-  columns work.
+  columns work. Payment receipts also need `20261116_drive_payment_receipts.sql`
+  (widens the `kind` check).
+- Receipts are not part of the backfill. Use the **queue** link on each receipt in
+  Payments to copy an older one.
 
 **Common failures**
 
