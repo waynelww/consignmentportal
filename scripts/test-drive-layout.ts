@@ -3,8 +3,9 @@
 import assert from 'node:assert/strict'
 import { generateKeyPairSync, createVerify } from 'node:crypto'
 import {
-  storeFolderName, subfolderFor, doFileName, invoiceFileName, safeName,
-  DO_SUBFOLDER, INVOICE_SUBFOLDER, BACKFILL_FROM_ISO,
+  storeFolderName, subfolderFor, doFileName, invoiceFileName, safeName, receiptFileName,
+  receiptExtension, stripFileNameChars,
+  DO_SUBFOLDER, INVOICE_SUBFOLDER, RECEIPT_SUBFOLDER, BACKFILL_FROM_ISO,
 } from '../lib/drive/layout'
 import { getDriveAccessToken } from '../lib/google/drive'
 import { deliveryOrderCopyWanted } from '../lib/drive/queue'
@@ -16,6 +17,23 @@ assert.equal(safeName('A/B\\C'), 'A-B-C', 'slashes would read as a path')
 assert.equal(safeName('  two   spaces  '), 'two spaces')
 assert.equal(subfolderFor('delivery_order'), DO_SUBFOLDER)
 assert.equal(subfolderFor('invoice'), INVOICE_SUBFOLDER)
+assert.equal(subfolderFor('payment_receipt'), RECEIPT_SUBFOLDER)
+assert.equal(RECEIPT_SUBFOLDER, 'Payment Receipts')
+// Payment receipts: <store_name> – <Month YYYY>.<ext>, period = the invoice month
+assert.equal(
+  receiptFileName('HYPRGROUND HOLDING SDN BHD', 10, 2026, 'image/jpeg'),
+  'HYPRGROUND HOLDING SDN BHD – October 2026.jpg',
+  'example from the spec',
+)
+assert.equal(receiptFileName('Wayne Store', 1, 2027, 'application/pdf'), 'Wayne Store – January 2027.pdf')
+assert.equal(receiptFileName('Wayne Store', 12, 2026, 'image/png'), 'Wayne Store – December 2026.png')
+assert.equal(receiptFileName('Wayne Store', 11, 2026, 'image/webp'), 'Wayne Store – November 2026.webp')
+assert.equal(receiptFileName('Wayne Store', 11, 2026, 'image/heic'), 'Wayne Store – November 2026.heic')
+assert.equal(stripFileNameChars('A/B\\C:D*E?F"G<H>I|J'), 'ABCDEFGHIJ', 'forbidden characters are removed, not replaced')
+assert.equal(receiptFileName('  Spaced   Name  ', 10, 2026, 'image/jpeg'), 'Spaced Name – October 2026.jpg')
+assert.throws(() => receiptFileName('X', 10, 2026, 'image/gif'), /Unsupported receipt type/)
+assert.throws(() => receiptFileName('X', 0, 2026, 'image/jpeg'), /Invalid receipt period month/)
+assert.equal(receiptExtension('application/pdf'), 'pdf')
 assert.equal(doFileName('DO-2026-0007'), 'DO-2026-0007.pdf')
 assert.equal(invoiceFileName('XCSM-121', 10, 2026), 'XCSM-121 (Oct 2026).pdf', 'example from the spec')
 assert.equal(invoiceFileName('XCSM-100', 1, 2027), 'XCSM-100 (Jan 2027).pdf')

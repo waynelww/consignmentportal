@@ -9,6 +9,8 @@ import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatMonthYear, cn } from '@/lib/utils'
 import type { CommissionPeriod, PaymentReceipt } from '@/types'
+import DriveStatus from '@/components/drive/DriveStatus'
+import { useDriveRows } from '@/lib/drive/use-drive-rows'
 
 interface Row extends CommissionPeriod {
   store?: { store_name: string; store_code: string } & CommissionPeriod['store']
@@ -76,6 +78,13 @@ export default function AdminPaymentsPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Google Drive copy of each receipt (record id = payment_receipts.id)
+  const receiptIds = useMemo(
+    () => rows.map((r) => r.receipt?.id).filter((id): id is string => !!id),
+    [rows],
+  )
+  const driveReceipts = useDriveRows('payment_receipt', receiptIds)
 
   // Clear selection when filters change
   useEffect(() => { setSelectedIds(new Set()) }, [tab, storeFilter, periodFilter, sortBy])
@@ -350,6 +359,7 @@ export default function AdminPaymentsPage() {
               sorted.map((r) => {
                 const st = rowStatus(r)
                 const checked = selectedIds.has(r.id)
+                const rid = r.receipt?.id ?? null
                 return (
                   <tr key={r.id} className={cn('border-b border-gray-50 hover:bg-gray-50/50 transition-colors', checked && 'bg-amber-50/50')}>
                     <td className="px-4 py-3 w-10">
@@ -372,10 +382,19 @@ export default function AdminPaymentsPage() {
                     </td>
                     <td className="px-4 py-3">
                       {r.receipt ? (
-                        <a href={`/api/payments/receipts/${r.receipt.id}/file`} target="_blank" rel="noopener noreferrer"
-                          className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1">
-                          <Receipt size={12} /> View
-                        </a>
+                        <div className="flex flex-col items-start gap-1">
+                          <a href={`/api/payments/receipts/${r.receipt.id}/file`} target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1">
+                            <Receipt size={12} /> View
+                          </a>
+                          {rid && (
+                            <DriveStatus
+                              row={driveReceipts.rows.get(rid)}
+                              busy={driveReceipts.busyId === rid}
+                              onRetry={() => driveReceipts.queue(rid)}
+                            />
+                          )}
+                        </div>
                       ) : <span className="text-xs text-gray-300">—</span>}
                     </td>
                     <td className="px-4 py-3 text-right">

@@ -12,7 +12,7 @@ import { queueDriveUploads } from '@/lib/drive/queue'
 import { uploadDriveAfterResponse } from '@/lib/drive/now'
 
 const Body = z.object({
-  kind: z.enum(['delivery_order', 'invoice']),
+  kind: z.enum(['delivery_order', 'invoice', 'payment_receipt']),
   ids: z.array(z.string().uuid()).min(1).max(200),
 })
 
@@ -34,7 +34,9 @@ export async function POST(request: NextRequest) {
 
   // Take each record's store from the source table (the queue row needs it).
   const svc = await createServiceClient()
-  const table = kind === 'delivery_order' ? 'delivery_orders' : 'commission_periods'
+  const table = kind === 'delivery_order'
+    ? 'delivery_orders'
+    : kind === 'payment_receipt' ? 'payment_receipts' : 'commission_periods'
   const { data: rows, error } = await svc.from(table).select('id, store_id').in('id', ids)
   if (error) return Response.json({ error: 'Could not read records' }, { status: 500 })
 

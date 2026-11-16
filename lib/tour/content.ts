@@ -221,8 +221,8 @@ export const TOUR_STEPS: TourStep[] = [
     tab: { en: 'Info', bm: 'Info' },
     title: { en: 'Paying Xocks', bm: 'Membuat bayaran kepada Xocks' },
     body: {
-      en: 'Scan the DuitNow QR to pay your balance, and use the Payment Reference shown so we can match your payment.',
-      bm: 'Imbas DuitNow QR untuk membayar baki, dan gunakan Payment Reference yang ditunjukkan supaya kami dapat memadankan bayaran anda.',
+      en: 'Scan the DuitNow QR to pay your balance, and use the Payment Reference shown so we can match your payment. After paying, tap Upload receipt on the invoice so we can confirm it.',
+      bm: 'Imbas DuitNow QR untuk membayar baki, dan gunakan Payment Reference yang ditunjukkan supaya kami dapat memadankan bayaran anda. Selepas membayar, tekan Upload receipt pada invois supaya kami boleh mengesahkannya.',
     },
     targets: ['[data-tour="info-pay"]'],
   },

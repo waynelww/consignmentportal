@@ -13,13 +13,16 @@ import { generateStatementPdf } from '@/lib/pdf/generate-statement'
 import { BANK_SETTING_KEYS } from '@/lib/pdf/bank-details'
 import { assignInvoiceNo, formatInvoiceNo } from '@/lib/invoice-number'
 import { deliveryOrderCopyWanted, selectAll } from './queue'
-import { doFileName, invoiceFileName, storeFolderName, subfolderFor, type DriveKind } from './layout'
+import {
+  doFileName, invoiceFileName, receiptFileName, storeFolderName, subfolderFor, type DriveKind,
+} from './layout'
 
 export interface RenderedFile {
   bytes: Uint8Array
   fileName: string
   folderName: string   // e.g. "XCSM-..." store folder: "AGK-001 Wayne Store"
-  subfolder: string    // "Delivery Orders" | "Invoices"
+  subfolder: string    // "Delivery Orders" | "Invoices" | "Payment Receipts"
+  mimeType?: string    // default application/pdf; receipts keep the store's type
 }
 
 const TZ = 'Asia/Kuala_Lumpur'
@@ -28,7 +31,58 @@ function mytDate(value: string | Date): string {
 }
 
 export async function renderRecord(svc: SupabaseClient, kind: DriveKind, recordId: string): Promise<RenderedFile | null> {
-  return kind === 'delivery_order' ? renderDeliveryOrder(svc, recordId) : renderInvoice(svc, recordId)
+  if (kind === 'delivery_order') return renderDeliveryOrder(svc, recordId)
+  if (kind === 'payment_receipt') return renderPaymentReceipt(svc, recordId)
+  return renderInvoice(svc, recordId)
+}
+
+// ── Payment receipts ─────────────────────────────────────────────────────────
+
+const RECEIPT_BUCKET = 'payment-receipts'
+
+/**
+ * A store's payment receipt, uploaded as-is with its own MIME type. The file
+ * name uses the invoice's period (the month the payment is for). A re-upload
+ * keeps the same payment_receipts row id, so the same Drive file is replaced.
+ */
+export async function renderPaymentReceipt(svc: SupabaseClient, receiptId: string): Promise<RenderedFile> {
+  const { data: r, error } = await svc
+    .from('payment_receipts')
+    .select('id, store_id, commission_period_id, file_path, mime_type')
+    .eq('id', receiptId)
+    .single()
+  if (error || !r) throw new Error('Payment receipt not found')
+
+  const { data: p, error: pErr } = await svc
+    .from('commission_periods')
+    .select('period_month, period_year')
+    .eq('id', r.commission_period_id as string)
+    .single()
+  if (pErr || !p) throw new Error('Invoice for this receipt not found')
+
+  const { data: store, error: sErr } = await svc
+    .from('stores')
+    .select('store_name, store_code')
+    .eq('id', r.store_id as string)
+    .single()
+  if (sErr || !store) throw new Error('Store data not found')
+
+  const { data: file, error: dlErr } = await svc.storage.from(RECEIPT_BUCKET).download(r.file_path as string)
+  if (dlErr || !file) throw new Error('Payment receipt could not be read from storage')
+
+  const mimeType = (r.mime_type as string | null) || file.type || 'application/octet-stream'
+  return {
+    bytes: new Uint8Array(await file.arrayBuffer()),
+    fileName: receiptFileName(
+      store.store_name as string,
+      p.period_month as number,
+      p.period_year as number,
+      mimeType,
+    ),
+    folderName: storeFolderName(store.store_code as string, store.store_name as string),
+    subfolder: subfolderFor('payment_receipt'),
+    mimeType,
+  }
 }
 
 // ── Delivery orders ──────────────────────────────────────────────────────────
