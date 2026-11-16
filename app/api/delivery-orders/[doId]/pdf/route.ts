@@ -10,7 +10,7 @@ export async function GET(
   { params }: { params: Promise<{ doId: string }> }
 ) {
   const inline = _request.nextUrl.searchParams.has('inline')
-  // ?slip → 4 x 6 inch packing slip for a restock DO (admin only), generated
+  // ?slip → 4 x 6 inch packing slip for a restock or initial DO (admin only), generated
   // from the DO's data every time; nothing is stored
   const slip = _request.nextUrl.searchParams.has('slip')
   const { doId } = await params
@@ -77,8 +77,8 @@ export async function GET(
     if (profile.role !== 'super_admin' && profile.role !== 'ops_manager') {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
-    if (deliveryOrder.do_type !== 'restock') {
-      return Response.json({ error: 'Packing slips are only available for restock DOs' }, { status: 400 })
+    if (deliveryOrder.do_type !== 'restock' && deliveryOrder.do_type !== 'initial') {
+      return Response.json({ error: 'Packing slips are only available for restock and initial DOs' }, { status: 400 })
     }
     const slipStore = deliveryOrder.stores as {
       store_name: string; address: string | null; city: string | null; postcode: string | null

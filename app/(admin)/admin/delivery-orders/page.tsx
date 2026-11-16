@@ -756,7 +756,7 @@ export default function DeliveryOrdersPage() {
                 <FileText size={15} />
                 Open PDF
               </a>
-              {detailDO.do_type === 'restock' && (
+              {(detailDO.do_type === 'restock' || detailDO.do_type === 'initial') && (
                 // 4 x 6 inch packing slip, opened in the browser's PDF viewer to print
                 <a href={`/api/delivery-orders/${detailDO.id}/pdf?slip&inline`} target="_blank" rel="noopener noreferrer"
                   className="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 whitespace-nowrap">
