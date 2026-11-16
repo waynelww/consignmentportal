@@ -40,8 +40,8 @@ const CATALOGUE_MAX_PAGES = 100 // safety cap: 10,000 variants
 const CATALOGUE_TIME_BUDGET_MS = 25_000 // stop paging well before Vercel's 60s ceiling
 const NOT_LINKED_IN_RESULT = 50
 
-/** Who asked for the sync: the admin button, or the nightly cron. Recorded in product_sku_changes.source. */
-export type SyncSource = 'refresh' | 'nightly'
+/** Who asked for the sync: the admin button, the Vercel nightly cron, or the hourly pg_cron job. Recorded in product_sku_changes.source. */
+export type SyncSource = 'refresh' | 'nightly' | 'hourly'
 
 export interface CatalogueResult {
   variants_fetched: number

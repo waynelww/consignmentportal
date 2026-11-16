@@ -394,9 +394,10 @@ message again. Admins only (super admin or ops manager).
 - **Pause:** `select cron.unschedule('xcms-shopify-sync-hourly');`
   This stops only the hourly job. The 03:30 MYT Vercel cron and the Refresh button
   keep working. To resume, re-run the `cron.schedule(...)` line in the migration.
-- **History:** hourly runs are recorded as source `nightly` in
-  `product_sku_changes`, the same as the 03:30 run. The source does not say which
-  trigger ran.
+- **History:** hourly runs are recorded as source `hourly` in
+  `product_sku_changes`. The 03:30 MYT Vercel run is `nightly` and the Refresh
+  button is `refresh`. The source column allows all three values. The migration
+  changes the CHECK constraint to allow `hourly`.
 
 ## Automation inventory (GitHub Actions + webhooks)
 

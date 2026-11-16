@@ -12,6 +12,14 @@
 -- mhdyurnrmpjxsjbhbxrp after the operator's explicit OK. The hourly job does
 -- nothing until this is applied.
 
+-- product_sku_changes.source must allow 'hourly' (the sync route records it).
+-- The original inline CHECK (migration 20261109) has Postgres's default name.
+alter table public.product_sku_changes
+  drop constraint if exists product_sku_changes_source_check;
+alter table public.product_sku_changes
+  add constraint product_sku_changes_source_check
+  check (source in ('refresh', 'nightly', 'hourly'));
+
 create extension if not exists pg_cron with schema pg_catalog;
 create extension if not exists pg_net;
 
