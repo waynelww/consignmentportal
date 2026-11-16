@@ -121,7 +121,7 @@ export async function renderDeliveryOrder(svc: SupabaseClient, doId: string): Pr
   if (!store) throw new Error('Store data not found')
 
   const base = {
-    fileName: doFileName(d.do_number as string),
+    fileName: doFileName(store.store_name, d.do_number as string, d.created_at as string),
     folderName: storeFolderName(store.store_code, store.store_name),
     subfolder: subfolderFor('delivery_order'),
   }
@@ -203,7 +203,7 @@ export async function renderInvoice(svc: SupabaseClient, periodId: string): Prom
   if (!invoiceNo) throw new Error('Invoice number could not be assigned')
 
   const base = {
-    fileName: invoiceFileName(invoiceNo, p.period_month as number, p.period_year as number),
+    fileName: invoiceFileName(store.store_name, p.period_month as number, p.period_year as number),
     folderName: storeFolderName(store.store_code, store.store_name),
     subfolder: subfolderFor('invoice'),
   }

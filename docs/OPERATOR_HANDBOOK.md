@@ -833,15 +833,25 @@ to the XCMS Shared Drive, so the files can be found and opened without XCMS.
 **Folder layout** (inside the XCMS folder, `GOOGLE_DRIVE_FOLDER_ID`):
 
 ```
-XCMS/<store_code> <store_name>/Delivery Orders/<DO number>.pdf      e.g. DO-2026-0007.pdf
-XCMS/<store_code> <store_name>/Invoices/<invoice no> (<Mon YYYY>).pdf   e.g. XCSM-121 (Oct 2026).pdf
-XCMS/<store_code> <store_name>/Payment Receipts/<store_name> – <Month YYYY>.<ext>   e.g. HYPRGROUND HOLDING SDN BHD – October 2026.jpg
+XCMS/<store_code> <store_name>/Delivery Orders/<store_name> – <Month YYYY> (<DO number>).pdf
+                                  e.g. Niqez Store Enterprise – November 2026 (DO-2026-0062).pdf
+XCMS/<store_code> <store_name>/Invoices/<store_name> – <Month YYYY>.pdf
+                                  e.g. HYPRGROUND HOLDING SDN BHD – October 2026.pdf
+XCMS/<store_code> <store_name>/Payment Receipts/<store_name> – <Month YYYY>.<ext>
+                                  e.g. HYPRGROUND HOLDING SDN BHD – October 2026.jpg
 ```
 
-The invoice month is the month the invoice covers (the October invoice is made on
-1 November). A receipt uses the same month, so it is named after the payment it is for.
-Characters Windows does not allow in names (`/ \ : * ? " < > |`) are removed from
-receipt names. DO and invoice names are unchanged.
+**One naming style for every file**, with an en dash (–):
+- **Invoice:** Month YYYY is the month the invoice covers (the October invoice is made on
+  1 November but is named October 2026).
+- **Delivery order:** Month YYYY is the month the DO was created, in Malaysia time (a DO
+  created 31 Oct 2026 at 8.30 pm is November 2026). The DO number is in brackets, so
+  several DOs for one store in one month have different names.
+- **Payment receipt:** the invoice's month, with the file's own extension.
+- Characters Windows and Drive do not allow (`/ \ : * ? " < > |`) are removed from every
+  file name. Folder names are unchanged.
+- Existing Drive files were renamed to these names with the one-off step below. Files
+  uploaded after that get the new name directly.
 
 **How it works**
 - Saving a DO or invoice writes a `pending` row to `drive_uploads`. If that write
@@ -893,6 +903,19 @@ receipt names. DO and invoice names are unchanged.
    The scheduled worker will retry it.
 3. To queue everything again, a super admin or ops manager presses **Queue Drive backfill**.
 
+**Rename existing files (one-off).** Files uploaded before the naming change keep their old
+names until this is run. Settings → General → Google Drive copies → **Rename Drive files to
+new names** (super admin or ops manager):
+1. Confirm. The button works through every done Drive copy in batches, renaming each file
+   in place by its stored Drive file id. Only the name is changed: nothing is re-uploaded
+   and file contents are not read. It can be pressed again if the connection drops.
+2. The result shows how many were checked, **renamed**, **missing in Drive** (the file was
+   deleted in Drive, so there is nothing to rename) and **failed**, with the first failures
+   and their messages. A failed file keeps its old name; press the button again after fixing
+   the cause (usually the Drive permissions, see the table under "Common failures").
+- API: `POST /api/drive/rename-files` with `{ after }` from the previous response, until
+  `finished` is true. Code: `lib/drive/rename.ts`.
+
 **Backfill.** Settings → Google Drive copies → **Queue Drive backfill** (super admin
 or ops manager) queues every **acknowledged** DO and every invoice created on or after
 **1 Nov 2026 (MYT)** for **active, non-test** stores that is not already done. Nothing before November is touched. It is safe to press twice.
@@ -905,7 +928,8 @@ or ops manager) queues every **acknowledged** DO and every invoice created on or
 - Code: `lib/google/drive.ts` (service-account sign-in and upload),
   `lib/drive/layout.ts` (names, pinned by `npx tsx scripts/test-drive-layout.ts`),
   `lib/drive/queue.ts`, `lib/drive/render.ts` (`renderPaymentReceipt` for receipts),
-  `lib/drive/worker.ts`, `lib/drive/now.ts` (immediate upload after the response).
+  `lib/drive/worker.ts`, `lib/drive/now.ts` (immediate upload after the response),
+  `lib/drive/rename.ts` (one-off rename of existing files).
 - Migration: `supabase/migrations/20261106_drive_uploads.sql` (the `drive_uploads`
   table, admin-only read). It must be applied before the worker or the status
   columns work. Payment receipts also need `20261116_drive_payment_receipts.sql`

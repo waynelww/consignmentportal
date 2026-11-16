@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { generateKeyPairSync, createVerify } from 'node:crypto'
 import {
   storeFolderName, subfolderFor, doFileName, invoiceFileName, safeName, receiptFileName,
-  receiptExtension, stripFileNameChars,
+  receiptExtension, stripFileNameChars, malaysiaYearMonth, monthYearLabel,
   DO_SUBFOLDER, INVOICE_SUBFOLDER, RECEIPT_SUBFOLDER, BACKFILL_FROM_ISO,
 } from '../lib/drive/layout'
 import { getDriveAccessToken } from '../lib/google/drive'
@@ -32,12 +32,37 @@ assert.equal(receiptFileName('Wayne Store', 11, 2026, 'image/heic'), 'Wayne Stor
 assert.equal(stripFileNameChars('A/B\\C:D*E?F"G<H>I|J'), 'ABCDEFGHIJ', 'forbidden characters are removed, not replaced')
 assert.equal(receiptFileName('  Spaced   Name  ', 10, 2026, 'image/jpeg'), 'Spaced Name – October 2026.jpg')
 assert.throws(() => receiptFileName('X', 10, 2026, 'image/gif'), /Unsupported receipt type/)
-assert.throws(() => receiptFileName('X', 0, 2026, 'image/jpeg'), /Invalid receipt period month/)
+assert.throws(() => receiptFileName('X', 0, 2026, 'image/jpeg'), /Invalid month/)
 assert.equal(receiptExtension('application/pdf'), 'pdf')
-assert.equal(doFileName('DO-2026-0007'), 'DO-2026-0007.pdf')
-assert.equal(invoiceFileName('XCSM-121', 10, 2026), 'XCSM-121 (Oct 2026).pdf', 'example from the spec')
-assert.equal(invoiceFileName('XCSM-100', 1, 2027), 'XCSM-100 (Jan 2027).pdf')
-assert.throws(() => invoiceFileName('XCSM-100', 13, 2026), /Invalid invoice period month/)
+// One naming style for every file: "<store_name> – <Month YYYY>…", en dash.
+// Invoice: Month YYYY = the period the invoice is for.
+assert.equal(
+  invoiceFileName('HYPRGROUND HOLDING SDN BHD', 10, 2026),
+  'HYPRGROUND HOLDING SDN BHD – October 2026.pdf',
+  'example from the spec',
+)
+assert.equal(invoiceFileName('Wayne Store', 1, 2027), 'Wayne Store – January 2027.pdf')
+assert.equal(invoiceFileName('A/B: Store?', 3, 2026), 'AB Store – March 2026.pdf', 'forbidden characters stripped')
+assert.throws(() => invoiceFileName('X', 13, 2026), /Invalid month/)
+assert.equal(monthYearLabel(11, 2026), 'November 2026')
+// DO: Month YYYY = the month the DO was created, in Malaysia time; DO number keeps it unique
+assert.equal(
+  doFileName('Niqez Store Enterprise', 'DO-2026-0062', '2026-11-10T04:00:00Z'),
+  'Niqez Store Enterprise – November 2026 (DO-2026-0062).pdf',
+  'example from the spec',
+)
+assert.equal(
+  doFileName('Wayne Store', 'DO-2026-0001', '2026-10-31T20:30:00Z'),
+  'Wayne Store – November 2026 (DO-2026-0001).pdf',
+  '31 Oct 20:30 UTC is already 1 Nov in Malaysia',
+)
+assert.equal(
+  doFileName('Wayne Store', 'DO-2026-0002', '2026-10-31T15:30:00Z'),
+  'Wayne Store – October 2026 (DO-2026-0002).pdf',
+  '31 Oct 15:30 UTC is 31 Oct 23:30 in Malaysia',
+)
+assert.equal(doFileName('A/B: Store?', 'DO/2026:1', '2026-11-05T02:00:00Z'), 'AB Store – November 2026 (DO20261).pdf')
+assert.deepEqual(malaysiaYearMonth('2026-12-31T17:00:00Z'), { year: 2027, month: 1 }, 'year rolls over in Malaysia time')
 // 1 Nov 2026 00:00 Malaysia time is 31 Oct 16:00 UTC
 assert.equal(BACKFILL_FROM_ISO, '2026-10-31T16:00:00.000Z')
 assert.equal(new Date(BACKFILL_FROM_ISO).toLocaleString('en-GB', { timeZone: 'Asia/Kuala_Lumpur' }), '01/11/2026, 00:00:00')

@@ -180,16 +180,20 @@ async function replaceContent(fileId: string, bytes: Uint8Array, mimeType: strin
   return true
 }
 
-/** Rename a file (used when a replaced receipt has a new extension). */
-async function renameFile(fileId: string, name: string): Promise<void> {
+/**
+ * Change a file's name only (no content). Returns false when Drive says the file
+ * no longer exists. Used on replace and by the one-off rename of existing files.
+ */
+export async function renameDriveFile(fileId: string, name: string): Promise<boolean> {
   const token = await getDriveAccessToken()
   const res = await fetch(`${DRIVE_API}/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=id`, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   })
-  if (res.status === 404) return
+  if (res.status === 404) return false
   if (!res.ok) throw await driveError(res, 'file rename')
+  return true
 }
 
 async function createFile(name: string, folderId: string, bytes: Uint8Array, mimeType: string): Promise<string> {
@@ -235,7 +239,7 @@ export async function uploadOrReplaceFile(params: {
   const { folderId, name, bytes, existingFileId } = params
   const mimeType = params.mimeType ?? 'application/pdf'
   if (existingFileId && (await replaceContent(existingFileId, bytes, mimeType))) {
-    await renameFile(existingFileId, name)
+    await renameDriveFile(existingFileId, name)
     return existingFileId
   }
 
