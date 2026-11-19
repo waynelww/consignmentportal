@@ -14,6 +14,10 @@ const CW = SLIP_WIDTH - M * 2
 const ROW_MAX = 13
 const ROW_MIN = 8.5
 const COL_GAP = 10
+// Codes up to this length print in the CODE column; longer ones print on a
+// second line under the item text, in a row TALL_ROW times the normal height.
+const SHORT_CODE = 5
+const TALL_ROW = 1.7
 const BLACK = rgb(0, 0, 0)
 const DARK_GREY = rgb(0.3, 0.3, 0.3)
 
@@ -42,6 +46,16 @@ export interface SlipParams {
   items: SlipItem[]
 }
 
+// One printed row, returned for tests (overlap checks)
+export interface SlipRowLayout {
+  code: string
+  column: number
+  top: number
+  bottom: number
+  textBottom: number // lowest point of the item text (descenders)
+  codeLine: { text: string; left: number; right: number; top: number; bottom: number; maxRight: number } | null // long code under the item text
+}
+
 // Layout facts per label, returned for tests (overlap checks)
 export interface SlipPageLayout {
   label: number
@@ -57,6 +71,7 @@ export interface SlipPageLayout {
   packedByBottom: number | null
   footerTop: number | null
   continuedNote: boolean
+  rowBoxes: SlipRowLayout[]
 }
 
 const CUTS = ['Ankle', 'Crew', 'Half', 'No Show', 'Kids', 'Muslimah']
@@ -64,22 +79,35 @@ const titleCase = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.
 const stripLeadingNumber = (s: string) => s.replace(/^\s*\d+[\s.)\-:]*/, '').trim()
 
 /**
- * "Plain Series - Ankle - Charcoal Blue" → "Charcoal Blue · Ankle"
- * "Special Patches Series - White Kuih"  → "White Kuih · Patches"
+ * "Plain Series - Ankle - Charcoal Blue"     → "Charcoal Blue · Ankle"
+ * "Special Patches Series - White Kuih"      → "White Kuih · Patches"
+ * "Patches Socks (LOKAL Jehhh) - Tiger"      → "Tiger · LOKAL Jehhh"
+ * "Raya Socks 2026 - Mentari Raya"           → "Mentari Raya · Raya Socks 2026"
+ * "Crew (Offline) - Pearlple"                → "Pearlple · Crew"
+ * "We Want Jam x Xocks (Adults) - Grey Green" + category ankle → "Grey Green · Ankle"
+ * "Raya Socks 2026" (no " - ")               → "Raya Socks 2026"
+ * The category is only used for Plain Series names with no cut in them and
+ * for We Want Jam x Xocks (Adults).
  */
 export function slipItemText(name: string, category?: string | null): string {
   const parts = name.split(' - ').map((p) => p.trim()).filter(Boolean)
-  if (parts.length >= 2 && /special patches/i.test(parts[0])) {
-    return `${stripLeadingNumber(parts.slice(1).join(' - '))} · Patches`
-  }
-  if (parts.length >= 2) {
+  if (parts.length < 2) return name.trim()
+  const series = parts[0]
+  const design = parts.slice(1).join(' - ')
+  if (/^plain series$/i.test(series)) {
     const colour = stripLeadingNumber(parts[parts.length - 1]) || parts[parts.length - 1]
-    const cutPart = parts.slice(0, -1).map((p) => p.replace(/\(.*?\)/g, '').trim())
+    const cutPart = parts.slice(1, -1).map((p) => p.replace(/\(.*?\)/g, '').trim())
       .reverse().find((p) => CUTS.some((c) => c.toLowerCase() === p.toLowerCase()))
     const cut = cutPart ? titleCase(cutPart.toLowerCase()) : category ? titleCase(category) : null
     return cut ? `${colour} · ${cut}` : colour
   }
-  return name.trim()
+  if (/^special patches series$/i.test(series)) return `${stripLeadingNumber(design)} · Patches`
+  if (/^patches socks \(lokal jehhh\)$/i.test(series)) return `${stripLeadingNumber(design)} · LOKAL Jehhh`
+  const colour = stripLeadingNumber(design) || design
+  const offline = /^(ankle|half|crew) \(offline\)$/i.exec(series)
+  if (offline) return `${colour} · ${titleCase(offline[1].toLowerCase())}`
+  if (/^we want jam x xocks \(adults\)$/i.test(series)) return category ? `${colour} · ${titleCase(category)}` : colour
+  return `${design} · ${series}`
 }
 
 // Picking order: Ankle (A1, A2 … A56), then Half (H…), then Crew (C…), each
@@ -149,7 +177,11 @@ export async function buildPackingSlip(p: SlipParams): Promise<{ bytes: Uint8Arr
     page.drawLine({ start: { x: x1, y }, end: { x: x2, y }, thickness, color })
 
   // ── Pre-computed text blocks ──────────────────────────────────────────
-  const items = [...p.items].sort((a, b) => compareSlipSku(a.sku, b.sku)).map((i) => ({ code: safe(i.sku || '-'), label: safe(slipItemText(i.name, i.category)), qty: i.quantity }))
+  const items = [...p.items].sort((a, b) => compareSlipSku(a.sku, b.sku)).map((i) => {
+    const code = safe(i.sku || '-')
+    return { code, label: safe(slipItemText(i.name, i.category)), qty: i.quantity, w: code.length > SHORT_CODE ? TALL_ROW : 1 }
+  })
+  type Item = (typeof items)[number]
   const totalPairs = items.reduce((a, i) => a + i.qty, 0)
   const addrLines: string[] = []
   for (const raw of (p.address ?? '').split(/\n+/).map((s) => s.trim()).filter(Boolean)) addrLines.push(...wrap(safe(raw), reg, 7.5, CW))
@@ -204,46 +236,77 @@ export async function buildPackingSlip(p: SlipParams): Promise<{ bytes: Uint8Arr
   const rowsTop = topY - HEAD_ROW
   const areaLast = rowsTop - lastBottom
   const areaCont = rowsTop - contBottom
-  const fitsRows = (area: number) => Math.max(1, Math.floor(area / ROW_MIN))
+
+  // Row space is counted in "units": a short-code row is 1, a long-code row
+  // TALL_ROW. A column fits when its units at the minimum row height fit.
+  const units = (list: Item[]) => list.reduce((a, i) => a + i.w, 0)
+  const fits1 = (list: Item[], area: number) => list.length <= 1 || units(list) * ROW_MIN <= area + 1e-6
+  // Two columns: the first k items go in column 1, k chosen so the taller
+  // column is as short as possible (ties → column 1 is the fuller one)
+  const split2 = (list: Item[]) => {
+    if (list.length <= 1) return list.length
+    const total = units(list)
+    let best = 1, bestMax = Infinity, acc = 0
+    for (let k = 1; k < list.length; k++) {
+      acc += list[k - 1].w
+      const m = Math.max(acc, total - acc)
+      if (m <= bestMax + 1e-9) { best = k; bestMax = m }
+    }
+    return best
+  }
+  const fits2 = (list: Item[], area: number) => {
+    const k = split2(list)
+    return fits1(list.slice(0, k), area) && fits1(list.slice(k), area)
+  }
 
   // Plan: 1 column → 2 columns → extra labels
-  type Plan = { columns: 1 | 2; count: number; area: number; last: boolean }
-  const plans: Plan[] = []
-  const n = items.length
-  if (n <= fitsRows(areaLast)) plans.push({ columns: 1, count: n, area: areaLast, last: true })
-  else if (n <= 2 * fitsRows(areaLast)) plans.push({ columns: 2, count: n, area: areaLast, last: true })
-  else {
-    // Fewest labels that fit, then spread the items evenly across them
+  type Plan = { columns: 1 | 2; items: Item[]; area: number; last: boolean }
+  const plans: Plan[] = (() => {
+    if (fits1(items, areaLast)) return [{ columns: 1, items, area: areaLast, last: true }]
+    if (fits2(items, areaLast)) return [{ columns: 2, items, area: areaLast, last: true }]
+    // Fewest labels that fit, items spread evenly across them by row space
     // (the last label has less room because it also carries the totals).
-    const capCont = 2 * fitsRows(areaCont)
-    const capLast = 2 * fitsRows(areaLast)
-    const labels = 1 + Math.ceil((n - capLast) / capCont)
-    const last = Math.min(capLast, Math.ceil(n / labels))
-    let rest = n - last
-    for (let i = 0; i < labels - 1; i++) {
-      const take = Math.min(capCont, Math.ceil(rest / (labels - 1 - i)))
-      plans.push({ columns: 2, count: take, area: areaCont, last: false })
-      rest -= take
+    const capLast = 2 * Math.max(1, Math.floor(areaLast / ROW_MIN))
+    for (let labels = 2; ; labels++) {
+      const lastShare = Math.min(capLast, units(items) / labels)
+      const out: Plan[] = []
+      let i = 0
+      for (let l = 0; l < labels - 1; l++) {
+        const target = (units(items.slice(i)) - lastShare) / (labels - 1 - l)
+        const chunk: Item[] = []
+        let acc = 0
+        while (i < items.length - (labels - 1 - l)) {
+          const next = items[i]
+          if (chunk.length > 0 && (acc + next.w / 2 > target || !fits2([...chunk, next], areaCont))) break
+          chunk.push(next); acc += next.w; i++
+        }
+        out.push({ columns: 2, items: chunk, area: areaCont, last: false })
+      }
+      const rest = items.slice(i)
+      if (rest.length > 0 && fits2(rest, areaLast)) {
+        out.push({ columns: fits1(rest, areaLast) ? 1 : 2, items: rest, area: areaLast, last: true })
+        return out
+      }
     }
-    plans.push({ columns: last <= fitsRows(areaLast) ? 1 : 2, count: last + rest, area: areaLast, last: true })
-  }
+  })()
 
   const layouts: SlipPageLayout[] = []
   const multi = plans.length > 1
-  let idx = 0
   plans.forEach((plan, pi) => {
     const page = pdf.addPage([SLIP_WIDTH, SLIP_HEIGHT])
     drawTop(page, pi > 0)
-    const perCol = plan.columns === 1 ? plan.count : Math.ceil(plan.count / 2)
-    const h = Math.min(ROW_MAX, Math.max(ROW_MIN, plan.area / Math.max(1, perCol)))
+    const pageItems = plan.items
+    const k = plan.columns === 1 ? pageItems.length : split2(pageItems)
+    const cols = plan.columns === 1 ? [pageItems] : [pageItems.slice(0, k), pageItems.slice(k)]
+    const colUnits = Math.max(1, ...cols.map(units))
+    const h = Math.min(ROW_MAX, Math.max(ROW_MIN, plan.area / colUnits))
     const fs = Math.min(9, Math.max(6.5, h * 0.74))
     const colW = plan.columns === 1 ? CW : (CW - COL_GAP) / 2
-    const pageItems = items.slice(idx, idx + plan.count)
-    idx += plan.count
     let rowLines = 0
     let lowest = rowsTop
+    const rowBoxes: SlipRowLayout[] = []
 
-    for (let c = 0; c < plan.columns; c++) {
+    cols.forEach((colItems, c) => {
       const x0 = M + c * (colW + COL_GAP)
       const x1 = x0 + colW
       const codeW = width('WWWWW', mono, fs) + 4 // 5 monospace chars + gap
@@ -251,32 +314,48 @@ export async function buildPackingSlip(p: SlipParams): Promise<{ bytes: Uint8Arr
       text(page, 'CODE', x0, topY - 8, bold, 6.5)
       text(page, 'ITEM', x0 + codeW, topY - 8, bold, 6.5)
       right(page, 'PAIRS', x1, topY - 8, bold, 6.5)
-      const colItems = pageItems.slice(c * perCol, (c + 1) * perCol)
-      colItems.forEach((it, r) => {
-        const top = rowsTop - r * h
-        const bottom = top - h
-        const base = bottom + (h - fs * 0.72) / 2
+      let top = rowsTop
+      colItems.forEach((it) => {
+        const rh = h * it.w
+        const bottom = top - rh
+        // item text sits in the first h of the row, as on a normal row
+        const base = top - h + (h - fs * 0.72) / 2
         const qty = String(it.qty)
         const qtyW = width(qty, bold, fs)
-        const longCode = it.code.length > 5
+        const longCode = it.code.length > SHORT_CODE
         const labelX = longCode ? x0 : x0 + codeW
         if (!longCode) text(page, it.code, x0, base, mono, fs)
         text(page, fit(it.label, reg, fs, x1 - qtyW - 6 - labelX), labelX, base, reg, fs)
         text(page, qty, x1 - qtyW, base, bold, fs)
+        let codeLine: SlipRowLayout['codeLine'] = null
+        if (longCode) {
+          // Small monospace code on its own line under the item text, never
+          // cut: shrinks to fit the column width if it has to
+          const band = rh - h
+          const cfs = Math.min(Math.max(5, fs * 0.72), (x1 - labelX) / width(it.code, mono, 1))
+          const cBase = bottom + (band - cfs * 0.57) / 2
+          text(page, it.code, labelX, cBase, mono, cfs)
+          codeLine = {
+            text: it.code, left: labelX, right: labelX + width(it.code, mono, cfs), maxRight: x1,
+            top: cBase + cfs * 0.63, bottom: cBase - cfs * 0.16,
+          }
+        }
         hline(page, x0, x1, bottom, 0.5, DARK_GREY)
+        rowBoxes.push({ code: it.code, column: c, top, bottom, textBottom: base - fs * 0.22, codeLine })
         rowLines++
         lowest = Math.min(lowest, bottom)
+        top = bottom
       })
-    }
+    })
     if (plan.columns === 2) {
       const xm = M + colW + COL_GAP / 2
-      page.drawLine({ start: { x: xm, y: topY - 2 }, end: { x: xm, y: rowsTop - perCol * h }, thickness: 0.5, color: DARK_GREY })
+      page.drawLine({ start: { x: xm, y: topY - 2 }, end: { x: xm, y: lowest }, thickness: 0.5, color: DARK_GREY })
     }
 
     const layout: SlipPageLayout = {
       label: pi + 1, columns: plan.columns, rowHeight: Math.round(h * 100) / 100, fontSize: Math.round(fs * 100) / 100,
       rows: pageItems.length, codes: pageItems.map((i) => i.code), rowLines, rowsTop, rowsBottom: lowest,
-      totalsTop: null, packedByBottom: null, footerTop: null, continuedNote: false,
+      totalsTop: null, packedByBottom: null, footerTop: null, continuedNote: false, rowBoxes,
     }
 
     if (plan.last) {

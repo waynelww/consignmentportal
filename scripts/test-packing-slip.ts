@@ -12,13 +12,38 @@ const outDir = process.argv[2]
 if (outDir) mkdirSync(outDir, { recursive: true })
 
 // ── Item text ───────────────────────────────────────────────────────────
+// Plain Series: "<Colour> · <Cut>" (cut from the name, else the category)
 assert.equal(slipItemText('Plain Series - Ankle - Charcoal Blue'), 'Charcoal Blue · Ankle')
 assert.equal(slipItemText('Plain Series - Crew - 16 Charcoal Blue'), 'Charcoal Blue · Crew') // leading number dropped
+assert.equal(slipItemText('Plain Series - Half - Teddy Brown', 'crew'), 'Teddy Brown · Half') // cut in the name wins
 assert.equal(slipItemText('Plain Series - No Show Socks - Aqua Blue', 'no_show'), 'Aqua Blue · No Show')
+assert.equal(slipItemText('Plain Series - Charcoal Blue'), 'Charcoal Blue') // no cut, no category
+// Special Patches Series: "<design> · Patches"
 assert.equal(slipItemText('Special Patches Series - White Kuih'), 'White Kuih · Patches')
+assert.equal(slipItemText('Special Patches Series - 3 Blue Elephant', 'crew'), 'Blue Elephant · Patches')
+// LOKAL Jehhh patches: "<design> · LOKAL Jehhh", never the category
+assert.equal(slipItemText('Patches Socks (LOKAL Jehhh) - Tiger', 'crew'), 'Tiger · LOKAL Jehhh')
+assert.equal(slipItemText('Patches Socks (LOKAL Jehhh) - White Durian'), 'White Durian · LOKAL Jehhh')
+assert.equal(slipItemText('Patches Socks (LOKAL Jehhh) - Kuih - Ondeh Ondeh'), 'Kuih - Ondeh Ondeh · LOKAL Jehhh')
+// Any other series: "<design> · <Series>", never the category
+assert.equal(slipItemText('Raya Socks 2026 - Mentari Raya'), 'Mentari Raya · Raya Socks 2026')
+assert.equal(slipItemText('Raya Socks 2026 - Mentari Raya', 'crew'), 'Mentari Raya · Raya Socks 2026')
+// Exceptions: "<Cut> (Offline) - <Colour>" → "<Colour> · <Cut>"
 assert.equal(slipItemText('Crew (Offline) - Pearlple', 'crew'), 'Pearlple · Crew')
+assert.equal(slipItemText('Ankle (Offline) - Charcoal Blue'), 'Charcoal Blue · Ankle')
+assert.equal(slipItemText('Half (Offline) - Teddy Brown', 'crew'), 'Teddy Brown · Half') // cut from the name, not the category
+assert.equal(slipItemText('No Show (Offline) - Aqua Blue'), 'Aqua Blue · No Show (Offline)') // only Ankle/Half/Crew
+// Exceptions: "We Want Jam x Xocks (Adults) - <Colour>" → "<Colour> · <cut from the category>"
 assert.equal(slipItemText('We Want Jam x Xocks (Adults) - Grey Green', 'ankle'), 'Grey Green · Ankle')
+assert.equal(slipItemText('We Want Jam x Xocks (Adults) - Grey Green', 'no_show'), 'Grey Green · No Show')
+assert.equal(slipItemText('We Want Jam x Xocks (Adults) - Grey Green'), 'Grey Green') // no category
+assert.equal(slipItemText('We Want Jam x Xocks (Kids) - Grey Green', 'kids'), 'Grey Green · We Want Jam x Xocks (Kids)') // other series rule
+assert.equal(slipItemText('Merdeka Series - Ankle - Jalur Gemilang', 'ankle'), 'Ankle - Jalur Gemilang · Merdeka Series')
+// No " - ": printed as it is, never the category
 assert.equal(slipItemText('Raya Socks 2026'), 'Raya Socks 2026')
+assert.equal(slipItemText('Raya Socks 2026', 'crew'), 'Raya Socks 2026')
+assert.equal(slipItemText('Patches Socks (LOKAL Jehhh)'), 'Patches Socks (LOKAL Jehhh)')
+assert.equal(slipItemText('  Gift Box  '), 'Gift Box')
 assert.equal(slipDate('2026-10-27T06:31:58Z'), '27 October 2026')
 assert.equal(slipDate('2026-10-27T17:00:00Z'), '28 October 2026') // Malaysia time
 
@@ -73,6 +98,29 @@ async function check(name: string, params: SlipParams, expect: { labels: number;
     assert.ok(p.rowHeight >= 8.5 && p.rowHeight <= 13, `${name}: row height ${p.rowHeight}`)
     assert.ok(p.fontSize >= 6.5 && p.fontSize <= 9, `${name}: font ${p.fontSize}`)
     assert.ok(p.rowsBottom < p.rowsTop)
+    // Every code is printed: short ones in the CODE column, long ones on a
+    // second line inside a taller row — rows never overlap each other
+    assert.equal(p.rowBoxes.length, p.rows, `${name}: a box per row`)
+    assert.deepEqual(p.rowBoxes.map((b) => b.code), p.codes, `${name}: row order`)
+    for (let c = 0; c < p.columns; c++) {
+      let top = p.rowsTop
+      for (const b of p.rowBoxes.filter((x) => x.column === c)) {
+        assert.ok(Math.abs(b.top - top) < 1e-6, `${name}: ${b.code} starts where the row above ends`)
+        top = b.bottom
+        const long = b.code.length > 5
+        const rh = b.top - b.bottom
+        assert.ok(Math.abs(rh - p.rowHeight * (long ? 1.7 : 1)) < 0.02, `${name}: ${b.code} row height ${rh}`)
+        assert.ok(b.bottom >= p.rowsBottom - 1e-6, `${name}: ${b.code} inside the table`)
+        assert.ok(b.textBottom > b.bottom, `${name}: ${b.code} item text inside its row`)
+        if (!long) { assert.equal(b.codeLine, null, `${name}: ${b.code} stays in the CODE column`); continue }
+        const cl = b.codeLine!
+        assert.ok(cl, `${name}: long code ${b.code} printed`)
+        assert.equal(cl.text, b.code, `${name}: ${b.code} printed in full`)
+        assert.ok(cl.top <= b.textBottom, `${name}: ${b.code} code line under the item text (${cl.top} vs ${b.textBottom})`)
+        assert.ok(cl.bottom >= b.bottom, `${name}: ${b.code} code line above the row line (${cl.bottom} vs ${b.bottom})`)
+        assert.ok(cl.right <= cl.maxRight + 1e-6, `${name}: ${b.code} code line within the column`)
+      }
+    }
     if (p.totalsTop !== null) {
       // totals sit under the rows, Packed by sits under the totals, footer under that
       const totalsBottom = p.totalsTop - 18
@@ -128,6 +176,34 @@ async function main() {
     doNumber: 'DO-2026-0102', createdAt: '2026-10-27T06:31:58Z', ...store,
     items: Array.from({ length: 120 }, (_, i) => plain(i)),
   }, { labels: 3, columns: 2 })
+
+  // Long codes (> 5 chars) print under the item text in taller rows
+  const longCodes = await check('slip-long-codes', {
+    doNumber: 'DO-2026-0106', createdAt: '2026-10-27T06:31:58Z', ...store,
+    items: [
+      { sku: 'A1', name: 'Plain Series - Ankle - Purple Blue', quantity: 2 },
+      { sku: 'PTIGER', name: 'Patches Socks (LOKAL Jehhh) - Tiger', category: 'crew', quantity: 3 },
+      { sku: 'RAYA26Y', name: 'Raya Socks 2026 - Mentari Raya', category: 'crew', quantity: 1 },
+      { sku: 'WHITEDURIAN', name: 'Patches Socks (LOKAL Jehhh) - White Durian', quantity: 2 },
+      { sku: 'HALFSILVERPORCUPINE', name: 'Special Patches Series - Half Silver Porcupine', quantity: 1 },
+      { sku: 'C12', name: 'Plain Series - Crew - Teddy Brown', quantity: 4 },
+    ],
+  }, { labels: 1, columns: 1 })
+  const lc = (await buildPackingSlip({
+    doNumber: 'DO-2026-0106', createdAt: '2026-10-27T06:31:58Z', ...store,
+    items: ['PTIGER', 'RAYA26Y', 'WHITEDURIAN', 'A1', 'C12'].map((sku) => ({ sku, name: `Patches Socks (LOKAL Jehhh) - ${sku}`, quantity: 1 })),
+  })).pages[0]
+  assert.deepEqual(lc.rowBoxes.filter((b) => b.codeLine).map((b) => b.codeLine!.text), ['PTIGER', 'RAYA26Y', 'WHITEDURIAN'])
+  assert.deepEqual(lc.rowBoxes.filter((b) => !b.codeLine).map((b) => b.code), ['A1', 'C12'])
+  void longCodes
+
+  // All long codes: tall rows still go 1 column → 2 columns → extra labels
+  for (const [n, labels, columns] of [[12, 1, 1], [30, 1, 2], [90, 3, 2]] as const) {
+    await check(`slip-${n}-long-codes`, {
+      doNumber: 'DO-2026-0107', createdAt: '2026-10-27T06:31:58Z', ...store,
+      items: Array.from({ length: n }, (_, i) => ({ sku: `PDESIGN${i + 1}`, name: `Patches Socks (LOKAL Jehhh) - Design ${i + 1}`, quantity: 1 })),
+    }, { labels, columns })
+  }
 
   // Store with no contact / odd characters must not break the slip
   await check('slip-minimal', {
