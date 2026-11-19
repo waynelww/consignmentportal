@@ -79,26 +79,28 @@ const titleCase = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.
 const stripLeadingNumber = (s: string) => s.replace(/^\s*\d+[\s.)\-:]*/, '').trim()
 
 /**
- * "Plain Series - Ankle - Charcoal Blue" → "Charcoal Blue · Ankle"
- * "Special Patches Series - White Kuih"  → "White Kuih · Patches"
- * "Patches Socks (LOKAL Jehhh) - Tiger"  → "Tiger · LOKAL Jehhh"
+ * "Plain Series - Ankle - Charcoal Blue"     → "Charcoal Blue · Ankle"
+ * "Special Patches Series - White Kuih"      → "White Kuih · Patches"
+ * "Patches Socks (LOKAL Jehhh) - Tiger"      → "Tiger · LOKAL Jehhh"
+ * "Raya Socks 2026 - Mentari Raya"           → "Mentari Raya · Raya Socks 2026"
+ * "Raya Socks 2026" (no " - ")               → "Raya Socks 2026"
+ * The category is only used for Plain Series names with no cut in them.
  */
 export function slipItemText(name: string, category?: string | null): string {
   const parts = name.split(' - ').map((p) => p.trim()).filter(Boolean)
-  if (parts.length >= 2 && /^patches socks \(lokal jehhh\)$/i.test(parts[0])) {
-    return `${stripLeadingNumber(parts.slice(1).join(' - '))} · LOKAL Jehhh`
-  }
-  if (parts.length >= 2 && /special patches/i.test(parts[0])) {
-    return `${stripLeadingNumber(parts.slice(1).join(' - '))} · Patches`
-  }
-  if (parts.length >= 2) {
+  if (parts.length < 2) return name.trim()
+  const series = parts[0]
+  const design = parts.slice(1).join(' - ')
+  if (/^plain series$/i.test(series)) {
     const colour = stripLeadingNumber(parts[parts.length - 1]) || parts[parts.length - 1]
-    const cutPart = parts.slice(0, -1).map((p) => p.replace(/\(.*?\)/g, '').trim())
+    const cutPart = parts.slice(1, -1).map((p) => p.replace(/\(.*?\)/g, '').trim())
       .reverse().find((p) => CUTS.some((c) => c.toLowerCase() === p.toLowerCase()))
     const cut = cutPart ? titleCase(cutPart.toLowerCase()) : category ? titleCase(category) : null
     return cut ? `${colour} · ${cut}` : colour
   }
-  return name.trim()
+  if (/^special patches series$/i.test(series)) return `${stripLeadingNumber(design)} · Patches`
+  if (/^patches socks \(lokal jehhh\)$/i.test(series)) return `${stripLeadingNumber(design)} · LOKAL Jehhh`
+  return `${design} · ${series}`
 }
 
 // Picking order: Ankle (A1, A2 … A56), then Half (H…), then Crew (C…), each

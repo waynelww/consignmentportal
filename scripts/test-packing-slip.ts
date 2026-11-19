@@ -12,19 +12,30 @@ const outDir = process.argv[2]
 if (outDir) mkdirSync(outDir, { recursive: true })
 
 // ── Item text ───────────────────────────────────────────────────────────
+// Plain Series: "<Colour> · <Cut>" (cut from the name, else the category)
 assert.equal(slipItemText('Plain Series - Ankle - Charcoal Blue'), 'Charcoal Blue · Ankle')
 assert.equal(slipItemText('Plain Series - Crew - 16 Charcoal Blue'), 'Charcoal Blue · Crew') // leading number dropped
+assert.equal(slipItemText('Plain Series - Half - Teddy Brown', 'crew'), 'Teddy Brown · Half') // cut in the name wins
 assert.equal(slipItemText('Plain Series - No Show Socks - Aqua Blue', 'no_show'), 'Aqua Blue · No Show')
+assert.equal(slipItemText('Plain Series - Charcoal Blue'), 'Charcoal Blue') // no cut, no category
+// Special Patches Series: "<design> · Patches"
 assert.equal(slipItemText('Special Patches Series - White Kuih'), 'White Kuih · Patches')
-assert.equal(slipItemText('Crew (Offline) - Pearlple', 'crew'), 'Pearlple · Crew')
-assert.equal(slipItemText('We Want Jam x Xocks (Adults) - Grey Green', 'ankle'), 'Grey Green · Ankle')
-assert.equal(slipItemText('Raya Socks 2026'), 'Raya Socks 2026')
-// LOKAL Jehhh patches: design first, no category appended
+assert.equal(slipItemText('Special Patches Series - 3 Blue Elephant', 'crew'), 'Blue Elephant · Patches')
+// LOKAL Jehhh patches: "<design> · LOKAL Jehhh", never the category
 assert.equal(slipItemText('Patches Socks (LOKAL Jehhh) - Tiger', 'crew'), 'Tiger · LOKAL Jehhh')
 assert.equal(slipItemText('Patches Socks (LOKAL Jehhh) - White Durian'), 'White Durian · LOKAL Jehhh')
 assert.equal(slipItemText('Patches Socks (LOKAL Jehhh) - Kuih - Ondeh Ondeh'), 'Kuih - Ondeh Ondeh · LOKAL Jehhh')
-assert.equal(slipItemText('Patches Socks (LOKAL Jehhh)'), 'Patches Socks (LOKAL Jehhh)') // no design: today's rule
-assert.equal(slipItemText('Special Patches Series - 3 Blue Elephant'), 'Blue Elephant · Patches')
+// Any other series: "<design> · <Series>", never the category
+assert.equal(slipItemText('Raya Socks 2026 - Mentari Raya'), 'Mentari Raya · Raya Socks 2026')
+assert.equal(slipItemText('Raya Socks 2026 - Mentari Raya', 'crew'), 'Mentari Raya · Raya Socks 2026')
+assert.equal(slipItemText('Crew (Offline) - Pearlple', 'crew'), 'Pearlple · Crew (Offline)')
+assert.equal(slipItemText('We Want Jam x Xocks (Adults) - Grey Green', 'ankle'), 'Grey Green · We Want Jam x Xocks (Adults)')
+assert.equal(slipItemText('Merdeka Series - Ankle - Jalur Gemilang', 'ankle'), 'Ankle - Jalur Gemilang · Merdeka Series')
+// No " - ": printed as it is, never the category
+assert.equal(slipItemText('Raya Socks 2026'), 'Raya Socks 2026')
+assert.equal(slipItemText('Raya Socks 2026', 'crew'), 'Raya Socks 2026')
+assert.equal(slipItemText('Patches Socks (LOKAL Jehhh)'), 'Patches Socks (LOKAL Jehhh)')
+assert.equal(slipItemText('  Gift Box  '), 'Gift Box')
 assert.equal(slipDate('2026-10-27T06:31:58Z'), '27 October 2026')
 assert.equal(slipDate('2026-10-27T17:00:00Z'), '28 October 2026') // Malaysia time
 
@@ -164,7 +175,7 @@ async function main() {
     items: [
       { sku: 'A1', name: 'Plain Series - Ankle - Purple Blue', quantity: 2 },
       { sku: 'PTIGER', name: 'Patches Socks (LOKAL Jehhh) - Tiger', category: 'crew', quantity: 3 },
-      { sku: 'RAYA26Y', name: 'Raya Socks 2026 - Yellow', category: 'crew', quantity: 1 },
+      { sku: 'RAYA26Y', name: 'Raya Socks 2026 - Mentari Raya', category: 'crew', quantity: 1 },
       { sku: 'WHITEDURIAN', name: 'Patches Socks (LOKAL Jehhh) - White Durian', quantity: 2 },
       { sku: 'HALFSILVERPORCUPINE', name: 'Special Patches Series - Half Silver Porcupine', quantity: 1 },
       { sku: 'C12', name: 'Plain Series - Crew - Teddy Brown', quantity: 4 },
