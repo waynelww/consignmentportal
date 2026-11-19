@@ -83,8 +83,11 @@ const stripLeadingNumber = (s: string) => s.replace(/^\s*\d+[\s.)\-:]*/, '').tri
  * "Special Patches Series - White Kuih"      → "White Kuih · Patches"
  * "Patches Socks (LOKAL Jehhh) - Tiger"      → "Tiger · LOKAL Jehhh"
  * "Raya Socks 2026 - Mentari Raya"           → "Mentari Raya · Raya Socks 2026"
+ * "Crew (Offline) - Pearlple"                → "Pearlple · Crew"
+ * "We Want Jam x Xocks (Adults) - Grey Green" + category ankle → "Grey Green · Ankle"
  * "Raya Socks 2026" (no " - ")               → "Raya Socks 2026"
- * The category is only used for Plain Series names with no cut in them.
+ * The category is only used for Plain Series names with no cut in them and
+ * for We Want Jam x Xocks (Adults).
  */
 export function slipItemText(name: string, category?: string | null): string {
   const parts = name.split(' - ').map((p) => p.trim()).filter(Boolean)
@@ -100,6 +103,10 @@ export function slipItemText(name: string, category?: string | null): string {
   }
   if (/^special patches series$/i.test(series)) return `${stripLeadingNumber(design)} · Patches`
   if (/^patches socks \(lokal jehhh\)$/i.test(series)) return `${stripLeadingNumber(design)} · LOKAL Jehhh`
+  const colour = stripLeadingNumber(design) || design
+  const offline = /^(ankle|half|crew) \(offline\)$/i.exec(series)
+  if (offline) return `${colour} · ${titleCase(offline[1].toLowerCase())}`
+  if (/^we want jam x xocks \(adults\)$/i.test(series)) return category ? `${colour} · ${titleCase(category)}` : colour
   return `${design} · ${series}`
 }
 

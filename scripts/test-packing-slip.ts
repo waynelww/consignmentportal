@@ -28,8 +28,16 @@ assert.equal(slipItemText('Patches Socks (LOKAL Jehhh) - Kuih - Ondeh Ondeh'), '
 // Any other series: "<design> · <Series>", never the category
 assert.equal(slipItemText('Raya Socks 2026 - Mentari Raya'), 'Mentari Raya · Raya Socks 2026')
 assert.equal(slipItemText('Raya Socks 2026 - Mentari Raya', 'crew'), 'Mentari Raya · Raya Socks 2026')
-assert.equal(slipItemText('Crew (Offline) - Pearlple', 'crew'), 'Pearlple · Crew (Offline)')
-assert.equal(slipItemText('We Want Jam x Xocks (Adults) - Grey Green', 'ankle'), 'Grey Green · We Want Jam x Xocks (Adults)')
+// Exceptions: "<Cut> (Offline) - <Colour>" → "<Colour> · <Cut>"
+assert.equal(slipItemText('Crew (Offline) - Pearlple', 'crew'), 'Pearlple · Crew')
+assert.equal(slipItemText('Ankle (Offline) - Charcoal Blue'), 'Charcoal Blue · Ankle')
+assert.equal(slipItemText('Half (Offline) - Teddy Brown', 'crew'), 'Teddy Brown · Half') // cut from the name, not the category
+assert.equal(slipItemText('No Show (Offline) - Aqua Blue'), 'Aqua Blue · No Show (Offline)') // only Ankle/Half/Crew
+// Exceptions: "We Want Jam x Xocks (Adults) - <Colour>" → "<Colour> · <cut from the category>"
+assert.equal(slipItemText('We Want Jam x Xocks (Adults) - Grey Green', 'ankle'), 'Grey Green · Ankle')
+assert.equal(slipItemText('We Want Jam x Xocks (Adults) - Grey Green', 'no_show'), 'Grey Green · No Show')
+assert.equal(slipItemText('We Want Jam x Xocks (Adults) - Grey Green'), 'Grey Green') // no category
+assert.equal(slipItemText('We Want Jam x Xocks (Kids) - Grey Green', 'kids'), 'Grey Green · We Want Jam x Xocks (Kids)') // other series rule
 assert.equal(slipItemText('Merdeka Series - Ankle - Jalur Gemilang', 'ankle'), 'Ankle - Jalur Gemilang · Merdeka Series')
 // No " - ": printed as it is, never the category
 assert.equal(slipItemText('Raya Socks 2026'), 'Raya Socks 2026')
