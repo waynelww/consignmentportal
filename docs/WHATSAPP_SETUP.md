@@ -116,21 +116,23 @@ row should move sent → delivered → read (webhook round-trip proven).
 
 ## 10. Coexistence onboarding of the CS number (after App Review approval)
 
-State on 2026-10-27: App Review submission 1779090393199728 (Tech Provider
-app, `whatsapp_business_messaging` + `whatsapp_business_management`) is
-**Review in progress**. Until it is approved, Facebook Login for Business only
-offers the "General" configuration variation and the Embedded Signup dialog
-falls back to the take-over flow, which is why the CS number could not be
-connected earlier. Once Meta approves (watch App dashboard → Alert Inbox and
-the contact email), do the following — about 20 minutes:
+App Review submission 1779090393199728 (Tech Provider app,
+`whatsapp_business_messaging` + `whatsapp_business_management` +
+`public_profile`) was **approved on 2026-11-11** (submitted 2026-10-27).
+Before approval, the Embedded Signup dialog fell back to the take-over flow,
+which is why the CS number could not be connected earlier. Steps — about 20
+minutes:
 
-1. **Create the Embedded Signup configuration.** App dashboard → Facebook
-   Login for Business → Configurations → Create configuration → variation
-   **WhatsApp Embedded Signup** (it only appears after approval) → name
-   `xcms-coexistence`, keep the default WhatsApp permissions, save. Copy the
-   new **Configuration ID** and set `NEXT_PUBLIC_WA_ES_CONFIG_ID` to it in
-   Vercel (and `.env.local`), then redeploy. The old General config
-   1153539300575878 can be deleted.
+1. **Create the Embedded Signup configuration.** DONE 2026-11-25 (review was
+   approved 2026-11-11). App dashboard → Facebook Login for Business →
+   Configurations → **Create from template** → "WhatsApp Embedded Signup
+   Configuration With 60 Expiration Token" → Create from template. (The
+   custom "Create configuration" wizard still only offers the General
+   variation even after approval — the template is the only way to get the
+   WhatsApp Embedded Signup variation.) Configuration ID
+   **29772591135711626**, set as `NEXT_PUBLIC_WA_ES_CONFIG_ID` in Vercel
+   (production) and `.env.local`, redeployed. The old General configs
+   1153539300575878 / 1706873894384364 can be deleted.
 2. **Prepare the CS phone.** WhatsApp Business app on the CS phone updated to
    the latest version, phone unlocked and next to you. Chats stay on the
    phone; nothing is deleted or migrated.
