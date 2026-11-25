@@ -146,7 +146,7 @@ test('cut list: unknown number reported as not found', () => {
 test('bare number with no cut goes to unread', () => {
   const r = view('21 x3')
   assert.deepEqual(r.items, [])
-  assert.ok(r.unread.some((u) => u.includes('no Ankle, Half or Crew')), JSON.stringify(r.unread))
+  assert.ok(r.unread.some((u) => u.includes('no Ankle, Half, Crew or No Show given')), JSON.stringify(r.unread))
 })
 
 test('No Show / noshow header and inline cut', () => {
@@ -175,6 +175,7 @@ test('colour in several cuts with no cut word: unread with possible SKUs', () =>
   const r = view('Teddy Brown 5')
   assert.deepEqual(r.items, [])
   assert.ok(r.unread.some((u) => u.includes('A21, H21, C21')), JSON.stringify(r.unread))
+  assert.ok(r.unread.some((u) => u.includes('write Ankle, Half, Crew or No Show')), JSON.stringify(r.unread))
 })
 
 test('colour with an inline cut word matches that cut', () => {

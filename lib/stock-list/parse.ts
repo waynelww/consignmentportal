@@ -183,7 +183,7 @@ function parseSegment(raw: string, lineCut: string | null, idx: CatalogIndex): S
   const bareNums = [...rem.matchAll(BARE_NUM_RE)].map((m) => m[0])
   for (const n of bareNums) {
     if (cut) keys.push(cut + String(Number(n)))
-    else unread.push(`${n} (no Ankle, Half or Crew given)`)
+    else unread.push(`${n} (no Ankle, Half, Crew or No Show given)`)
   }
   rem = rem.replace(BARE_NUM_RE, ' ')
 
@@ -292,7 +292,7 @@ export function parseStockList(text: string, products: StockListProduct[]): Stoc
           unread.push(`${display} (no ${CUT_NAMES[cut ?? ''] ?? ''} SKU with this colour)`)
         } else {
           const list = cands.map((p) => p.sku).join(', ')
-          unread.push(`${display} (several SKUs: ${list}; write Ankle, Half or Crew)`)
+          unread.push(`${display} (several SKUs: ${list}; write Ankle, Half, Crew or No Show)`)
         }
       }
       if (handled === 0) unread.push(seg.raw)
