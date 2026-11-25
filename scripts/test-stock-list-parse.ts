@@ -16,6 +16,7 @@ const CATALOG: StockListProduct[] = [
   { id: 'p-C5', sku: 'C5', name: 'Grey', is_active: true },
   { id: 'p-MX5', sku: 'MX5', name: 'Mesh Black', is_active: true },
   { id: 'p-V12', sku: 'V12', name: 'No Show Red', is_active: true },
+  { id: 'p-V26', sku: 'V26', name: 'No Show Aqua Blue', is_active: true },
   { id: 'p-A50', sku: 'A50', name: 'Retired Colour', is_active: false },
   { id: 'p-WKU', sku: 'WHITEKUIHC26', name: 'White Kuih Patches', is_active: true },
 ]
@@ -98,10 +99,18 @@ test('inactive product is not matched', () => {
   assert.deepEqual(r.notFound, ['A50'])
 })
 
-test('No Show (V) code goes to unread, never added', () => {
-  const r = view('V12 x2')
+test('No Show (V) code is read like A/H/C', () => {
+  assert.deepEqual(view('V26 x5').items, ['V26x5'])
+  for (const line of ['v26 x5', 'V 26 x5', 'V-26 x5', 'v026 x5', 'V26 5 pairs']) {
+    assert.deepEqual(view(line).items, ['V26x5'], line)
+  }
+  assert.equal(skuKey('v026'), 'V26')
+})
+
+test('unknown V code is reported as not found', () => {
+  const r = view('V99 x2')
   assert.deepEqual(r.items, [])
-  assert.ok(r.unread.some((u) => u.includes('No Show')), JSON.stringify(r.unread))
+  assert.deepEqual(r.notFound, ['V99'])
 })
 
 // ── Cut headers ─────────────────────────────────────────────────────────────
@@ -138,6 +147,13 @@ test('bare number with no cut goes to unread', () => {
   const r = view('21 x3')
   assert.deepEqual(r.items, [])
   assert.ok(r.unread.some((u) => u.includes('no Ankle, Half or Crew')), JSON.stringify(r.unread))
+})
+
+test('No Show / noshow header and inline cut', () => {
+  assert.deepEqual(view('No Show\n12, 26 x5').items, ['V12x5', 'V26x5'])
+  assert.deepEqual(view('noshow\n26 x5').items, ['V26x5'])
+  assert.deepEqual(view('No Show 12, 26 x3').items, ['V12x3', 'V26x3'])
+  assert.deepEqual(view('noshow 26 x3').items, ['V26x3'])
 })
 
 test('a cut header only lasts for lines below, and a new header replaces it', () => {
@@ -184,6 +200,12 @@ test('colour name with a quantity and no cut word is unread when only one cut ha
 
 test('colour matched by name with quantity under a cut', () => {
   assert.deepEqual(view('Crew\nGrey 4').items, ['C5x4'])
+})
+
+test('colour with "no show" matches the V product', () => {
+  assert.deepEqual(view('No Show Aqua Blue 3').items, ['V26x3'])
+  assert.deepEqual(view('noshow red x2').items, ['V12x2'])
+  assert.deepEqual(view('No Show\nAqua Blue 4').items, ['V26x4'])
 })
 
 // ── Lines that must not be read ─────────────────────────────────────────────

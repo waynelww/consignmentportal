@@ -296,8 +296,10 @@ you press **Create DO**, **Save** or the store's save, as before.
 - A SKU with no quantity is added with its pairs box empty and highlighted, and is listed in
   the note. **Create DO**, **Edit DO** and **Add Store** refuse to save until every line has
   pairs above 0, so no zero-pair line reaches a DO or a store's first stock.
-- **No Show (V codes)** are never sold to consignment: reported as unread, never added.
-- **Cuts:** a line with only Ankle, Half or Crew sets the cut for the lines below. A colour
+- **No Show (V codes, Plain Series - No Show Socks)** are sold to consignment and read like
+  Ankle, Half and Crew: "V26 x5" is V26, 5 pairs. "No Show" (or "noshow") works as a cut
+  header, and a colour written with "No Show" matches the V product.
+- **Cuts:** a line with only Ankle, Half, Crew or No Show sets the cut for the lines below. A colour
   in more than one cut is never guessed: it is reported with the possible SKUs.
 - The note always says "Check the quantities before saving." Re-read the Items list before saving.
 
