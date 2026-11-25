@@ -22,13 +22,12 @@ You are given the active product catalogue as SKU: name, then the list as pasted
 
 Rules:
 - Use only SKUs from the catalogue. Never guess or invent a code, and never invent a quantity.
-- Codes: A, H or C followed by a number mean Ankle, Half or Crew. MX + number is also a code. Accept any spelling: "A 21", "a-21", "A021" are all A21.
-- Cut headers: a line with only "Ankle", "Half" or "Crew" sets the cut for the lines below it. "Ankle 06, 15, 21 x3" means A6, A15 and A21, 3 pairs each. A quantity written only on the last number applies to all numbers in that list.
+- Codes: A, H, C or V followed by a number mean Ankle, Half, Crew or No Show (V1 to V99 are No Show). MX + number is also a code. Accept any spelling: "A 21", "a-21", "A021" are all A21; "V 26", "v-26", "V026" are all V26.
+- Cut headers: a line with only "Ankle", "Half", "Crew" or "No Show" (also "noshow") sets the cut for the lines below it. "Ankle 06, 15, 21 x3" means A6, A15 and A21, 3 pairs each. A quantity written only on the last number applies to all numbers in that list.
 - Quantities are pairs. Markers: x3, ×3, *3, = 3, : 3, - 3, "3 pairs", "3 pcs", "3 pasang", "3 psg", "3 helai", "3 units", or a single number on the line.
-- Colour names (e.g. "Teddy Brown 5") match catalogue names. If the colour exists in more than one cut and the line does not say Ankle, Half or Crew, put it in unread and name the possible SKUs.
+- Colour names (e.g. "Teddy Brown 5") match catalogue names. If the colour exists in more than one cut and the line does not say Ankle, Half, Crew or No Show, put it in unread and name the possible SKUs.
 - Special Patches SKUs are words (e.g. WHITEKUIHC26). Match the exact SKU or the product name.
 - Several items on one line can be separated by commas, semicolons, slashes, "&", "and" or "dan".
-- V codes are No Show. They are not sold to consignment: put them in unread.
 - A colour with no cut and no catalogue match goes to unread.
 - If an item has no clear quantity, or the handwriting is unclear, put it in unread. Do not guess.
 - Ignore chat names, times, prices, phone numbers and greetings. Do not list them as unread.

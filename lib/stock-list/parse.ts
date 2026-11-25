@@ -23,12 +23,17 @@ export interface StockListResult {
   unread: string[] // lines or parts of lines that could not be read
 }
 
-const CUT_WORDS: Record<string, string> = { ankle: 'A', ankles: 'A', half: 'H', crew: 'C' }
-const CUT_NAMES: Record<string, string> = { A: 'Ankle', H: 'Half', C: 'Crew' }
+const CUT_WORDS: Record<string, string> = { ankle: 'A', ankles: 'A', half: 'H', crew: 'C', noshow: 'V' }
+const CUT_NAMES: Record<string, string> = { A: 'Ankle', H: 'Half', C: 'Crew', V: 'No Show' }
 
-// "A21", "a-21", "A 21", "a021" -> "A21"; "MX5" -> "MX5". Anything else -> null.
+// "No Show", "no-show" and "noshow" all look up as "noshow".
+function cutLetter(word: string): string {
+  return CUT_WORDS[word.toLowerCase().replace(/[\s-]+/g, '')]
+}
+
+// "A21", "a-21", "A 21", "a021" -> "A21"; "V26" -> "V26"; "MX5" -> "MX5". Anything else -> null.
 export function codeKey(raw: string): string | null {
-  const m = /^(mx|[ahc])\s*-?\s*0*(\d{1,4})$/i.exec(raw.trim())
+  const m = /^(mx|[ahcv])\s*-?\s*0*(\d{1,4})$/i.exec(raw.trim())
   return m ? m[1].toUpperCase() + String(Number(m[2])) : null
 }
 
@@ -38,15 +43,17 @@ export function skuKey(raw: string): string {
   return codeKey(raw) ?? raw.replace(/\s+/g, '').toUpperCase()
 }
 
-// Cut letter of a code SKU (A/H/C). MX and word SKUs have no cut.
+// Cut letter of a code SKU (A/H/C/V). MX and word SKUs have no cut.
 function cutOf(sku: string): string | null {
-  const m = /^([ahc])\s*-?\s*\d/i.exec(sku.trim())
+  const m = /^([ahcv])\s*-?\s*\d/i.exec(sku.trim())
   return m ? m[1].toUpperCase() : null
 }
 
-const HEADER_RE = /^(ankles?|half|crew)\s*[:-]?$/i
-const LEAD_CUT_RE = /^(ankles?|half|crew)\b\s*[:-]?\s*(?=\d|(?:mx|[ahc])\s*-?\s*\d)/i
-const INLINE_CUT_RE = /\b(ankles?|half|crew)\b/i
+const HEADER_RE = /^(ankles?|half|crew|no[\s-]?show)\s*[:-]?$/i
+const LEAD_CUT_RE = /^(ankles?|half|crew|no[\s-]?show)\b\s*[:-]?\s*(?=\d|(?:mx|[ahcv])\s*-?\s*\d)/i
+const INLINE_CUT_RE = /\b(ankles?|half|crew|no[\s-]?show)\b/i
+// "No Show" in a No Show product's name, so "No Show Red" also matches as "Red".
+const NO_SHOW_NAME_RE = /(?<![a-z0-9])no[\s-]?show(?:\s+socks?)?(?![a-z0-9])/gi
 const SEP_RE = /\s*[,;/&+]\s*|\s+(?:and|dan)\s+/i
 // Each pattern takes the quantity in group 1. Checked for every segment.
 const QTY_PATTERNS: RegExp[] = [
@@ -94,6 +101,10 @@ function buildIndex(products: StockListProduct[]): CatalogIndex {
     pushUnique(byKey, skuKey(p.sku), p)
     const n = norm(p.name ?? '')
     if (n) pushUnique(names, n, p)
+    if (cutOf(p.sku) === 'V') {
+      const colour = norm(n.replace(NO_SHOW_NAME_RE, ' ').replace(/^[\s-]+|[\s-]+$/g, ''))
+      if (colour && colour !== n) pushUnique(names, colour, p)
+    }
     if (codeKey(p.sku) === null) {
       const s = norm(p.sku)
       if (s) pushUnique(names, s, p)
@@ -109,7 +120,7 @@ interface SegmentParse {
   ambiguous: boolean // more than one quantity marker in one part
   keys: string[] // SKU keys from explicit codes and bare numbers under a cut
   bare: boolean // only bare numbers, no codes or names
-  anyCode: boolean // an explicit code (including V) was present
+  anyCode: boolean // an explicit code was present
   names: { label: string; candidates: StockListProduct[] }[]
   unread: string[]
 }
@@ -119,7 +130,7 @@ function parseSegment(raw: string, lineCut: string | null, idx: CatalogIndex): S
   let cut = lineCut
   const cw = INLINE_CUT_RE.exec(s)
   if (cw) {
-    cut = CUT_WORDS[cw[1].toLowerCase()]
+    cut = cutLetter(cw[1])
     s = s.replace(INLINE_CUT_RE, ' ')
   }
   s = s.replace(/\s+/g, ' ').trim()
@@ -158,26 +169,21 @@ function parseSegment(raw: string, lineCut: string | null, idx: CatalogIndex): S
   }
   rem = rem.replace(/\s+/g, ' ').trim()
 
-  // 2. Codes (A/H/C/MX + number). V = No Show, never sold on consignment.
+  // 2. Codes (A/H/C/V/MX + number). V = No Show.
   const keys: string[] = []
   const unread: string[] = []
   let anyCode = false
   for (const m of rem.matchAll(CODE_RE)) {
     anyCode = true
-    const letter = m[1].toUpperCase()
-    if (letter === 'V') {
-      unread.push(`${m[0].trim()} (No Show, not sold to consignment)`)
-      continue
-    }
-    keys.push(letter + String(Number(m[2])))
+    keys.push(m[1].toUpperCase() + String(Number(m[2])))
   }
   rem = rem.replace(CODE_RE, ' ')
 
-  // 3. Bare numbers take the cut from a header or the line (e.g. "Ankle 06").
+  // 3. Bare numbers take the cut from a header or the line (e.g. "Ankle 06", "No Show 26").
   const bareNums = [...rem.matchAll(BARE_NUM_RE)].map((m) => m[0])
   for (const n of bareNums) {
     if (cut) keys.push(cut + String(Number(n)))
-    else unread.push(`${n} (no Ankle, Half or Crew given)`)
+    else unread.push(`${n} (no Ankle, Half, Crew or No Show given)`)
   }
   rem = rem.replace(BARE_NUM_RE, ' ')
 
@@ -225,7 +231,7 @@ export function parseStockList(text: string, products: StockListProduct[]): Stoc
     // A cut word alone on a line sets the cut for the lines below it.
     const header = HEADER_RE.exec(line)
     if (header) {
-      ctxCut = CUT_WORDS[header[1].toLowerCase()]
+      ctxCut = cutLetter(header[1])
       continue
     }
 
@@ -234,7 +240,7 @@ export function parseStockList(text: string, products: StockListProduct[]): Stoc
     let body = line
     const lead = LEAD_CUT_RE.exec(line)
     if (lead) {
-      lineCut = CUT_WORDS[lead[1].toLowerCase()]
+      lineCut = cutLetter(lead[1])
       body = line.slice(lead[0].length)
     }
 
@@ -286,7 +292,7 @@ export function parseStockList(text: string, products: StockListProduct[]): Stoc
           unread.push(`${display} (no ${CUT_NAMES[cut ?? ''] ?? ''} SKU with this colour)`)
         } else {
           const list = cands.map((p) => p.sku).join(', ')
-          unread.push(`${display} (several SKUs: ${list}; write Ankle, Half or Crew)`)
+          unread.push(`${display} (several SKUs: ${list}; write Ankle, Half, Crew or No Show)`)
         }
       }
       if (handled === 0) unread.push(seg.raw)
