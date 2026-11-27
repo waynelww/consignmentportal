@@ -209,6 +209,27 @@ test('colour with "no show" matches the V product', () => {
   assert.deepEqual(view('No Show\nAqua Blue 4').items, ['V26x4'])
 })
 
+// ── Spreadsheet "SKU, Quantity" lines ───────────────────────────────────────
+test('"SKU, Quantity" lines with a header row', () => {
+  const r = view('SKU, Quantity\nA21, 3\nWHITEKUIHC26, 2\nTeddy Brown, 4')
+  assert.deepEqual(r.items, ['A21x3', 'WHITEKUIHC26x2'])
+  assert.ok(r.unread.some((u) => u.includes('several SKUs')), JSON.stringify(r.unread))
+})
+
+test('"SKU<TAB>Quantity" and "SKU;Quantity"', () => {
+  assert.deepEqual(view('A21\t3\nA6;2').items, ['A21x3', 'A6x2'])
+})
+
+test('a cut list with commas still reads every number as a code', () => {
+  assert.deepEqual(view('Ankle 06, 15').items, ['A6x0', 'A15x0'])
+})
+
+test('"SKU x3, 5" is two quantities, not guessed', () => {
+  const r = view('A21 x3, 5')
+  assert.deepEqual(r.items, [])
+  assert.ok(r.unread.some((u) => u.includes('more than one quantity')), JSON.stringify(r.unread))
+})
+
 // ── Lines that must not be read ─────────────────────────────────────────────
 test('chatter and prices go to unread', () => {
   const r = view('Good morning bro\nRM 45')

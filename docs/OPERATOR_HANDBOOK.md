@@ -280,6 +280,19 @@ next to the SKU search on the **Create DO** and **Edit DO** modals, and in the
 **Add Store** initial stock step. It only fills the Items list. Nothing saves until
 you press **Create DO**, **Save** or the store's save, as before.
 
+- **Event page (Add / Remove stock):** the same reader replaces the old "SKU, Quantity"
+  bulk box. What it reads goes to a **Preview** first (edit pairs, skip lines; lines with
+  no quantity must get pairs or be skipped), then **Add N SKUs to list** fills the add or
+  remove list. It matches only products that can go to events: the Special Patches Series
+  is left out (`isExcludedFromPos` in `lib/pos/catalog.ts`; the AI route takes
+  `scope: 'event'`). For **Remove**, each line is capped at what is left in the event less
+  what is already on the list, and the preview says so. Ledger reasons, Office and Shopify
+  are unchanged. The close modal's "Bulk fill Returned" still takes "SKU, Quantity" only.
+- **"SKU, Quantity" lines** (spreadsheet / CSV, comma or semicolon; tab already worked)
+  read as that SKU and that many pairs: "A27, 6" = A27 x6. A header row ("SKU, Quantity")
+  is skipped. A cut list ("Ankle 06, 15") still means A6 and A15. **Upload CSV / TXT**
+  (event page only) loads a file into the box.
+
 - **Read list** (no AI): pure parser in `lib/stock-list/parse.ts`. Test with
   `npx tsx scripts/test-stock-list-parse.ts`. Change a rule there and in the test together.
 - **Read with AI** (text, plus any photos) and **Read photo** (photos only): `POST
@@ -781,7 +794,8 @@ never from Shopify stock. Migration: `supabase/migrations/20261127_event_pos.sql
 - **Event stock is separate from Office stock.** Office in XCMS is overwritten
   hourly by the Shopify HQ sync, so events never move stock to or from Office.
   Ledger rows (`stock_transfers`) for an event location:
-  - **Add stock to event** (`POST /api/events/[id]/checkout`): from = NULL,
+  - **Add stock to event** (`POST /api/events/[id]/checkout`; list filled by search or the
+    stock list reader, see "Stock list reader"): from = NULL,
     to = event, reason `Event stock added: <event>`. Office is not checked.
   - **Remove stock from event** (`POST /api/events/[id]/return`, corrections):
     from = event, to = NULL, reason `Event stock removed: <event>`; never below 0.

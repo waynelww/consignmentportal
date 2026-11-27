@@ -1,5 +1,6 @@
 // Pure parser for a pasted restock list (the "paste or photo" reader).
-// Used by the Create DO and Edit DO modals and the Add Store stock step.
+// Used by the Create DO and Edit DO modals, the Add Store stock step and the
+// event page's Add / Remove stock panel.
 // No React, no I/O. Rules are pinned by scripts/test-stock-list-parse.ts.
 // Keep the two in step: change a rule here, change its test there.
 
@@ -50,6 +51,12 @@ function cutOf(sku: string): string | null {
 }
 
 const HEADER_RE = /^(ankles?|half|crew|no[\s-]?show)\s*[:-]?$/i
+// Spreadsheet header row ("SKU, Quantity", "sku qty"), skipped.
+const SHEET_HEADER_RE = /^(sku|code|item)s?\s*[,;]?\s*(qty|quantity|pairs?|pcs)?$/i
+// "SKU, Quantity" (spreadsheet / CSV): exactly two parts, the second a bare
+// number and the first not a bare number. "A27, 6" -> "A27 x6". A cut list
+// such as "Ankle 06, 15" keeps meaning A6 and A15 (its first part is a number).
+const SHEET_LINE_RE = /^([^,;]*[^\s,;\d][^,;]*?)\s*[,;]\s*(\d{1,4})$/
 const LEAD_CUT_RE = /^(ankles?|half|crew|no[\s-]?show)\b\s*[:-]?\s*(?=\d|(?:mx|[ahcv])\s*-?\s*\d)/i
 const INLINE_CUT_RE = /\b(ankles?|half|crew|no[\s-]?show)\b/i
 // "No Show" in a No Show product's name, so "No Show Red" also matches as "Red".
@@ -234,6 +241,7 @@ export function parseStockList(text: string, products: StockListProduct[]): Stoc
       ctxCut = cutLetter(header[1])
       continue
     }
+    if (SHEET_HEADER_RE.test(line)) continue
 
     // A cut word at the start ("Ankle 06, 15, 21 x3") applies to this line.
     let lineCut = ctxCut
@@ -243,6 +251,8 @@ export function parseStockList(text: string, products: StockListProduct[]): Stoc
       lineCut = cutLetter(lead[1])
       body = line.slice(lead[0].length)
     }
+    const sheet = SHEET_LINE_RE.exec(body)
+    if (sheet) body = `${sheet[1]} x${sheet[2]}`
 
     const segs = body
       .split(SEP_RE)
