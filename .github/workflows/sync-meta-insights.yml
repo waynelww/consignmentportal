@@ -1,0 +1,39 @@
+name: Sync Meta ad insights
+
+# Keeps meta_ad_insights (performance dashboard) current. Runs twice a day;
+# each run re-fetches the trailing 28 days (Meta restates attributed purchases
+# for up to 28 days) and upserts, so missed or doubled runs are harmless.
+#
+# Requires repo secret: CRON_SECRET (same value as the Vercel env var).
+
+on:
+  schedule:
+    # 01:20 and 13:20 UTC = 09:20 and 21:20 MYT
+    - cron: '20 1,13 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call sync-meta-insights endpoint
+        run: |
+          set -u
+          URL="https://consignmentportal.vercel.app/api/cron/sync-meta-insights"
+          for attempt in 1 2 3; do
+            echo "Attempt ${attempt}…"
+            code=$(curl -sS -o /tmp/resp.json -w '%{http_code}' \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              --max-time 90 "$URL" || echo "000")
+            echo "HTTP ${code}"
+            cat /tmp/resp.json || true
+            echo ""
+            if [ "$code" = "200" ]; then
+              echo "✓ Sync complete."
+              exit 0
+            fi
+            [ "$attempt" != "3" ] && sleep 60
+          done
+          echo "✗ Sync failed — check Vercel logs for /api/cron/sync-meta-insights."
+          exit 1
