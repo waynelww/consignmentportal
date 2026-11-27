@@ -334,7 +334,7 @@ export default function PerformancePage() {
   )
 
   const blendedRoas =
-    summary && summary.meta.spend > 0
+    summary && !summary.meta.sample && summary.meta.spend > 0
       ? (summary.channels.filter((c) => ['online', 'shopee', 'tiktok'].includes(c.key)).reduce((s, c) => s + c.revenue, 0) /
           summary.meta.spend)
       : null

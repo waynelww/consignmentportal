@@ -21,7 +21,8 @@ import {
   type ChannelKey,
   type EventRef,
 } from '@/lib/performance/channels'
-import { SAMPLE_META, SAMPLE_ORGANIC } from '@/lib/performance/sample-data'
+import { SAMPLE_ORGANIC } from '@/lib/performance/sample-data'
+import { aggMeta } from '@/lib/performance/meta'
 
 export const maxDuration = 60
 
@@ -79,10 +80,11 @@ export async function GET(request: NextRequest) {
     if (evErr) throw new Error(evErr.message)
     const eventRefs = (eventRows ?? []) as EventRef[]
 
-    const [shopify, consignment, marketplace] = await Promise.all([
+    const [shopify, consignment, marketplace, meta] = await Promise.all([
       aggShopify(db, start, end, eventRefs),
       aggConsignment(db, start, end),
       aggMarketplace(db, start, end),
+      aggMeta(db, start, end),
     ])
 
     // event_targets has no FK to events — best-effort join by name, then by
@@ -174,8 +176,6 @@ export async function GET(request: NextRequest) {
       return b ? { uploadedAt: b.created_at, dataTo: b.date_max } : null
     }
 
-    // Blended ROAS against sample spend would be misleading — null until
-    // Phase 2 wires real Meta spend.
     const onlineRevenue = shopify.online.revenue + marketplaceGross
 
     return cachedAdminJson({
@@ -198,7 +198,7 @@ export async function GET(request: NextRequest) {
         marketplaceGross: round2(marketplaceGross),
         totalReceivable: round2(xocksReceivable),
       },
-      meta: { ...SAMPLE_META, onlineRevenueForBlended: round2(onlineRevenue) },
+      meta: { ...meta, onlineRevenueForBlended: round2(onlineRevenue) },
       organic: SAMPLE_ORGANIC,
       freshness: {
         shopifyLastSyncedAt,
