@@ -12,7 +12,7 @@ Live at **https://consignmentportal.vercel.app**. One Next.js app serving:
 - **Consignment core** — stores, products, stock, sales, monthly commission
   invoices (`XCSM-###` numbering), payments and receipt review.
 - **Operations** — restock queue + predictions, delivery orders, booth events
-  (inventory checkout/return) and the Event Target Calculator.
+  (own event stock: add/remove, separate from Office) and the Event Target Calculator.
 - **Xocks Gang CRM** — public page at `/gang`: customers register orders,
   get monthly lucky-draw tickets, first-timers get two personal Shopify
   discount codes. Website orders auto-enroll via a Shopify webhook.
@@ -775,8 +775,30 @@ account for HR; they use the **staff link `/hr`**.
 
 Booth events sell on the **Event POS** (`/pos/[eventId]`), a phone-only page
 that replaces Shopify POS at events. It sells **only from the event's own XCMS
-stock location** (`events.stock_location_id`, filled by "Outbound (to event)"),
+stock location** (`events.stock_location_id`, filled by "Add stock to event"),
 never from Shopify stock. Migration: `supabase/migrations/20261127_event_pos.sql`.
+
+- **Event stock is separate from Office stock.** Office in XCMS is overwritten
+  hourly by the Shopify HQ sync, so events never move stock to or from Office.
+  Ledger rows (`stock_transfers`) for an event location:
+  - **Add stock to event** (`POST /api/events/[id]/checkout`): from = NULL,
+    to = event, reason `Event stock added: <event>`. Office is not checked.
+  - **Remove stock from event** (`POST /api/events/[id]/return`, corrections):
+    from = event, to = NULL, reason `Event stock removed: <event>`; never below 0.
+  - **Close**: sold above POS → `Sold at event (outside POS): …`; then
+    everything left in the event location is zeroed with
+    `Event closed — returned: <event>` (to = NULL). The admin's Returned
+    figures are kept per SKU in `event_close_counts` (expected left, typed
+    returned, variance, closed_by, closed_at; migration
+    `20261127_event_close_counts.sql`), saved before any stock moves — if the
+    table is missing the close is refused with nothing changed. The closed
+    event page shows "Counted back" and Variance from it.
+    Returned stock is **not** added to Office — update Office in Shopify.
+  - Add/remove return `done` (product ids applied) so a partly failed batch
+    is never applied twice on retry; close checks all quantities before writing.
+  - Per-SKU Added / Sold (POS) / Removed-Returned / Left come only from the
+    event location and its ledger (`lib/events/stock-ledger.ts`, which also
+    reads old `Event checkout:` / `Partial return:` / `Event return:` rows).
 
 - **Targets live on the event.** The Event Target Calculator is the "Targets"
   section of each event page (`components/events/target-calculator.tsx`, maths

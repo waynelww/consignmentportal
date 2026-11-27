@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { posSoldByProduct } from '@/lib/pos/sold'
-import { getLocationIdByType } from '@/lib/inventory/transfer-stock'
+import { summariseEventLedger } from '@/lib/events/stock-ledger'
 
 export async function GET(
   _request: NextRequest,
@@ -27,35 +27,40 @@ export async function GET(
     return Response.json({ error: 'Event not found' }, { status: 404 })
   }
 
-  const officeId = await getLocationIdByType('office')
   const locId = event.stock_location_id
 
-  // Every transfer that ever touched this event's location. Taken =
-  // inbound; sold/returned = outbound, split by whether it went back to
-  // Office (returned) or left the tracked system entirely (sold).
+  // Everything comes from the event location and its ledger only — Office
+  // is not part of event stock (see lib/events/stock-ledger.ts).
   const { data: transfers, error: transferErr } = await supabase
     .from('stock_transfers')
-    .select('product_id, quantity, from_location_id, to_location_id')
+    .select('product_id, quantity, from_location_id, to_location_id, reason')
     .or(`from_location_id.eq.${locId},to_location_id.eq.${locId}`)
-
   if (transferErr) return Response.json({ error: transferErr.message }, { status: 500 })
 
-  const byProduct: Record<string, { taken: number; sold: number; returned: number }> = {}
-  for (const t of transfers ?? []) {
-    if (!byProduct[t.product_id]) byProduct[t.product_id] = { taken: 0, sold: 0, returned: 0 }
-    const row = byProduct[t.product_id]
-    // Stock coming back from outside (from = null) is a voided POS sale
-    // putting its pairs back — it un-sells, it is not new stock taken.
-    if (t.to_location_id === locId && !t.from_location_id) row.sold -= t.quantity
-    else if (t.to_location_id === locId) row.taken += t.quantity
-    else if (t.from_location_id === locId && t.to_location_id === officeId) row.returned += t.quantity
-    else if (t.from_location_id === locId && !t.to_location_id) row.sold += t.quantity
-  }
+  const svc = await createServiceClient()
+  const byProduct = summariseEventLedger(transfers ?? [], locId)
 
-  // Event POS: units sold per product (not voided). When the POS was used,
-  // these are the sold quantities for closing (already out of event stock).
-  const pos = await posSoldByProduct(await createServiceClient(), eventId)
-  for (const pid of Object.keys(pos.sold)) if (!byProduct[pid]) byProduct[pid] = { taken: 0, sold: 0, returned: 0 }
+  const { data: stockRows } = await svc.from('location_stock').select('product_id, quantity').eq('location_id', locId)
+  const leftByProduct = new Map((stockRows ?? []).map((r) => [r.product_id as string, r.quantity as number]))
+  for (const pid of leftByProduct.keys()) byProduct[pid] ??= { added: 0, soldPos: 0, soldOutside: 0, removed: 0, returned: 0 }
+
+  // Event POS: units sold per product (not voided) — the close screen's
+  // starting Sold figure. Same number as the ledger's POS sales.
+  const pos = await posSoldByProduct(svc, eventId)
+  for (const pid of Object.keys(pos.sold)) byProduct[pid] ??= { added: 0, soldPos: 0, soldOutside: 0, removed: 0, returned: 0 }
+
+  // Closed events: the admin's typed Returned counts and variance at close
+  // (event_close_counts). Missing table (migration not applied) = no counts.
+  const closeCounts = new Map<string, { expected_left: number; returned: number; variance: number; closed_at: string }>()
+  if (event.status === 'closed') {
+    const { data: cc } = await svc.from('event_close_counts')
+      .select('product_id, expected_left, returned, variance, closed_at')
+      .eq('event_id', eventId)
+    for (const r of cc ?? []) {
+      closeCounts.set(r.product_id, r)
+      byProduct[r.product_id] ??= { added: 0, soldPos: 0, soldOutside: 0, removed: 0, returned: 0 }
+    }
+  }
 
   const productIds = Object.keys(byProduct)
   const { data: products } = productIds.length > 0
@@ -66,17 +71,19 @@ export async function GET(
 
   const items = productIds.map((pid) => {
     const agg = byProduct[pid]
-    const closed = event.status === 'closed'
+    const cc = closeCounts.get(pid)
     return {
       product_id: pid,
       product: productMap.get(pid) ?? null,
-      quantity_taken: agg.taken,
+      quantity_added: agg.added,
       quantity_sold_pos: pos.sold[pid] ?? 0,
-      quantity_sold_shopify: closed ? agg.sold : null,
-      quantity_returned: closed ? agg.returned : null,
-      variance: closed ? agg.returned - (agg.taken - agg.sold) : null,
+      quantity_sold_outside: agg.soldOutside,
+      quantity_removed: agg.removed,
+      quantity_returned: agg.returned,
+      quantity_left: leftByProduct.get(pid) ?? 0,
+      close_count: cc ? { expected_left: cc.expected_left, returned: cc.returned, variance: cc.variance } : null,
     }
-  })
+  }).sort((a, b) => (a.product?.sku ?? '').localeCompare(b.product?.sku ?? ''))
 
-  return Response.json({ event, items, uses_pos: pos.usesPos })
+  return Response.json({ event, items, uses_pos: pos.usesPos, has_close_counts: closeCounts.size > 0 })
 }

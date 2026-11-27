@@ -38,17 +38,18 @@ export async function GET() {
 
   const locationIds = (events ?? []).map((e) => e.stock_location_id).filter(Boolean) as string[]
 
-  // Aggregate "taken" per event from the ledger — inbound transfers into
+  // Aggregate "added" per event from the ledger — stock added into
   // that event's location — instead of a separately-maintained counter.
   let takenByLocation: Record<string, { skus: Set<string>; totalTaken: number }> = {}
   if (locationIds.length > 0) {
     const { data: transfers } = await supabase
       .from('stock_transfers')
-      .select('to_location_id, product_id, quantity')
+      .select('to_location_id, product_id, quantity, reason')
       .in('to_location_id', locationIds)
 
     takenByLocation = {}
     for (const t of transfers ?? []) {
+      if ((t.reason ?? '').startsWith('Event POS void:')) continue // a void un-sells; it is not stock added
       const key = t.to_location_id as string
       if (!takenByLocation[key]) takenByLocation[key] = { skus: new Set(), totalTaken: 0 }
       takenByLocation[key].skus.add(t.product_id)

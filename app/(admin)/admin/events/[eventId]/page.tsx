@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Search, X, Package, CheckCircle2, AlertTriangle, Loader2, RefreshCcw, Upload, ArrowRightLeft, ArrowUpRight, ArrowDownLeft } from 'lucide-react'
+import { ArrowLeft, Search, X, Package, CheckCircle2, AlertTriangle, Loader2, RefreshCcw, Upload, ArrowRightLeft, Plus, Minus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { cn, formatMYDate } from '@/lib/utils'
 import type { Product } from '@/types'
@@ -26,16 +26,19 @@ interface EventDetail {
 
 interface EventItem {
   product_id: string
-  quantity_taken: number
-  quantity_sold_shopify: number | null
-  quantity_sold_pos: number // units sold through the Event POS (not voided)
-  quantity_returned: number | null
-  variance: number | null
+  quantity_added: number        // added into the event location
+  quantity_sold_pos: number     // units sold through the Event POS (not voided)
+  quantity_sold_outside: number // sold outside the POS, deducted at close
+  quantity_removed: number      // "Remove stock from event" corrections
+  quantity_returned: number     // left over and cleared at close
+  quantity_left: number         // in the event location right now
+  // Closed events: the admin's typed Returned count vs expected (event_close_counts)
+  close_count: { expected_left: number; returned: number; variance: number } | null
   product: { sku: string; name: string; image_url: string | null } | null
 }
 
 interface CheckoutDraftItem { product_id: string; quantity: number }
-type MoveDirection = 'outbound' | 'inbound'
+type MoveDirection = 'add' | 'remove'
 
 interface ParsedLine { sku: string; quantity: number; product_id: string | null; product_name: string | null }
 
@@ -67,11 +70,12 @@ export default function EventDetailPage() {
   const [event, setEvent] = useState<EventDetail | null>(null)
   const [items, setItems] = useState<EventItem[]>([])
   const [usesPos, setUsesPos] = useState(false)
+  const [hasCloseCounts, setHasCloseCounts] = useState(false)
   const [salesKey, setSalesKey] = useState(0)
   const [loading, setLoading] = useState(true)
   const [products, setProducts] = useState<Product[]>([])
 
-  const [direction, setDirection] = useState<MoveDirection>('outbound')
+  const [direction, setDirection] = useState<MoveDirection>('add')
   const [search, setSearch] = useState('')
   const [draft, setDraft] = useState<CheckoutDraftItem[]>([])
   const [checkingOut, setCheckingOut] = useState(false)
@@ -85,7 +89,7 @@ export default function EventDetailPage() {
   const [fetchingShopify, setFetchingShopify] = useState(false)
   const [shopifyFetchError, setShopifyFetchError] = useState<string | null>(null)
   const [closing, setClosing] = useState(false)
-  const [closeResult, setCloseResult] = useState<{ tallies: boolean } | null>(null)
+  const [closeResult, setCloseResult] = useState<{ tallies: boolean; off: Array<{ product_id: string; variance: number }> } | null>(null)
   const [closeBulkOpen, setCloseBulkOpen] = useState(false)
   const [closeBulkText, setCloseBulkText] = useState('')
 
@@ -97,6 +101,7 @@ export default function EventDetailPage() {
     setEvent(body.event)
     setItems(body.items ?? [])
     setUsesPos(!!body.uses_pos)
+    setHasCloseCounts(!!body.has_close_counts)
     setLoading(false)
   }, [eventId])
 
@@ -122,7 +127,9 @@ export default function EventDetailPage() {
   async function submitMove() {
     if (draft.length === 0) return
     setCheckingOut(true)
-    const endpoint = direction === 'outbound' ? 'checkout' : 'return'
+    // checkout = add stock into the event; return = remove stock from the event.
+    // Neither touches Office.
+    const endpoint = direction === 'add' ? 'checkout' : 'return'
     try {
       const res = await fetch(`/api/events/${eventId}/${endpoint}`, {
         method: 'POST',
@@ -130,8 +137,15 @@ export default function EventDetailPage() {
         body: JSON.stringify({ items: draft }),
       })
       const body = await res.json().catch(() => ({}))
-      if (!res.ok) { toast.error(body.error ?? 'Failed'); return }
-      toast.success(direction === 'outbound' ? 'Stock checked out to event' : 'Stock returned to office')
+      const done = new Set<string>(Array.isArray(body.done) ? body.done : [])
+      if (!res.ok || res.status === 207) {
+        // Lines that went through are dropped so a retry never applies them twice.
+        if (done.size > 0) { setDraft((prev) => prev.filter((d) => !done.has(d.product_id))); fetchDetail() }
+        const details = Array.isArray(body.details) ? body.details.join(' · ') : ''
+        toast.error(`${body.error ?? 'Failed'}${details ? ` — ${details}` : ''}`)
+        return
+      }
+      toast.success(direction === 'add' ? 'Stock added to event' : 'Stock removed from event')
       setDraft([])
       setBulkText('')
       setBulkPreview(null)
@@ -222,8 +236,14 @@ export default function EventDetailPage() {
         body: JSON.stringify({ items: payload }),
       })
       const body = await res.json().catch(() => ({}))
-      if (!res.ok) { toast.error(body.error ?? 'Failed to close event'); return }
-      setCloseResult({ tallies: body.tallies })
+      if (!res.ok) {
+        const details = Array.isArray(body.details) ? body.details.join(' · ') : ''
+        toast.error(`${body.error ?? 'Failed to close event'}${details ? ` — ${details}` : ''}`)
+        return
+      }
+      const off = ((body.results ?? []) as Array<{ product_id: string; variance: number }>).filter((r) => r.variance !== 0)
+      setCloseResult({ tallies: body.tallies, off })
+      setCloseModal(false)
       toast.success(body.tallies ? 'Event closed — everything tallies!' : 'Event closed — some quantities don\'t tally, see details')
       fetchDetail()
     } finally {
@@ -232,7 +252,7 @@ export default function EventDetailPage() {
   }
 
   // Bulk-fill the Returned column from a pasted/uploaded "SKU, Quantity"
-  // list — same import format as the outbound/inbound panel above.
+  // list — same import format as the Add / Remove stock panel above.
   function applyCloseBulk() {
     const parsed = parseSkuQtyText(closeBulkText, products)
     const matched = parsed.filter((l) => l.product_id && items.some((it) => it.product_id === l.product_id))
@@ -259,7 +279,14 @@ export default function EventDetailPage() {
   if (!event) return <div className="py-12 text-center text-gray-400 text-sm">Event not found</div>
 
   const isActive = event.status === 'active'
-  const expectedRemaining = (item: EventItem) => item.quantity_taken - (closeRows[item.product_id]?.sold ?? 0)
+  // What should physically come back: what's left in event stock minus any
+  // sold figure that close will still deduct (above POS, or all without POS).
+  const expectedRemaining = (item: EventItem) => {
+    const sold = closeRows[item.product_id]?.sold ?? 0
+    const toDeduct = usesPos ? Math.max(0, sold - item.quantity_sold_pos) : sold
+    return item.quantity_left - toDeduct
+  }
+  const skuOf = (pid: string) => items.find((i) => i.product_id === pid)?.product?.sku ?? pid
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -312,26 +339,32 @@ export default function EventDetailPage() {
       <TargetCalculator eventId={event.id} eventName={event.name} startDate={event.start_date} endDate={event.end_date}
         onSaved={() => setSalesKey((k) => k + 1)} />
 
-      {/* Move Stock — only while active. Direct outbound (to event) or
-          inbound (partial return), by search or bulk paste/file import. */}
+      {/* Event stock — only while active. Add stock into the event, or remove
+          it (corrections), by search or bulk paste/file import. Event stock
+          is separate from Office: nothing is taken from or put back into it. */}
       {isActive && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-900">Move Stock</h3>
+            <h3 className="text-sm font-semibold text-gray-900">Event Stock</h3>
             <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
-              <button type="button" onClick={() => setDirection('outbound')}
+              <button type="button" onClick={() => setDirection('add')}
                 className={cn('flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors',
-                  direction === 'outbound' ? 'bg-[#0A0A0A] text-white' : 'text-gray-500 hover:bg-gray-50')}>
-                <ArrowUpRight size={12} /> Outbound (to event)
+                  direction === 'add' ? 'bg-[#0A0A0A] text-white' : 'text-gray-500 hover:bg-gray-50')}>
+                <Plus size={12} /> Add stock to event
               </button>
-              <button type="button" onClick={() => setDirection('inbound')}
+              <button type="button" onClick={() => setDirection('remove')}
                 className={cn('flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition-colors border-l border-gray-200',
-                  direction === 'inbound' ? 'bg-[#0A0A0A] text-white' : 'text-gray-500 hover:bg-gray-50')}>
-                <ArrowDownLeft size={12} /> Inbound (partial return)
+                  direction === 'remove' ? 'bg-[#0A0A0A] text-white' : 'text-gray-500 hover:bg-gray-50')}>
+                <Minus size={12} /> Remove stock from event
               </button>
             </div>
           </div>
 
+          <p className="text-[11px] text-gray-500 mb-2">
+            {direction === 'add'
+              ? 'Adds pairs straight into this event\'s stock. Office stock is not touched or checked.'
+              : 'For corrections and miscounts: takes pairs out of this event\'s stock only (never below 0, never into Office).'}
+          </p>
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
             <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
@@ -432,7 +465,7 @@ export default function EventDetailPage() {
               ) : (
                 <>
                   <ArrowRightLeft size={14} />
-                  {direction === 'outbound' ? 'Check Out' : 'Return'} {draft.reduce((s, i) => s + i.quantity, 0)} Pairs
+                  {direction === 'add' ? 'Add' : 'Remove'} {draft.reduce((s, i) => s + i.quantity, 0)} Pairs
                 </>
               )}
             </button>
@@ -440,25 +473,27 @@ export default function EventDetailPage() {
         </div>
       )}
 
-      {/* Taken / return summary */}
+      {/* Per-SKU event stock — from the event location and ledger only */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
           <h3 className="text-sm font-semibold text-gray-900">
-            {isActive ? 'Currently Taken' : 'Final Reconciliation'}
+            {isActive ? 'Event Stock' : 'Event Stock — Final'}
           </h3>
         </div>
         {items.length === 0 ? (
-          <p className="text-sm text-gray-400 py-8 text-center">Nothing checked out yet</p>
+          <p className="text-sm text-gray-400 py-8 text-center">No stock added yet</p>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50">
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500">Product</th>
-                <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500">Taken</th>
-                {!isActive && (
+                <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500">Added</th>
+                <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500">Sold (POS)</th>
+                <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500">Removed / Returned</th>
+                <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500">Left</th>
+                {!isActive && hasCloseCounts && (
                   <>
-                    <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500">Sold</th>
-                    <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500">Returned</th>
+                    <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500" title="What the admin counted back at close vs what should have been left">Counted back</th>
                     <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500">Variance</th>
                   </>
                 )}
@@ -483,19 +518,38 @@ export default function EventDetailPage() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-3 py-2.5 text-center font-semibold">{item.quantity_taken}</td>
-                  {!isActive && (
+                  <td className="px-3 py-2.5 text-center tabular-nums">{item.quantity_added}</td>
+                  <td className="px-3 py-2.5 text-center tabular-nums">
+                    {item.quantity_sold_pos}
+                    {item.quantity_sold_outside > 0 && (
+                      <span className="block text-[10px] text-gray-400">+{item.quantity_sold_outside} outside POS</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5 text-center tabular-nums">
+                    {item.quantity_removed + item.quantity_returned}
+                    {item.quantity_removed > 0 && item.quantity_returned > 0 && (
+                      <span className="block text-[10px] text-gray-400">{item.quantity_removed} removed · {item.quantity_returned} at close</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5 text-center font-semibold tabular-nums">{item.quantity_left}</td>
+                  {!isActive && hasCloseCounts && (
                     <>
-                      <td className="px-3 py-2.5 text-center">{item.quantity_sold_shopify ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-center">{item.quantity_returned ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-center tabular-nums">
+                        {item.close_count ? (
+                          <>
+                            {item.close_count.returned}
+                            <span className="block text-[10px] text-gray-400">expected {item.close_count.expected_left}</span>
+                          </>
+                        ) : '—'}
+                      </td>
                       <td className="px-3 py-2.5 text-center">
-                        {item.variance === null ? '—' : item.variance === 0 ? (
+                        {!item.close_count ? '—' : item.close_count.variance === 0 ? (
                           <span className="inline-flex items-center gap-1 text-green-600 text-xs font-semibold">
                             <CheckCircle2 size={12} /> Tallies
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-red-600 text-xs font-semibold">
-                            <AlertTriangle size={12} /> {item.variance > 0 ? `+${item.variance}` : item.variance}
+                            <AlertTriangle size={12} /> {item.close_count.variance > 0 ? `+${item.close_count.variance}` : item.close_count.variance}
                           </span>
                         )}
                       </td>
@@ -515,12 +569,16 @@ export default function EventDetailPage() {
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
               <div>
                 <h3 className="text-base font-semibold text-gray-900">Close Event — Review &amp; Tally</h3>
-                <p className="text-xs text-gray-500 mt-0.5">Confirm units sold and enter what physically came back.</p>
+                <p className="text-xs text-gray-500 mt-0.5">Confirm units sold and enter what physically came back. This is the record of the event — leftover event stock is cleared when you close.</p>
               </div>
               <button onClick={() => !closing && setCloseModal(false)}><X size={18} className="text-gray-400 hover:text-gray-600" /></button>
             </div>
 
             <div className="flex-1 overflow-y-auto px-5 py-4">
+              <div className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+                <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                Returned stock is not added to Office in XCMS — update Office stock in Shopify.
+              </div>
               {usesPos && (
                 <div className="text-xs text-green-800 bg-green-50 rounded-lg px-3 py-2 mb-3">
                   Sold = Event POS sales (voided sales excluded). They already left event stock — only raise a number for pairs sold outside the POS.
@@ -566,7 +624,7 @@ export default function EventDetailPage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-mono text-gray-400">{item.product?.sku}</p>
                         <p className="text-sm text-gray-800 truncate">{item.product?.name}</p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">Taken: {item.quantity_taken} · Expected back: {item.quantity_taken - row.sold}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">Added: {item.quantity_added} · Left now: {item.quantity_left} · Expected back: {expectedRemaining(item)}</p>
                       </div>
                       <div className="text-center shrink-0">
                         <label className="text-[10px] text-gray-400 block mb-0.5">Sold</label>
@@ -628,7 +686,10 @@ export default function EventDetailPage() {
           ) : (
             <>
               <AlertTriangle size={20} className="text-red-600 shrink-0" />
-              <p className="text-sm text-red-800 font-medium">Some quantities don't tally — see the Variance column above.</p>
+              <div className="text-sm text-red-800">
+                <p className="font-medium">Some quantities don&apos;t tally (counted back − expected left), also shown in the table above:</p>
+                <p className="text-xs mt-1">{closeResult.off.map((r) => `${skuOf(r.product_id)} ${r.variance > 0 ? `+${r.variance}` : r.variance}`).join(' · ')}</p>
+              </div>
             </>
           )}
         </div>
