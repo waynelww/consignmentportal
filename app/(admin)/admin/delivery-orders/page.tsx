@@ -17,11 +17,12 @@ import { fetchDriveRows, requeueDrive, type DriveRow } from '@/lib/drive/client'
 import DriveStatus from '@/components/drive/DriveStatus'
 import { needsStoreSignature } from '@/lib/delivery-orders/initial-signature'
 import { StockListToggle, StockListPanel } from '@/components/stock/StockListReader'
+import { CutSections } from '@/components/products/CutSections'
 
 interface DOWithStore extends DeliveryOrder { store_name: string }
 interface DispatchModal { open: boolean; doId: string; courier: string; tracking: string }
 interface CreateDOItem { product_id: string; quantity: number }
-interface DetailItem { id: string; quantity: number; unit_cost: number; product: { name: string; sku: string; image_url?: string | null } | null }
+interface DetailItem { id: string; quantity: number; unit_cost: number; product: { name: string; sku: string; category?: string | null; image_url?: string | null } | null }
 interface UnderstockedItem { product_id: string; sku: string; name: string; quantity_on_hand: number; threshold: number; suggested_qty: number }
 
 type SortBy = 'date-desc' | 'date-asc' | 'pairs-desc' | 'pairs-asc' | 'store'
@@ -106,7 +107,7 @@ export default function DeliveryOrdersPage() {
     loadDetailDrive(d.id)
     const { data, error } = await supabase
       .from('delivery_order_items')
-      .select('id, quantity, unit_cost, product:products(name, sku, image_url)')
+      .select('id, quantity, unit_cost, product:products(name, sku, category, image_url)')
       .eq('delivery_order_id', d.id)
     if (error) {
       toast.error('Failed to load DO items')
@@ -137,13 +138,13 @@ export default function DeliveryOrdersPage() {
     fetchOrders()
     supabase.from('stores').select('id, store_name').eq('status', 'active').order('store_name')
       .then(({ data }) => setStores((data || []) as Store[]))
-    supabase.from('products').select('id, sku, name, hq_available_qty, hq_synced_at').eq('is_active', true).order('sku')
+    supabase.from('products').select('id, sku, name, category, hq_available_qty, hq_synced_at').eq('is_active', true).order('sku')
       .then(({ data }) => setProducts((data || []) as Product[]))
   }, [fetchOrders])
 
   // Reload the product list (HQ numbers) after a Shopify refresh
   const reloadProducts = useCallback(() => {
-    supabase.from('products').select('id, sku, name, hq_available_qty, hq_synced_at').eq('is_active', true).order('sku')
+    supabase.from('products').select('id, sku, name, category, hq_available_qty, hq_synced_at').eq('is_active', true).order('sku')
       .then((res: { data: unknown[] | null }) => setProducts((res.data || []) as Product[]))
   }, [supabase])
 
@@ -725,7 +726,10 @@ export default function DeliveryOrdersPage() {
                 <p className="text-sm text-gray-400 py-4 text-center">No items found</p>
               ) : (
                 <div className="space-y-2">
-                  {detailItems.map((item) => (
+                  <CutSections items={detailItems} keyOf={(i) => i.id} productOf={(i) => i.product}
+                    headerClassName="pt-2 text-[10px] font-bold uppercase tracking-wide text-gray-600"
+                    sectionNote={(xs) => `${xs.length} SKU${xs.length !== 1 ? 's' : ''} · ${xs.reduce((n, i) => n + i.quantity, 0)} pairs`}
+                    renderItem={(item) => (
                     <div key={item.id} className="flex items-center justify-between gap-2 py-1.5 border-b border-gray-50 last:border-0">
                       <div className="flex items-center gap-3 min-w-0">
                         {item.product?.image_url ? (
@@ -745,7 +749,7 @@ export default function DeliveryOrdersPage() {
                       </div>
                       <span className="text-sm font-semibold shrink-0">× {item.quantity}</span>
                     </div>
-                  ))}
+                  )} />
                 </div>
               )}
             </div>
@@ -932,7 +936,7 @@ export default function DeliveryOrdersPage() {
                   <div className="relative flex-1 min-w-0">
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                     <input type="text" value={createSearch} onChange={(e) => setCreateSearch(e.target.value)}
-                      placeholder="Search by SKU or name (e.g. A54, Ankle, Patches)"
+                      placeholder="Search by SKU or name (e.g. A54, Ankle, Kids, No Show, Patches)"
                       className="w-full h-10 pl-9 pr-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]" />
                   </div>
                   <StockListToggle open={createPasteOpen} onClick={() => setCreatePasteOpen((v) => !v)} />
@@ -966,7 +970,10 @@ export default function DeliveryOrdersPage() {
                     ? <p className="text-xs text-gray-400 py-4 text-center bg-gray-50 rounded-lg">No items yet.</p>
                     : (
                       <div className="border border-gray-100 rounded-lg overflow-hidden">
-                        {createItems.map((item) => {
+                        <CutSections items={createItems} keyOf={(i) => i.product_id}
+                          productOf={(i) => products.find((p) => p.id === i.product_id)}
+                          sectionNote={(xs) => `${xs.length} SKU${xs.length !== 1 ? 's' : ''} · ${xs.reduce((n, i) => n + i.quantity, 0)} pairs`}
+                          renderItem={(item) => {
                           const product = products.find((p) => p.id === item.product_id)
                           const hq = hqLine(product, item.quantity)
                           return (
@@ -996,7 +1003,7 @@ export default function DeliveryOrdersPage() {
                               </div>
                             </div>
                           )
-                        })}
+                        }} />
                       </div>
                     )
                   }
@@ -1069,7 +1076,10 @@ export default function DeliveryOrdersPage() {
                   ? <p className="text-xs text-gray-400 py-4 text-center bg-gray-50 rounded-lg">No items yet.</p>
                   : (
                     <div className="border border-gray-100 rounded-lg overflow-hidden">
-                      {editItems.map((item) => {
+                      <CutSections items={editItems} keyOf={(i) => i.product_id}
+                        productOf={(i) => products.find((p) => p.id === i.product_id)}
+                        sectionNote={(xs) => `${xs.length} SKU${xs.length !== 1 ? 's' : ''} · ${xs.reduce((n, i) => n + i.quantity, 0)} pairs`}
+                        renderItem={(item) => {
                         const product = products.find((p) => p.id === item.product_id)
                         const hq = hqLine(product, item.quantity)
                         return (
@@ -1099,7 +1109,7 @@ export default function DeliveryOrdersPage() {
                             </div>
                           </div>
                         )
-                      })}
+                      }} />
                     </div>
                   )
                 }

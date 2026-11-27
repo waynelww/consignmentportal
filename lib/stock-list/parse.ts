@@ -24,17 +24,22 @@ export interface StockListResult {
   unread: string[] // lines or parts of lines that could not be read
 }
 
-const CUT_WORDS: Record<string, string> = { ankle: 'A', ankles: 'A', half: 'H', crew: 'C', noshow: 'V' }
-const CUT_NAMES: Record<string, string> = { A: 'Ankle', H: 'Half', C: 'Crew', V: 'No Show' }
+const CUT_WORDS: Record<string, string> = {
+  ankle: 'A', ankles: 'A', half: 'H', crew: 'C', noshow: 'V', invisible: 'V', kid: 'K', kids: 'K',
+}
+const CUT_NAMES: Record<string, string> = { A: 'Ankle', H: 'Half', C: 'Crew', V: 'No Show', K: 'Kids' }
+// Cut words as a regex group: Ankle, Half, Crew, No Show (noshow, no-show,
+// invisible) and Kids (kid).
+const CUT_GROUP = '(ankles?|half|crew|no[\\s-]?show|invisible|kids?)'
 
 // "No Show", "no-show" and "noshow" all look up as "noshow".
 function cutLetter(word: string): string {
   return CUT_WORDS[word.toLowerCase().replace(/[\s-]+/g, '')]
 }
 
-// "A21", "a-21", "A 21", "a021" -> "A21"; "V26" -> "V26"; "MX5" -> "MX5". Anything else -> null.
+// "A21", "a-21", "A 21", "a021" -> "A21"; "V26" -> "V26"; "K3" -> "K3"; "MX5" -> "MX5". Anything else -> null.
 export function codeKey(raw: string): string | null {
-  const m = /^(mx|[ahcv])\s*-?\s*0*(\d{1,4})$/i.exec(raw.trim())
+  const m = /^(mx|[ahcvk])\s*-?\s*0*(\d{1,4})$/i.exec(raw.trim())
   return m ? m[1].toUpperCase() + String(Number(m[2])) : null
 }
 
@@ -44,21 +49,28 @@ export function skuKey(raw: string): string {
   return codeKey(raw) ?? raw.replace(/\s+/g, '').toUpperCase()
 }
 
-// Cut letter of a code SKU (A/H/C/V). MX and word SKUs have no cut.
+// Cut letter of a code SKU (A/H/C/V/K). MX and word SKUs (KHAKIDURIANC31) have no cut.
+// Bundle SKUs such as A27X10 keep their cut letter here, as before.
 function cutOf(sku: string): string | null {
-  const m = /^([ahcv])\s*-?\s*\d/i.exec(sku.trim())
+  const m = /^([ahcvk])\s*-?\s*\d/i.exec(sku.trim())
   return m ? m[1].toUpperCase() : null
 }
 
-const HEADER_RE = /^(ankles?|half|crew|no[\s-]?show)\s*[:-]?$/i
+// Cut letter of a plain code only (A27, V6, K3): not bundles (A27X10) or word SKUs.
+function plainCutOf(sku: string): string | null {
+  const m = /^([ahcvk])\d+$/i.exec(sku.trim())
+  return m ? m[1].toUpperCase() : null
+}
+
+const HEADER_RE = new RegExp(`^${CUT_GROUP}\\s*[:-]?$`, 'i')
 // Spreadsheet header row ("SKU, Quantity", "sku qty"), skipped.
 const SHEET_HEADER_RE = /^(sku|code|item)s?\s*[,;]?\s*(qty|quantity|pairs?|pcs)?$/i
 // "SKU, Quantity" (spreadsheet / CSV): exactly two parts, the second a bare
 // number and the first not a bare number. "A27, 6" -> "A27 x6". A cut list
 // such as "Ankle 06, 15" keeps meaning A6 and A15 (its first part is a number).
 const SHEET_LINE_RE = /^([^,;]*[^\s,;\d][^,;]*?)\s*[,;]\s*(\d{1,4})$/
-const LEAD_CUT_RE = /^(ankles?|half|crew|no[\s-]?show)\b\s*[:-]?\s*(?=\d|(?:mx|[ahcv])\s*-?\s*\d)/i
-const INLINE_CUT_RE = /\b(ankles?|half|crew|no[\s-]?show)\b/i
+const LEAD_CUT_RE = new RegExp(`^${CUT_GROUP}\\b\\s*[:-]?\\s*(?=\\d|(?:mx|[ahcvk])\\s*-?\\s*\\d)`, 'i')
+const INLINE_CUT_RE = new RegExp(`\\b${CUT_GROUP}\\b`, 'i')
 // "No Show" in a No Show product's name, so "No Show Red" also matches as "Red".
 const NO_SHOW_NAME_RE = /(?<![a-z0-9])no[\s-]?show(?:\s+socks?)?(?![a-z0-9])/gi
 const SEP_RE = /\s*[,;/&+]\s*|\s+(?:and|dan)\s+/i
@@ -69,7 +81,7 @@ const QTY_PATTERNS: RegExp[] = [
   /[=:]\s*(\d{1,4})(?!\d)/g,
   /(?:^|\s)-\s*(\d{1,4})(?!\d)/g,
 ]
-const CODE_RE = /(?<![a-z0-9])(mx|[ahcv])\s*-?\s*(\d{1,4})(?!\d)/gi
+const CODE_RE = /(?<![a-z0-9])(mx|[ahcvk])\s*-?\s*(\d{1,4})(?!\d)/gi
 const BARE_NUM_RE = /(?<![a-z0-9])\d{1,4}(?![a-z0-9])/gi
 
 function clean(raw: string): string {
@@ -92,6 +104,15 @@ function escapeRe(s: string): string {
 interface CatalogIndex {
   byKey: Map<string, StockListProduct[]> // "A21" / "WHITEKUIHC26" -> products
   names: Map<string, StockListProduct[]> // lower-case colour/product name -> products
+  colours: { product: StockListProduct; cut: string; words: string[] }[] // code SKUs' colour words
+}
+
+// Colour of a cut-code product: the last " - " part of its name, leading
+// number dropped. "Plain Series - No Show Socks - Classic Black" -> "classic black".
+function colourOfName(name: string): string {
+  const parts = name.split(' - ').map((x) => x.trim()).filter(Boolean)
+  const last = parts.length ? parts[parts.length - 1] : ''
+  return norm(last.replace(/^\s*\d+[\s.)\-:]*/, ''))
 }
 
 function pushUnique<T extends { id: string }>(map: Map<string, T[]>, key: string, p: T) {
@@ -103,6 +124,7 @@ function pushUnique<T extends { id: string }>(map: Map<string, T[]>, key: string
 function buildIndex(products: StockListProduct[]): CatalogIndex {
   const byKey = new Map<string, StockListProduct[]>()
   const names = new Map<string, StockListProduct[]>()
+  const colours: CatalogIndex['colours'] = []
   for (const p of products) {
     if (p.is_active === false) continue
     pushUnique(byKey, skuKey(p.sku), p)
@@ -112,12 +134,22 @@ function buildIndex(products: StockListProduct[]): CatalogIndex {
       const colour = norm(n.replace(NO_SHOW_NAME_RE, ' ').replace(/^[\s-]+|[\s-]+$/g, ''))
       if (colour && colour !== n) pushUnique(names, colour, p)
     }
+    // Cut-code products (A/H/C/V/K) also match by their colour alone, so
+    // "No Show Classic Black 6" finds V27 in "Plain Series - No Show Socks - Classic Black".
+    const cut = plainCutOf(p.sku)
+    if (cut) {
+      const colour = colourOfName(p.name ?? '')
+      if (colour) {
+        pushUnique(names, colour, p)
+        colours.push({ product: p, cut, words: colour.split(' ') })
+      }
+    }
     if (codeKey(p.sku) === null) {
       const s = norm(p.sku)
       if (s) pushUnique(names, s, p)
     }
   }
-  return { byKey, names }
+  return { byKey, names, colours }
 }
 
 interface SegmentParse {
@@ -169,14 +201,14 @@ function parseSegment(raw: string, lineCut: string | null, idx: CatalogIndex): S
     // "Teddy Brown 5" -> qty 5. "A 21" and "A21" stay codes (the letter sits
     // right before the number). Numbers with no letters (a bare cut list)
     // never take a quantity.
-    if (tm && /[a-z]/i.test(s) && !/(^|[^a-z0-9])(mx|[ahcv])$/i.test(s.slice(0, tm.index))) {
+    if (tm && /[a-z]/i.test(s) && !/(^|[^a-z0-9])(mx|[ahcvk])$/i.test(s.slice(0, tm.index))) {
       qty = Number(tm[1])
       rem = s.slice(0, tm.index)
     }
   }
   rem = rem.replace(/\s+/g, ' ').trim()
 
-  // 2. Codes (A/H/C/V/MX + number). V = No Show.
+  // 2. Codes (A/H/C/V/K/MX + number). V = No Show, K = Kids.
   const keys: string[] = []
   const unread: string[] = []
   let anyCode = false
@@ -190,7 +222,7 @@ function parseSegment(raw: string, lineCut: string | null, idx: CatalogIndex): S
   const bareNums = [...rem.matchAll(BARE_NUM_RE)].map((m) => m[0])
   for (const n of bareNums) {
     if (cut) keys.push(cut + String(Number(n)))
-    else unread.push(`${n} (no Ankle, Half, Crew or No Show given)`)
+    else unread.push(`${n} (no Ankle, Half, Crew or No Show given, or Kids)`)
   }
   rem = rem.replace(BARE_NUM_RE, ' ')
 
@@ -205,6 +237,16 @@ function parseSegment(raw: string, lineCut: string | null, idx: CatalogIndex): S
         names.push({ label: key, candidates: idx.names.get(key)! })
         t = t.replace(re, (m) => ' '.repeat(m.length)) // longer names win
       }
+    }
+    // A cut was given but no whole colour matched: the words written may be
+    // part of a colour ("No show black 6" -> V27 Classic Black). Only that
+    // cut's colours count; more than one match is reported, never guessed.
+    const words = norm(t).split(' ').filter((w) => /[a-z]/.test(w))
+    if (names.length === 0 && cut && words.length > 0) {
+      const cands = idx.colours
+        .filter((c) => c.cut === cut && words.every((w) => c.words.includes(w)))
+        .map((c) => c.product)
+      if (cands.length > 0) names.push({ label: words.join(' '), candidates: cands })
     }
   }
 
@@ -294,7 +336,12 @@ export function parseStockList(text: string, products: StockListProduct[]): Stoc
         const cands = cut
           ? nm.candidates.filter((p) => cutOf(p.sku) === cut || cutOf(p.sku) === null)
           : nm.candidates
-        const display = nm.candidates[0]?.name ?? nm.label
+        // One product name for all candidates (the fixture style) → that name;
+        // else the colour as written ("Teddy Brown"), not one cut's full name.
+        const distinct = new Set(nm.candidates.map((p) => p.name))
+        const display = distinct.size === 1
+          ? nm.candidates[0].name
+          : nm.label.replace(/\b[a-z]/g, (c) => c.toUpperCase())
         handled++
         if (cands.length === 1) {
           add(cands[0], qty)
@@ -302,7 +349,7 @@ export function parseStockList(text: string, products: StockListProduct[]): Stoc
           unread.push(`${display} (no ${CUT_NAMES[cut ?? ''] ?? ''} SKU with this colour)`)
         } else {
           const list = cands.map((p) => p.sku).join(', ')
-          unread.push(`${display} (several SKUs: ${list}; write Ankle, Half, Crew or No Show)`)
+          unread.push(`${display} (several SKUs: ${list}; write Ankle, Half, Crew or No Show, or Kids)`)
         }
       }
       if (handled === 0) unread.push(seg.raw)

@@ -1,6 +1,12 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { pickPhoto, type SourceVariant } from '@/lib/shopify/catalogue-source'
 
 // Shared sync logic used by both the manual admin endpoint and the daily cron.
+// Only image_url is written (never the name). When several Shopify products
+// share a SKU, the photo comes from lib/shopify/catalogue-source.ts: collab
+// products (Luwis / We Want Jam / WWJ) never, Plain Series first, then
+// "(Offline)", then other active products; archived / draft only if no active
+// product has the SKU.
 
 interface SyncResult {
   success: true
@@ -21,9 +27,11 @@ interface SyncError {
 const SHOPIFY_API_VERSION = '2024-10'
 
 interface VariantNode {
+  id: string
   sku: string | null
+  title: string
   image: { url: string } | null
-  product: { featuredImage: { url: string } | null } | null
+  product: { title: string; status: string | null; featuredImage: { url: string } | null } | null
 }
 
 interface ShopifyResponse {
@@ -37,7 +45,7 @@ interface ShopifyResponse {
 }
 
 async function fetchAllVariants(domain: string, token: string): Promise<Map<string, string>> {
-  const skuToImage = new Map<string, string>()
+  const bySku = new Map<string, SourceVariant[]>()
   let after: string | null = null
 
   for (let page = 0; page < 50; page++) {
@@ -47,9 +55,11 @@ async function fetchAllVariants(domain: string, token: string): Promise<Map<stri
           edges {
             cursor
             node {
+              id
               sku
+              title
               image { url }
-              product { featuredImage { url } }
+              product { title status featuredImage { url } }
             }
           }
           pageInfo { hasNextPage endCursor }
@@ -79,16 +89,31 @@ async function fetchAllVariants(domain: string, token: string): Promise<Map<stri
     if (!conn) break
 
     for (const edge of conn.edges) {
-      const sku = (edge.node.sku ?? '').trim().toUpperCase()
+      const n = edge.node
+      const sku = (n.sku ?? '').trim().toUpperCase()
       if (!sku) continue
-      const url = edge.node.image?.url ?? edge.node.product?.featuredImage?.url ?? null
-      if (url) skuToImage.set(sku, url)
+      const list = bySku.get(sku) ?? []
+      list.push({
+        id: n.id,
+        sku: n.sku,
+        title: n.title,
+        imageUrl: n.image?.url ?? null,
+        productTitle: n.product?.title ?? '',
+        productImageUrl: n.product?.featuredImage?.url ?? null,
+        productStatus: n.product?.status ?? null,
+      })
+      bySku.set(sku, list)
     }
 
     if (!conn.pageInfo.hasNextPage) break
     after = conn.pageInfo.endCursor
   }
 
+  const skuToImage = new Map<string, string>()
+  for (const [sku, variants] of bySku) {
+    const photo = pickPhoto(variants)
+    if (photo) skuToImage.set(sku, photo.url)
+  }
   return skuToImage
 }
 

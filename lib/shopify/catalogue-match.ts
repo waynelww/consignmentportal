@@ -5,9 +5,12 @@
 // only does the reads and writes.
 //
 // Only SKU and image_url are ever changed here. Name, price, barcode and
-// is_active are never touched.
+// is_active are never touched. Which Shopify product a photo comes from when
+// several share a SKU (collab products ignored, Plain Series first) is in
+// lib/shopify/catalogue-source.ts.
 
 import { normalizeSku } from '../stock/hq-availability'
+import { pickPhoto } from './catalogue-source'
 
 export interface XcmsProduct {
   id: string
@@ -24,6 +27,7 @@ export interface ShopifyVariant {
   imageUrl: string | null // variant image
   productTitle: string // e.g. "Special Patches Series"
   productImageUrl: string | null // product featured image (fallback)
+  productStatus?: string | null // ACTIVE / ARCHIVED / DRAFT (missing = ACTIVE)
 }
 
 export interface LinkPlan {
@@ -107,8 +111,12 @@ function push<K, V>(map: Map<K, V[]>, key: K, value: V) {
  *  - SKU follows Shopify when the variant's SKU differs. If the new SKU is
  *    already used by another XCMS product, nothing changes and it is reported
  *    as a conflict.
- *  - Photo: the variant image, falling back to the product's featured image,
- *    when it differs from image_url. A missing Shopify image never clears one.
+ *  - Photo: picked by lib/shopify/catalogue-source.ts from the linked variant
+ *    and any other variant with the same SKU: collab products (Luwis, We Want
+ *    Jam, WWJ) never; archived / draft only when no active product has it;
+ *    Plain Series, then "(Offline)", then others; variant image, then the
+ *    product's featured image. Saved when it differs from image_url. A missing
+ *    Shopify image never clears one.
  */
 export function planCatalogueSync(products: XcmsProduct[], variants: ShopifyVariant[]): CataloguePlan {
   const plan: CataloguePlan = {
@@ -229,7 +237,9 @@ export function planCatalogueSync(products: XcmsProduct[], variants: ShopifyVari
       }
     }
 
-    const newUrl = v.imageUrl ?? v.productImageUrl
+    const skuForPhoto = normalizeSku(v.sku)
+    const sameSku = skuForPhoto ? (variantsBySku.get(skuForPhoto) ?? []).filter((x) => x.id !== v.id) : []
+    const newUrl = pickPhoto([v, ...sameSku])?.url ?? null
     if (newUrl && newUrl !== p.image_url) {
       plan.photoUpdates.push({ productId: p.id, oldUrl: p.image_url, newUrl })
     }

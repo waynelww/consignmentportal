@@ -2,7 +2,7 @@
 // Run: npx tsx scripts/test-colour-suggestions.ts
 import assert from 'node:assert/strict'
 import { deltaE00, hexToLab, suggestSimilar, suggestionLabel } from '../lib/stock/colour-suggestions'
-import { parsePlainCode, yarnColourByNo, CATALOGUE_YARN_NOS } from '../lib/stock/yarn-colours'
+import { parsePlainCode, yarnColourByNo, colourOfCode, CATALOGUE_YARN_NOS } from '../lib/stock/yarn-colours'
 
 // ── CIEDE2000 against published reference pairs (Sharma 2005, test data) ──
 const close = (x: number, y: number, tol = 1e-3) => assert.ok(Math.abs(x - y) < tol, `${x} ≈ ${y}`)
@@ -68,5 +68,32 @@ assert.ok(s4.length === 0, 'below the 3-pair minimum nothing is suggested')
 // Non-plain SKUs get nothing
 assert.deepEqual(suggestSimilar('P27', 5, hq), [])
 assert.deepEqual(suggestSimilar('A1X', 5, hq), [])
+
+// ── No Show (V) and Kids (K): same type only, never mixed with A/H/C ────────
+assert.deepEqual(parsePlainCode('V27'), { letter: 'V', no: 27 })
+assert.deepEqual(parsePlainCode('k5'), { letter: 'K', no: 5 })
+assert.equal(parsePlainCode('KHAKIDURIANC31'), null, 'word SKU starting with K is not a Kids code')
+assert.equal(colourOfCode({ letter: 'V', no: 46 })?.name, 'Green Tiffany', 'No Show shop name')
+assert.equal(colourOfCode({ letter: 'V', no: 27 })?.name, 'Classic Black')
+assert.equal(colourOfCode({ letter: 'K', no: 5 })?.name, 'Classic Black', 'K5 maps to yarn 27')
+assert.equal(colourOfCode({ letter: 'K', no: 5 })?.hex, yarnColourByNo(27)?.hex)
+assert.equal(colourOfCode({ letter: 'K', no: 11 }), undefined, 'K11 Soft Purple has no yarn: no colour')
+assert.equal(colourOfCode({ letter: 'A', no: 27 })?.name, 'Classic Black', 'A/H/C unchanged')
+
+const hqVK = new Map<string, number | null>([
+  ['V27', 0], ['V9', 10], ['V6', 10], ['V26', 10], // No Show: V6 is not an A/H/C catalogue colour but is a No Show colour
+  ['A18', 50], ['C27', 50], ['H27', 50],          // other cuts: never suggested for V
+  ['K5', 0], ['K2', 10], ['K1', 10], ['K11', 50],  // Kids: K11 has no known colour
+])
+const sv = suggestSimilar('V27', 4, hqVK)
+assert.equal(sv.length, 2)
+assert.ok(sv.every((s) => s.sku.startsWith('V')), `No Show only: ${JSON.stringify(sv)}`)
+assert.ok(sv.some((s) => s.sku === 'V6') || sv.some((s) => s.sku === 'V9'))
+const sk = suggestSimilar('K5', 4, hqVK)
+assert.equal(sk.length, 2)
+assert.ok(sk.every((s) => /^K\d+$/.test(s.sku) && s.sku !== 'K11'), `Kids only, K11 skipped: ${JSON.stringify(sk)}`)
+assert.ok(!suggestSimilar('A27', 4, hqVK).some((s) => /^[VK]/.test(s.sku)), 'Ankle never gets V / K suggestions')
+assert.deepEqual(suggestSimilar('K11', 4, hqVK), [], 'no colour → no suggestions, no error')
+assert.deepEqual(suggestSimilar('K99', 4, hqVK), [])
 
 console.log('test-colour-suggestions: all checks passed')

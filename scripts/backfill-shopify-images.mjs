@@ -12,6 +12,14 @@
  * Run: node scripts/backfill-shopify-images.mjs
  */
 
+// RETIRED (Nov 2026): this script maps each SKU to whichever Shopify variant
+// comes last, so collab products that reuse our SKUs ("Xocks x Luwis — Socks",
+// "We Want Jam x Xocks …") could overwrite our photos. Use Products → "Sync
+// images" or "Refresh from Shopify" instead; both follow the rules in
+// lib/shopify/catalogue-source.ts. Kept only for reference.
+console.error('Retired: use Products → Sync images / Refresh from Shopify (rules in lib/shopify/catalogue-source.ts).')
+process.exit(1)
+
 import { createClient } from '@supabase/supabase-js'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'

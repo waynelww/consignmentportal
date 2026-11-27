@@ -2,7 +2,7 @@
 // Colour distance is CIEDE2000 on the Lab values of each yarn's hex colour.
 // Pure: the caller passes the HQ stock map, so the same rule runs anywhere.
 
-import { CATALOGUE_YARN_NOS, parsePlainCode, yarnColourByNo } from '@/lib/stock/yarn-colours'
+import { CATALOGUE_YARN_NOS, colourOfCode, parsePlainCode } from '@/lib/stock/yarn-colours'
 import { normalizeSku, type HqStockMap } from '@/lib/stock/hq-availability'
 
 /** Minimum HQ pairs a suggested colour must have. */
@@ -89,10 +89,14 @@ export function deltaE00(p: Lab, q: Lab): number {
 
 /**
  * Up to two similar colours for a Plain Series SKU that HQ is short of.
- * Candidates: same cut letter, catalogue colours only, HQ ≥ 3, not already in
+ * Candidates: same cut letter (Ankle only for Ankle, Kids only for Kids, No Show
+ * only for No Show, …), HQ ≥ 3, not already in
  * this restock/DO (`exclude`, normalized SKUs). Colours with enough HQ stock for
  * `neededQty` come first, then by closeness; if none have enough, the closest
- * still come back. Returns [] for anything that is not a Plain Series code.
+ * still come back. A/H/C replacements are catalogue colours only
+ * (CATALOGUE_YARN_NOS); No Show and Kids have a short range of their own, so
+ * any V / K code with a known colour can be suggested. Returns [] for anything
+ * that is not a Plain Series code or has no known colour (e.g. K11, K12).
  */
 export function suggestSimilar(
   sku: string,
@@ -102,7 +106,7 @@ export function suggestSimilar(
 ): ColourSuggestion[] {
   const own = parsePlainCode(sku)
   if (!own) return []
-  const ownColour = yarnColourByNo(own.no)
+  const ownColour = colourOfCode(own)
   if (!ownColour) return []
   const ownLab = hexToLab(ownColour.hex)
   const ownKey = normalizeSku(sku)
@@ -113,8 +117,8 @@ export function suggestSimilar(
     if (qty == null || qty < MIN_SUGGESTION_HQ_QTY) continue
     const code = parsePlainCode(key)
     if (!code || code.letter !== own.letter || code.no === own.no) continue
-    if (!CATALOGUE_YARN_NOS.has(code.no)) continue
-    const colour = yarnColourByNo(code.no)
+    if ((code.letter === 'A' || code.letter === 'H' || code.letter === 'C') && !CATALOGUE_YARN_NOS.has(code.no)) continue
+    const colour = colourOfCode(code)
     if (!colour) continue
     candidates.push({
       sku: key,
