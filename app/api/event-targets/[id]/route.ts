@@ -1,6 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { requireEventsAccess, EventTargetSchema, saveEventTarget } from '@/lib/events/target-api'
+import { requireEventsAccess, EventTargetSchema, saveEventTarget, recalcPosBonus } from '@/lib/events/target-api'
 
 // PATCH — edit inputs and recalculate. Blocked once locked: announced
 // numbers must never change mid-event (admin unlocks first if truly needed).
@@ -32,7 +32,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
   const { id } = await params
 
   const svc = await createServiceClient()
-  const { data: existing } = await svc.from('event_targets').select('id, locked_at').eq('id', id).maybeSingle()
+  const { data: existing } = await svc.from('event_targets').select('id, locked_at, event_id').eq('id', id).maybeSingle()
   if (!existing) return Response.json({ error: 'Not found' }, { status: 404 })
   if (existing.locked_at && ctx.role !== 'super_admin') {
     return Response.json({ error: 'Locked events can only be deleted by an admin.' }, { status: 403 })
@@ -40,5 +40,7 @@ export async function DELETE(_request: NextRequest, { params }: { params: Promis
 
   const { error } = await svc.from('event_targets').delete().eq('id', id)
   if (error) return Response.json({ error: error.message }, { status: 500 })
+  // No target → bonuses off for that event's POS sales.
+  if (existing.event_id) await recalcPosBonus(existing.event_id)
   return Response.json({ ok: true })
 }

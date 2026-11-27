@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { posSoldByProduct } from '@/lib/pos/sold'
 import { getLocationIdByType } from '@/lib/inventory/transfer-stock'
 
 export async function GET(
@@ -43,10 +44,18 @@ export async function GET(
   for (const t of transfers ?? []) {
     if (!byProduct[t.product_id]) byProduct[t.product_id] = { taken: 0, sold: 0, returned: 0 }
     const row = byProduct[t.product_id]
-    if (t.to_location_id === locId) row.taken += t.quantity
+    // Stock coming back from outside (from = null) is a voided POS sale
+    // putting its pairs back — it un-sells, it is not new stock taken.
+    if (t.to_location_id === locId && !t.from_location_id) row.sold -= t.quantity
+    else if (t.to_location_id === locId) row.taken += t.quantity
     else if (t.from_location_id === locId && t.to_location_id === officeId) row.returned += t.quantity
     else if (t.from_location_id === locId && !t.to_location_id) row.sold += t.quantity
   }
+
+  // Event POS: units sold per product (not voided). When the POS was used,
+  // these are the sold quantities for closing (already out of event stock).
+  const pos = await posSoldByProduct(await createServiceClient(), eventId)
+  for (const pid of Object.keys(pos.sold)) if (!byProduct[pid]) byProduct[pid] = { taken: 0, sold: 0, returned: 0 }
 
   const productIds = Object.keys(byProduct)
   const { data: products } = productIds.length > 0
@@ -62,11 +71,12 @@ export async function GET(
       product_id: pid,
       product: productMap.get(pid) ?? null,
       quantity_taken: agg.taken,
+      quantity_sold_pos: pos.sold[pid] ?? 0,
       quantity_sold_shopify: closed ? agg.sold : null,
       quantity_returned: closed ? agg.returned : null,
       variance: closed ? agg.returned - (agg.taken - agg.sold) : null,
     }
   })
 
-  return Response.json({ event, items })
+  return Response.json({ event, items, uses_pos: pos.usesPos })
 }

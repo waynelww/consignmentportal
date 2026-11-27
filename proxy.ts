@@ -50,6 +50,12 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next()
   }
 
+  // Event POS link — part-timer tile + 4-digit PIN, checked by
+  // /api/pos/[eventId]/* (lib/pos/session.ts). No XCMS session involved.
+  if (path === '/pos' || path.startsWith('/pos/')) {
+    return NextResponse.next()
+  }
+
   // Static assets in /public (images etc.) are always public.
   if (/\.(?:png|jpg|jpeg|svg|webp|ico)$/.test(path)) {
     return NextResponse.next()
@@ -86,6 +92,7 @@ export async function proxy(request: NextRequest) {
     path.startsWith('/api/gang') ||
     path.startsWith('/api/speed') ||
     path.startsWith('/api/hr-portal') ||
+    path.startsWith('/api/pos/') ||
     path.startsWith('/api/wa/webhook')
   ) {
     return supabaseResponse

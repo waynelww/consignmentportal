@@ -8,6 +8,9 @@ import { createClient } from '@/lib/supabase/client'
 import { cn, formatMYDate } from '@/lib/utils'
 import type { Product } from '@/types'
 import { toast } from 'sonner'
+import { TargetCalculator } from '@/components/events/target-calculator'
+import { PartTimersSection } from '@/components/events/part-timers-section'
+import { PosSalesSection } from '@/components/events/pos-sales-section'
 
 interface EventDetail {
   id: string
@@ -25,6 +28,7 @@ interface EventItem {
   product_id: string
   quantity_taken: number
   quantity_sold_shopify: number | null
+  quantity_sold_pos: number // units sold through the Event POS (not voided)
   quantity_returned: number | null
   variance: number | null
   product: { sku: string; name: string; image_url: string | null } | null
@@ -62,6 +66,8 @@ export default function EventDetailPage() {
 
   const [event, setEvent] = useState<EventDetail | null>(null)
   const [items, setItems] = useState<EventItem[]>([])
+  const [usesPos, setUsesPos] = useState(false)
+  const [salesKey, setSalesKey] = useState(0)
   const [loading, setLoading] = useState(true)
   const [products, setProducts] = useState<Product[]>([])
 
@@ -90,6 +96,7 @@ export default function EventDetailPage() {
     if (!res.ok) { toast.error(body.error ?? 'Failed to load event'); setLoading(false); return }
     setEvent(body.event)
     setItems(body.items ?? [])
+    setUsesPos(!!body.uses_pos)
     setLoading(false)
   }, [eventId])
 
@@ -172,13 +179,14 @@ export default function EventDetailPage() {
 
   function openCloseModal() {
     const initial: Record<string, { sold: number; returned: number }> = {}
-    for (const item of items) initial[item.product_id] = { sold: 0, returned: 0 }
+    // Event POS used → its sales are the sold quantities (already out of event stock).
+    for (const item of items) initial[item.product_id] = { sold: usesPos ? item.quantity_sold_pos ?? 0 : 0, returned: 0 }
     setCloseRows(initial)
     setCloseResult(null)
     setShopifyFetchError(null)
     setCloseModal(true)
 
-    if (event?.shopify_location_id) {
+    if (!usesPos && event?.shopify_location_id) {
       setFetchingShopify(true)
       fetch(`/api/events/${eventId}/shopify-sold`)
         .then((r) => r.json())
@@ -254,7 +262,7 @@ export default function EventDetailPage() {
   const expectedRemaining = (item: EventItem) => item.quantity_taken - (closeRows[item.product_id]?.sold ?? 0)
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-4xl">
       <Link href="/admin/events" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800">
         <ArrowLeft size={14} /> Back to Events
       </Link>
@@ -278,14 +286,31 @@ export default function EventDetailPage() {
             </p>
             {event.notes && <p className="text-xs text-gray-500 mt-2 italic">{event.notes}</p>}
           </div>
-          {isActive && items.length > 0 && (
-            <button onClick={openCloseModal}
-              className="px-4 py-2 bg-[#0A0A0A] text-white rounded-lg text-sm font-semibold hover:bg-gray-800 transition-colors shrink-0">
-              Close Event
-            </button>
-          )}
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            {isActive && (
+              <>
+                <a href={`/pos/${event.id}`} target="_blank" rel="noopener noreferrer"
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50">Open POS</a>
+                <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/pos/${event.id}`)
+                    .then(() => toast.success('POS link copied — send it to the part-timers'))
+                    .catch(() => toast.error('Copy failed'))}
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50">Copy link</button>
+              </>
+            )}
+            {isActive && items.length > 0 && (
+              <button onClick={openCloseModal}
+                className="px-4 py-2 bg-[#0A0A0A] text-white rounded-lg text-sm font-semibold hover:bg-gray-800 transition-colors">
+                Close Event
+              </button>
+            )}
+          </div>
         </div>
       </div>
+
+      <PosSalesSection eventId={event.id} eventName={event.name} isActive={isActive} refreshKey={salesKey} />
+      <PartTimersSection eventId={event.id} isActive={isActive} />
+      <TargetCalculator eventId={event.id} eventName={event.name} startDate={event.start_date} endDate={event.end_date}
+        onSaved={() => setSalesKey((k) => k + 1)} />
 
       {/* Move Stock — only while active. Direct outbound (to event) or
           inbound (partial return), by search or bulk paste/file import. */}
@@ -496,6 +521,11 @@ export default function EventDetailPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-5 py-4">
+              {usesPos && (
+                <div className="text-xs text-green-800 bg-green-50 rounded-lg px-3 py-2 mb-3">
+                  Sold = Event POS sales (voided sales excluded). They already left event stock — only raise a number for pairs sold outside the POS.
+                </div>
+              )}
               {fetchingShopify && (
                 <div className="flex items-center gap-2 text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2 mb-3">
                   <Loader2 size={12} className="animate-spin" /> Fetching Shopify sales for this event…
@@ -540,8 +570,8 @@ export default function EventDetailPage() {
                       </div>
                       <div className="text-center shrink-0">
                         <label className="text-[10px] text-gray-400 block mb-0.5">Sold</label>
-                        <input type="number" min={0} value={row.sold}
-                          onChange={(e) => setCloseRows((prev) => ({ ...prev, [item.product_id]: { ...prev[item.product_id], sold: Math.max(0, Number(e.target.value) || 0) } }))}
+                        <input type="number" min={usesPos ? item.quantity_sold_pos : 0} value={row.sold}
+                          onChange={(e) => setCloseRows((prev) => ({ ...prev, [item.product_id]: { ...prev[item.product_id], sold: Math.max(usesPos ? item.quantity_sold_pos : 0, Number(e.target.value) || 0) } }))}
                           className="w-16 h-8 text-center text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]" />
                       </div>
                       <div className="text-center shrink-0">

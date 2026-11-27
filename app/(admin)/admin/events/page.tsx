@@ -2,11 +2,13 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { Plus, X, CalendarDays, MapPin, Package2 } from 'lucide-react'
+import { Plus, X, CalendarDays, MapPin, Package2, Settings2, Link2 } from 'lucide-react'
 import { cn, formatMYDate } from '@/lib/utils'
 import { toast } from 'sonner'
+import { TargetSettingsDialog } from '@/components/events/target-settings-dialog'
 
 interface ShopifyLocation { id: string; name: string }
+interface UnlinkedTarget { id: string; name: string; start_date: string | null; tier2_total: number; created_at: string }
 interface EventRow {
   id: string
   name: string
@@ -34,6 +36,10 @@ export default function EventsPage() {
   const [shopifyLocationId, setShopifyLocationId] = useState('')
   const [loadingLocations, setLoadingLocations] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [unlinked, setUnlinked] = useState<UnlinkedTarget[]>([])
+  const [linking, setLinking] = useState<UnlinkedTarget | null>(null)
+  const [linkEventId, setLinkEventId] = useState('')
 
   const fetchEvents = useCallback(async () => {
     setLoading(true)
@@ -41,7 +47,21 @@ export default function EventsPage() {
     const body = await res.json().catch(() => ({}))
     if (res.ok) setEvents(body.events ?? [])
     setLoading(false)
+    const u = await fetch('/api/event-targets?unlinked=1').then((r) => r.json()).catch(() => ({}))
+    setUnlinked(u.events ?? [])
   }, [])
+
+  async function linkTarget() {
+    if (!linking || !linkEventId) return
+    const res = await fetch(`/api/event-targets/${linking.id}/link`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ event_id: linkEventId }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) { toast.error(body.error ?? 'Could not link'); return }
+    toast.success('Target linked to the event')
+    setLinking(null); setLinkEventId('')
+    fetchEvents()
+  }
 
   useEffect(() => { fetchEvents() }, [fetchEvents])
 
@@ -90,10 +110,16 @@ export default function EventsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-500">Track stock checked out to pop-ups, roadshows, and one-off events — separate from the consignment store network.</p>
-        <button onClick={openCreate}
-          className="flex items-center gap-2 px-4 py-2 bg-[#0A0A0A] text-white rounded-lg text-sm hover:bg-gray-800 transition-colors shrink-0">
-          <Plus size={16} /> New Event
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={() => setSettingsOpen(true)}
+            className="flex items-center gap-2 px-3 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors">
+            <Settings2 size={16} /> Target settings
+          </button>
+          <button onClick={openCreate}
+            className="flex items-center gap-2 px-4 py-2 bg-[#0A0A0A] text-white rounded-lg text-sm hover:bg-gray-800 transition-colors">
+            <Plus size={16} /> New Event
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -151,6 +177,52 @@ export default function EventsPage() {
           </div>
         )}
       </div>
+
+      {unlinked.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+          <h3 className="text-sm font-semibold text-gray-900">Unlinked targets</h3>
+          <p className="text-xs text-gray-500 mt-0.5 mb-3">Saved in the old Event Target Calculator before targets moved into events. Link each to its event (bonuses only work for linked targets).</p>
+          <div className="divide-y divide-gray-50">
+            {unlinked.map((t) => (
+              <div key={t.id} className="py-2.5 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">{t.name}</p>
+                  <p className="text-xs text-gray-400">{t.start_date ? formatMYDate(t.start_date) : 'no date'} · Tier 2 RM{Math.round(Number(t.tier2_total)).toLocaleString('en-MY')}</p>
+                </div>
+                <button onClick={() => { setLinking(t); setLinkEventId('') }}
+                  className="flex items-center gap-1.5 text-xs font-medium border border-gray-200 hover:bg-gray-50 rounded-lg px-3 py-1.5 shrink-0">
+                  <Link2 size={13} /> Link to event
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {linking && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-semibold text-gray-900">Link “{linking.name}”</h3>
+              <button onClick={() => setLinking(null)}><X size={18} className="text-gray-400 hover:text-gray-600" /></button>
+            </div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Event</label>
+            <select value={linkEventId} onChange={(e) => setLinkEventId(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700]">
+              <option value="">Choose an event…</option>
+              {events.map((e) => <option key={e.id} value={e.id}>{e.name} · {formatMYDate(e.start_date)}{e.status === 'closed' ? ' (closed)' : ''}</option>)}
+            </select>
+            <p className="text-xs text-gray-400 mt-2">The target takes the event&apos;s name and start date. An event can have one target.</p>
+            <div className="flex gap-3 mt-5">
+              <button onClick={() => setLinking(null)} className="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">Cancel</button>
+              <button onClick={linkTarget} disabled={!linkEventId}
+                className="flex-1 py-2.5 bg-[#0A0A0A] text-white rounded-lg text-sm hover:bg-gray-800 disabled:opacity-50">Link</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {settingsOpen && <TargetSettingsDialog onClose={() => setSettingsOpen(false)} />}
 
       {createModal && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
