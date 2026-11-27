@@ -29,8 +29,20 @@ export function isHiddenFreePatchProduct(name: string): boolean {
   return /^free(\s+\d+)?\s+patches$/i.test(seriesOf(name))
 }
 
-/** The RM4 per-piece patch product that "FREE 6 / 10 Patches" deduct from. */
+/** The RM4 per-piece patch product ("(RM4) Per Patches", SKU "Patches"). */
 export const PATCH_SKU = 'PATCHES'
+
+/**
+ * Patches have no stock at events (too many to count): the RM4 patch and the
+ * FREE 6 / 10 Patches tiles are always on the POS, never greyed out, never
+ * stock-checked and never deducted from any location (pos_record_sale /
+ * pos_void_sale skip them, migration 20261128_event_pos_patches_no_stock.sql).
+ * Sales are still recorded in pos_sale_items (stock_qty = patches given).
+ * Patches are never added as event stock either.
+ */
+export function isPatchSku(sku: string | null | undefined): boolean {
+  return (sku ?? '').trim().toUpperCase() === PATCH_SKU
+}
 
 export interface VirtualItem { key: string; label: string; patches: number }
 export const VIRTUAL_ITEMS: VirtualItem[] = [
@@ -63,8 +75,9 @@ export interface PosProduct {
   is_pair: boolean
   is_patch: boolean
   design: boolean
-  stock_per_unit: number // units of product_id taken per item sold (6 for FREE 6 Patches)
-  left: number // event stock of product_id (shared by items on the same product)
+  stock_per_unit: number // units of product_id per item sold (6 for FREE 6 Patches)
+  left: number // event stock of product_id (shared by items on the same product); 0 for patches
+  unlimited: boolean // patches: no stock, no "N left", never sold out
 }
 
 export function chipMatches(p: PosProduct, chip: PosChip): boolean {
@@ -82,13 +95,18 @@ export interface RawProduct {
   image_url: string | null; barcode: string | null; category: string | null
 }
 
-/** Build the POS tiles from products + their quantity at the event location. */
-export function buildPosProducts(rows: { product: RawProduct; qty: number }[]): PosProduct[] {
+/**
+ * Build the POS tiles from products + their quantity at the event location.
+ * `patchProduct` (the active RM4 patch product) is always added with its two
+ * FREE tiles, whatever the event stock; any patch row in `rows` is ignored.
+ */
+export function buildPosProducts(rows: { product: RawProduct; qty: number }[], patchProduct?: RawProduct | null): PosProduct[] {
   const out: PosProduct[] = []
-  let patch: { product: RawProduct; qty: number } | null = null
-  for (const { product: p, qty } of rows) {
+  const patch = patchProduct ?? null
+  const all = patch ? [...rows.filter((r) => !isPatchSku(r.product.sku)), { product: patch, qty: 0 }] : rows.filter((r) => !isPatchSku(r.product.sku))
+  for (const { product: p, qty } of all) {
     if (isExcludedFromPos(p.name) || isHiddenFreePatchProduct(p.name)) continue
-    if (p.sku.trim().toUpperCase() === PATCH_SKU) patch = { product: p, qty }
+    const unlimited = isPatchSku(p.sku)
     out.push({
       id: p.id,
       product_id: p.id,
@@ -102,25 +120,27 @@ export function buildPosProducts(rows: { product: RawProduct; qty: number }[]): 
       is_patch: isPatch(p.name),
       design: p.category === 'design',
       stock_per_unit: 1,
-      left: qty,
+      left: unlimited ? 0 : qty,
+      unlimited,
     })
   }
   if (patch) {
     for (const v of VIRTUAL_ITEMS) {
       out.push({
         id: v.key,
-        product_id: patch.product.id,
-        sku: patch.product.sku,
+        product_id: patch.id,
+        sku: patch.sku,
         name: v.label,
         price: 0,
-        image_url: patch.product.image_url,
+        image_url: patch.image_url,
         barcode: null,
         category: '',
         is_pair: false,
         is_patch: false, // free patches never count toward "Free 1 Set Patch"
         design: false,
         stock_per_unit: v.patches,
-        left: patch.qty,
+        left: 0,
+        unlimited: true,
       })
     }
   }
@@ -129,6 +149,7 @@ export function buildPosProducts(rows: { product: RawProduct; qty: number }[]): 
 
 /** How many more of `item` can go in the cart, given what's already in it (shared stock counted). */
 export function remainingFor(item: PosProduct, cart: Record<string, number>, all: PosProduct[]): number {
+  if (item.unlimited) return Infinity
   let used = 0
   for (const p of all) {
     if (p.product_id === item.product_id) used += (cart[p.id] ?? 0) * p.stock_per_unit

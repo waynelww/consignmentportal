@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Search, X, Package, CheckCircle2, AlertTriangle, Loader2, RefreshCcw, Upload, ArrowRightLeft, Plus, Minus } from 'lucide-react'
@@ -11,6 +11,9 @@ import { toast } from 'sonner'
 import { TargetCalculator } from '@/components/events/target-calculator'
 import { PartTimersSection } from '@/components/events/part-timers-section'
 import { PosSalesSection } from '@/components/events/pos-sales-section'
+import { StockListToggle, StockListPanel, type StockListLineIn } from '@/components/stock/StockListReader'
+import { isExcludedFromPos, isPatchSku } from '@/lib/pos/catalog'
+import type { PatchSummary } from '@/lib/pos/patches'
 
 interface EventDetail {
   id: string
@@ -42,6 +45,8 @@ type MoveDirection = 'add' | 'remove'
 
 interface ParsedLine { sku: string; quantity: number; product_id: string | null; product_name: string | null }
 
+// Close modal "Bulk fill Returned" only. Add / Remove stock uses the shared
+// stock list reader (components/stock/StockListReader.tsx).
 // Accepts "SKU, Quantity" or "SKU<TAB>Quantity" per line — pasted straight
 // from Excel/Sheets, or read from an uploaded .csv/.txt file. Skips blank
 // lines and an optional header row.
@@ -71,6 +76,7 @@ export default function EventDetailPage() {
   const [items, setItems] = useState<EventItem[]>([])
   const [usesPos, setUsesPos] = useState(false)
   const [hasCloseCounts, setHasCloseCounts] = useState(false)
+  const [patches, setPatches] = useState<PatchSummary | null>(null)
   const [salesKey, setSalesKey] = useState(0)
   const [loading, setLoading] = useState(true)
   const [products, setProducts] = useState<Product[]>([])
@@ -79,10 +85,9 @@ export default function EventDetailPage() {
   const [search, setSearch] = useState('')
   const [draft, setDraft] = useState<CheckoutDraftItem[]>([])
   const [checkingOut, setCheckingOut] = useState(false)
+  // Stock list reader: what it read sits here as a preview until "Add to list".
   const [bulkOpen, setBulkOpen] = useState(false)
-  const [bulkText, setBulkText] = useState('')
-  const [bulkPreview, setBulkPreview] = useState<ParsedLine[] | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [bulkRead, setBulkRead] = useState<StockListLineIn[]>([])
 
   const [closeModal, setCloseModal] = useState(false)
   const [closeRows, setCloseRows] = useState<Record<string, { sold: number; returned: number }>>({})
@@ -102,6 +107,7 @@ export default function EventDetailPage() {
     setItems(body.items ?? [])
     setUsesPos(!!body.uses_pos)
     setHasCloseCounts(!!body.has_close_counts)
+    setPatches(body.patches ?? null)
     setLoading(false)
   }, [eventId])
 
@@ -147,8 +153,7 @@ export default function EventDetailPage() {
       }
       toast.success(direction === 'add' ? 'Stock added to event' : 'Stock removed from event')
       setDraft([])
-      setBulkText('')
-      setBulkPreview(null)
+      setBulkRead([])
       setBulkOpen(false)
       fetchDetail()
     } finally {
@@ -156,39 +161,40 @@ export default function EventDetailPage() {
     }
   }
 
-  function parseBulk() {
-    const parsed = parseSkuQtyText(bulkText, products)
-    setBulkPreview(parsed)
+  // Lines the reader read, checked for this direction. Remove: capped at what
+  // is left in the event, less what is already on the list below.
+  function previewLines() {
+    return bulkRead.map((l) => {
+      const p = products.find((pp) => pp.id === l.product_id)
+      if (direction === 'add') return { ...l, product: p, use: l.quantity, room: null as number | null }
+      const left = items.find((it) => it.product_id === l.product_id)?.quantity_left ?? 0
+      const inDraft = draft.find((d) => d.product_id === l.product_id)?.quantity ?? 0
+      const room = Math.max(0, left - inDraft)
+      return { ...l, product: p, use: Math.min(l.quantity, room), room }
+    })
+  }
+
+  function setBulkQty(productId: string, qty: number) {
+    setBulkRead((prev) => prev.map((l) => l.product_id === productId ? { ...l, quantity: Math.max(0, qty) } : l))
   }
 
   function applyBulkPreview() {
-    if (!bulkPreview) return
-    const matched = bulkPreview.filter((l) => l.product_id)
-    if (matched.length === 0) { toast.error('No matching SKUs found'); return }
+    const lines = previewLines()
+    if (lines.some((l) => l.quantity <= 0)) { toast.error('Enter the pairs on every line, or skip it'); return }
+    const usable = lines.filter((l) => l.use > 0)
+    if (usable.length === 0) { toast.error(direction === 'remove' ? 'None of these are left in this event' : 'Nothing to add'); return }
     setDraft((prev) => {
       const next = [...prev]
-      for (const line of matched) {
+      for (const line of usable) {
         const idx = next.findIndex((i) => i.product_id === line.product_id)
-        if (idx >= 0) next[idx] = { ...next[idx], quantity: next[idx].quantity + line.quantity }
-        else next.push({ product_id: line.product_id!, quantity: line.quantity })
+        if (idx >= 0) next[idx] = { ...next[idx], quantity: next[idx].quantity + line.use }
+        else next.push({ product_id: line.product_id, quantity: line.use })
       }
       return next
     })
-    toast.success(`${matched.length} SKU${matched.length > 1 ? 's' : ''} added to the list below`)
-    setBulkText('')
-    setBulkPreview(null)
-  }
-
-  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      setBulkText(String(reader.result ?? ''))
-      setBulkPreview(null)
-    }
-    reader.readAsText(file)
-    e.target.value = ''
+    toast.success(`${usable.length} SKU${usable.length > 1 ? 's' : ''} added to the list below`)
+    setBulkRead([])
+    setBulkOpen(false)
   }
 
   function openCloseModal() {
@@ -251,8 +257,7 @@ export default function EventDetailPage() {
     }
   }
 
-  // Bulk-fill the Returned column from a pasted/uploaded "SKU, Quantity"
-  // list — same import format as the Add / Remove stock panel above.
+  // Bulk-fill the Returned column from a pasted/uploaded "SKU, Quantity" list.
   function applyCloseBulk() {
     const parsed = parseSkuQtyText(closeBulkText, products)
     const matched = parsed.filter((l) => l.product_id && items.some((it) => it.product_id === l.product_id))
@@ -269,11 +274,19 @@ export default function EventDetailPage() {
     setCloseBulkOpen(false)
   }
 
+  // Patches (SKU "Patches") are never event stock: not in search or the reader.
+  const stockableProducts = useMemo(() => products.filter((p) => !isPatchSku(p.sku)), [products])
   const searchMatches = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return []
-    return products.filter((p) => p.sku.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)).slice(0, 15)
-  }, [search, products])
+    return stockableProducts.filter((p) => p.sku.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)).slice(0, 15)
+  }, [search, stockableProducts])
+
+  // Products that can go to events: the Special Patches Series is left out,
+  // same rule as the Event POS (lib/pos/catalog.ts). Patches too: they have
+  // no event stock and are always on the POS.
+  const eventProducts = useMemo(() => stockableProducts.filter((p) => !isExcludedFromPos(p.name ?? '')), [stockableProducts])
+  const eventProductIds = useMemo(() => new Set(eventProducts.map((p) => p.id)), [eventProducts])
 
   if (loading) return <div className="py-12 text-center text-gray-400 text-sm">Loading…</div>
   if (!event) return <div className="py-12 text-center text-gray-400 text-sm">Event not found</div>
@@ -383,54 +396,73 @@ export default function EventDetailPage() {
             </div>
           )}
 
-          {/* Bulk import — paste from Excel/Sheets or upload a .csv/.txt */}
-          <button type="button" onClick={() => setBulkOpen((v) => !v)}
-            className="mt-2 text-xs text-blue-600 hover:underline flex items-center gap-1">
-            <Upload size={12} /> {bulkOpen ? 'Hide bulk import' : 'Bulk import from file / paste a list'}
-          </button>
+          {/* Stock list reader — same one as Create / Edit DO. Reads any list
+              (codes, colours, "SKU, Quantity", photos) into a preview here. */}
+          <div className="mt-2 flex justify-end">
+            <StockListToggle open={bulkOpen} onClick={() => { setBulkOpen((v) => !v); setBulkRead([]) }} />
+          </div>
 
           {bulkOpen && (
-            <div className="mt-2 border border-gray-200 rounded-lg p-3 bg-gray-50/50">
-              <p className="text-[11px] text-gray-500 mb-2">One SKU per line: <code className="bg-white px-1 rounded border border-gray-200">SKU, Quantity</code> — paste straight from a spreadsheet, or upload a file.</p>
-              <div className="flex items-center gap-2 mb-2">
-                <button type="button" onClick={() => fileInputRef.current?.click()}
-                  className="text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 flex items-center gap-1.5">
-                  <Upload size={12} /> Upload CSV / TXT
-                </button>
-                <input ref={fileInputRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleFileUpload} />
-              </div>
-              <textarea
-                rows={4}
-                value={bulkText}
-                onChange={(e) => { setBulkText(e.target.value); setBulkPreview(null) }}
-                placeholder={'A1, 12\nA27, 6\nMAROONHORNBILL, 3'}
-                className="w-full px-3 py-2 text-xs font-mono border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#FFD700] resize-none"
+            <div className="mt-2 space-y-2">
+              <StockListPanel
+                products={eventProducts}
+                items={bulkRead}
+                onApply={(next) => setBulkRead(next.filter((l) => eventProductIds.has(l.product_id)))}
+                label={direction === 'add'
+                  ? 'Paste the list of stock going to this event, or add a photo of it'
+                  : 'Paste the list of stock to take out of this event, or add a photo of it'}
+                placeholder={'A27 x6 / ankle black 6 / Teddy Brown = 4 / A1, 12 (one per line)'}
+                aiScope="event"
+                allowTextFile
               />
-              <button type="button" onClick={parseBulk} disabled={!bulkText.trim()}
-                className="mt-2 text-xs px-3 py-1.5 bg-gray-800 text-white rounded-lg hover:bg-gray-900 disabled:opacity-40">
-                Preview
-              </button>
 
-              {bulkPreview && (
-                <div className="mt-2 space-y-1">
-                  <div className="max-h-40 overflow-y-auto space-y-1">
-                    {bulkPreview.map((line, i) => (
-                      <div key={i} className={cn('flex items-center justify-between text-xs px-2 py-1 rounded',
-                        line.product_id ? 'bg-white' : 'bg-red-50')}>
-                        <span className="font-mono text-gray-600">{line.sku}</span>
-                        <span className={cn('truncate flex-1 mx-2', line.product_id ? 'text-gray-700' : 'text-red-600')}>
-                          {line.product_name ?? 'Not found in product list'}
-                        </span>
-                        <span className="font-semibold text-gray-800 shrink-0">×{line.quantity}</span>
-                      </div>
-                    ))}
+              {bulkRead.length > 0 && (() => {
+                const lines = previewLines()
+                const missingQty = lines.filter((l) => l.quantity <= 0).length
+                const usable = lines.filter((l) => l.use > 0)
+                return (
+                  <div className="border border-gray-200 rounded-lg p-3 bg-white space-y-1">
+                    <p className="text-xs font-semibold text-gray-700">
+                      Preview: {lines.length} SKU{lines.length === 1 ? '' : 's'}, {usable.reduce((s, l) => s + l.use, 0)} pairs to {direction === 'add' ? 'add' : 'remove'}
+                    </p>
+                    <p className="text-[11px] text-gray-500">
+                      Lines that could not be matched are listed in the note above. Fix them in the text and read again (untick &ldquo;Replace current items&rdquo; to keep these), add them with the search, or leave them out. Special Patches Series and patches never match here (patches have no event stock).
+                    </p>
+                    <div className="max-h-56 overflow-y-auto space-y-1">
+                      {lines.map((l) => {
+                        const noQty = l.quantity <= 0
+                        const none = direction === 'remove' && l.room === 0
+                        const capped = direction === 'remove' && !none && !noQty && l.room !== null && l.quantity > l.room
+                        return (
+                          <div key={l.product_id} className={cn('flex items-center gap-2 text-xs px-2 py-1.5 rounded',
+                            noQty || none ? 'bg-red-50' : capped ? 'bg-amber-50' : 'bg-gray-50')}>
+                            <span className="font-mono text-gray-600 w-24 truncate shrink-0">{l.product?.sku}</span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block truncate text-gray-700">{l.product?.name}</span>
+                              {noQty && <span className="block text-[10px] text-red-600">No quantity read. Enter the pairs or skip.</span>}
+                              {none && <span className="block text-[10px] text-red-600">None left in this event{l.quantity > 0 ? ' (or all already on the list below)' : ''}. Skipped.</span>}
+                              {capped && <span className="block text-[10px] text-amber-700">Only {l.room} left in this event{draft.some((d) => d.product_id === l.product_id) ? ' after the list below' : ''}. {l.room} will be removed, not {l.quantity}.</span>}
+                            </span>
+                            <input type="number" min={0} value={l.quantity || ''} placeholder="pairs"
+                              onChange={(e) => setBulkQty(l.product_id, Number(e.target.value) || 0)}
+                              className={cn('w-16 h-7 text-center text-sm border rounded-lg focus:outline-none shrink-0',
+                                noQty ? 'border-red-300 bg-white' : 'border-gray-200')} />
+                            <button type="button" title="Skip this line"
+                              onClick={() => setBulkRead((prev) => prev.filter((x) => x.product_id !== l.product_id))}
+                              className="text-gray-400 hover:text-red-500 shrink-0"><X size={14} /></button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <button type="button" onClick={applyBulkPreview} disabled={missingQty > 0 || usable.length === 0}
+                      className="w-full mt-1 py-2 bg-[#0A0A0A] text-[#FFD700] rounded-lg text-xs font-semibold hover:opacity-90 disabled:opacity-40">
+                      {missingQty > 0
+                        ? `Enter pairs on ${missingQty} line${missingQty === 1 ? '' : 's'} (or skip) to continue`
+                        : `Add ${usable.length} SKU${usable.length === 1 ? '' : 's'} to list`}
+                    </button>
                   </div>
-                  <button type="button" onClick={applyBulkPreview}
-                    className="w-full mt-1 py-2 bg-[#0A0A0A] text-[#FFD700] rounded-lg text-xs font-semibold hover:opacity-90">
-                    Add {bulkPreview.filter((l) => l.product_id).length} Matched SKU{bulkPreview.filter((l) => l.product_id).length === 1 ? '' : 's'} to List
-                  </button>
-                </div>
-              )}
+                )
+              })()}
             </div>
           )}
 
@@ -470,6 +502,43 @@ export default function EventDetailPage() {
               )}
             </button>
           )}
+        </div>
+      )}
+
+      {/* Patches have no event stock; this is what the POS gave out, to plan how many to bring. */}
+      {patches && (patches.sold > 0 || patches.free > 0) && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+          <h3 className="text-sm font-semibold text-gray-900">Patches given</h3>
+          <p className="text-[11px] text-gray-500 mt-0.5 mb-3">
+            From Event POS sales (voided sales excluded). Patches have no event stock, so use this to decide how many to bring next time.
+            RM4 patches include any taken with &ldquo;Free 1 Set Patch&rdquo;.
+          </p>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 text-xs text-gray-500">
+                <th className="text-left py-2 font-semibold">Day</th>
+                <th className="text-center py-2 font-semibold">RM4 patches sold</th>
+                <th className="text-center py-2 font-semibold">Free patches (FREE 6 / 10)</th>
+                <th className="text-center py-2 font-semibold">Total patches</th>
+              </tr>
+            </thead>
+            <tbody>
+              {patches.days.map((d) => (
+                <tr key={d.day} className="border-b border-gray-50">
+                  <td className="py-2 text-gray-700">{formatMYDate(d.day)}</td>
+                  <td className="py-2 text-center tabular-nums">{d.sold}</td>
+                  <td className="py-2 text-center tabular-nums">{d.free}</td>
+                  <td className="py-2 text-center tabular-nums font-semibold">{d.sold + d.free}</td>
+                </tr>
+              ))}
+              <tr className="bg-gray-50 font-semibold">
+                <td className="py-2 pl-1 text-gray-900">Whole event</td>
+                <td className="py-2 text-center tabular-nums">{patches.sold}</td>
+                <td className="py-2 text-center tabular-nums">{patches.free}</td>
+                <td className="py-2 text-center tabular-nums">{patches.sold + patches.free}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       )}
 

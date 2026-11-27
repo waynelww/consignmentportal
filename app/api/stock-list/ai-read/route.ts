@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { skuKey, type StockListItem } from '@/lib/stock-list/parse'
+import { isExcludedFromPos, isPatchSku } from '@/lib/pos/catalog'
 
 // Reads a pasted or photographed restock list with Claude and returns SKUs and
 // pair quantities that have been checked against the active catalogue.
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  let body: { text?: unknown; images?: unknown }
+  let body: { text?: unknown; images?: unknown; scope?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -89,13 +90,18 @@ export async function POST(req: NextRequest) {
   if (totalChars > MAX_TOTAL_B64_CHARS) return Response.json({ error: 'Photos are too large together' }, { status: 413 })
   if (!text && images.length === 0) return Response.json({ error: 'Paste a list or add a photo' }, { status: 400 })
 
-  // Active catalogue only.
-  const { data: products, error: prodErr } = await supabase
+  // Active catalogue only. scope 'event' (event page Add / Remove stock) also
+  // leaves out the Special Patches Series (same rule as the Event POS) and
+  // patches (SKU "Patches"), which have no event stock.
+  const { data: allProducts, error: prodErr } = await supabase
     .from('products')
     .select('id, sku, name')
     .eq('is_active', true)
     .order('sku')
   if (prodErr) return Response.json({ error: 'Could not load products' }, { status: 500 })
+  const products = body.scope === 'event'
+    ? (allProducts ?? []).filter((p) => !isExcludedFromPos(p.name ?? '') && !isPatchSku(p.sku))
+    : allProducts
 
   const byKey = new Map<string, { id: string; sku: string }>()
   for (const p of products ?? []) byKey.set(skuKey(p.sku), { id: p.id, sku: p.sku })

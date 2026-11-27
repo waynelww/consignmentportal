@@ -4,6 +4,7 @@ import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { transferStock } from '@/lib/inventory/transfer-stock'
 import { posSoldByProduct } from '@/lib/pos/sold'
 import { reasons, summariseEventLedger } from '@/lib/events/stock-ledger'
+import { loadPatchProductIds } from '@/lib/pos/server'
 
 const CloseSchema = z.object({
   items: z.array(z.object({
@@ -65,14 +66,19 @@ export async function POST(
   // anything entered ABOVE the POS figure is deducted here.
   const pos = await posSoldByProduct(svc, eventId)
 
+  // Patches have no event stock: no Sold / Returned counts and no stock moves
+  // for them at close (any old patch stock row is left as it is).
+  const patchIds = await loadPatchProductIds(svc)
+  const closeItems = parsed.data.items.filter((i) => !patchIds.has(i.product_id))
+
   const failures: string[] = []
 
   // Check everything BEFORE writing anything, so a rejected close never
   // leaves half of the "sold" rows applied (a retry would deduct them twice).
   const { data: stockNow } = await svc.from('location_stock').select('product_id, quantity').eq('location_id', locId)
-  const inEvent = new Map((stockNow ?? []).map((r) => [r.product_id as string, r.quantity as number]))
+  const inEvent = new Map((stockNow ?? []).filter((r) => !patchIds.has(r.product_id)).map((r) => [r.product_id as string, r.quantity as number]))
   const toDeduct: Array<{ product_id: string; qty: number }> = []
-  for (const item of parsed.data.items) {
+  for (const item of closeItems) {
     if (!ledger[item.product_id] || ledger[item.product_id].added === 0) {
       if (item.quantity_sold === 0 && item.quantity_returned === 0) continue
       failures.push(`${item.product_id}: no stock was ever added to this event`)
@@ -93,9 +99,9 @@ export async function POST(
   // the close history can never be missing. Upsert: a retried close
   // overwrites its own rows instead of duplicating them.
   const deductBy = new Map(toDeduct.map((d) => [d.product_id, d.qty]))
-  const returnedBy = new Map(parsed.data.items.map((i) => [i.product_id, i.quantity_returned]))
+  const returnedBy = new Map(closeItems.map((i) => [i.product_id, i.quantity_returned]))
   const countedIds = new Set<string>([
-    ...parsed.data.items.filter((i) => (ledger[i.product_id]?.added ?? 0) > 0).map((i) => i.product_id),
+    ...closeItems.filter((i) => (ledger[i.product_id]?.added ?? 0) > 0).map((i) => i.product_id),
     ...[...inEvent].filter(([, q]) => q > 0).map(([pid]) => pid),
   ])
   const closedAt = new Date().toISOString()
@@ -144,6 +150,7 @@ export async function POST(
 
   const leftByProduct: Record<string, number> = {}
   for (const r of leftRows ?? []) {
+    if (patchIds.has(r.product_id)) continue
     leftByProduct[r.product_id] = r.quantity
     const res = await transferStock({
       productId: r.product_id,

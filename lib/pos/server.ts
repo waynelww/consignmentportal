@@ -1,19 +1,36 @@
 // Server-side loaders for the Event POS (service role only).
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { buildPosProducts, type PosProduct, type RawProduct } from './catalog'
+import { buildPosProducts, isPatchSku, PATCH_SKU, type PosProduct, type RawProduct } from './catalog'
 import type { PosDiscount } from './discounts'
 import type { TargetDay, BonusAmounts } from './bonus'
 
-/** Everything checked out to the event's XCMS stock location (never Shopify); qty 0 = sold out. */
+/** Product ids with the patch SKU ("Patches"), active or not. Patches never count as event stock. */
+export async function loadPatchProductIds(db: SupabaseClient): Promise<Set<string>> {
+  const { data } = await db.from('products').select('id, sku').ilike('sku', PATCH_SKU)
+  return new Set((data ?? []).filter((p) => isPatchSku(p.sku)).map((p) => p.id as string))
+}
+
+/**
+ * Everything checked out to the event's XCMS stock location (never Shopify);
+ * qty 0 = sold out. Plus the RM4 patch product and its FREE 6 / 10 tiles,
+ * always, with no stock (see isPatchSku).
+ */
 export async function loadPosCatalog(db: SupabaseClient, stockLocationId: string): Promise<PosProduct[]> {
-  const { data, error } = await db.from('location_stock')
-    .select('quantity, products(id, sku, name, selling_price, image_url, barcode, category)')
-    .eq('location_id', stockLocationId) // sold-out rows stay (greyed tile)
-  if (error) throw new Error(error.message)
-  const rows = ((data ?? []) as unknown as { quantity: number; products: RawProduct | null }[])
+  const [stock, patch] = await Promise.all([
+    db.from('location_stock')
+      .select('quantity, products(id, sku, name, selling_price, image_url, barcode, category)')
+      .eq('location_id', stockLocationId), // sold-out rows stay (greyed tile)
+    db.from('products')
+      .select('id, sku, name, selling_price, image_url, barcode, category')
+      .ilike('sku', PATCH_SKU)
+      .eq('is_active', true),
+  ])
+  if (stock.error) throw new Error(stock.error.message)
+  const rows = ((stock.data ?? []) as unknown as { quantity: number; products: RawProduct | null }[])
     .filter((r) => r.products)
     .map((r) => ({ product: r.products as RawProduct, qty: r.quantity }))
-  return buildPosProducts(rows)
+  const patchProduct = ((patch.data ?? []) as RawProduct[]).find((p) => isPatchSku(p.sku)) ?? null
+  return buildPosProducts(rows, patchProduct)
 }
 
 /** Active global discounts + this event's own, in sort order. */

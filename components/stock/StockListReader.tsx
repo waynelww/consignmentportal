@@ -1,13 +1,14 @@
 'use client'
 
 // "Paste list / photo" reader for SKU selection. One component shared by the
-// Create DO and Edit DO modals and the Add Store stock step.
+// Create DO and Edit DO modals, the Add Store stock step and the event page's
+// Add / Remove stock panel.
 // The parent owns the item list and the open/closed state. Nothing saves here:
 // results only fill the parent's list, which is saved by the usual button.
 // Parsing rules: lib/stock-list/parse.ts. AI reading: POST /api/stock-list/ai-read.
 
 import { useState } from 'react'
-import { ImagePlus, Loader2, Trash2 } from 'lucide-react'
+import { ImagePlus, Loader2, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { parseStockList, type StockListProduct, type StockListResult } from '@/lib/stock-list/parse'
@@ -98,10 +99,20 @@ export function StockListPanel({
   products,
   items,
   onApply,
+  label = 'Paste the store\'s restock list, or add a photo of it',
+  placeholder = 'A21 x3 / A18 - 2 pairs / C5 = 4 / Teddy Brown 5 (one per line)',
+  aiScope,
+  allowTextFile = false,
 }: {
   products: StockListProduct[]
   items: StockListLineIn[]
   onApply: (next: StockListLineIn[]) => void
+  label?: string
+  placeholder?: string
+  // 'event': the AI matches only products that can go to events (no Special Patches Series).
+  aiScope?: 'event'
+  // Show "Upload CSV / TXT", which loads a text file into the box.
+  allowTextFile?: boolean
 }) {
   const [text, setText] = useState('')
   const [replace, setReplace] = useState(true)
@@ -135,6 +146,7 @@ export function StockListPanel({
         body: JSON.stringify({
           text: useText,
           images: photos.map((p) => ({ media_type: 'image/jpeg', data: p.data })),
+          ...(aiScope ? { scope: aiScope } : {}),
         }),
       })
       const body = (await res.json().catch(() => ({}))) as {
@@ -187,14 +199,12 @@ export function StockListPanel({
   return (
     <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 space-y-3">
       <div>
-        <label className="text-xs font-medium text-gray-600 block mb-1">
-          Paste the store&apos;s restock list, or add a photo of it
-        </label>
+        <label className="text-xs font-medium text-gray-600 block mb-1">{label}</label>
         <textarea
           rows={4}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder={'A21 x3 / A18 - 2 pairs / C5 = 4 / Teddy Brown 5 (one per line)'}
+          placeholder={placeholder}
           className="w-full px-3 py-2 text-sm font-mono border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#FFD700] resize-y"
         />
       </div>
@@ -237,6 +247,29 @@ export function StockListPanel({
             }}
           />
         </label>
+        {allowTextFile && (
+          <label
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-300 bg-white text-gray-800 transition-colors',
+              busyAny ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-100'
+            )}
+          >
+            <Upload size={13} />
+            Upload CSV / TXT
+            <input
+              type="file"
+              accept=".csv,.txt,text/csv,text/plain"
+              className="sr-only"
+              disabled={busyAny}
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                e.target.value = ''
+                if (!f) return
+                f.text().then(setText, () => toast.error('Could not read that file'))
+              }}
+            />
+          </label>
+        )}
         {photos.length > 0 && (
           <button
             type="button"

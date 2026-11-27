@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { transferStock } from '@/lib/inventory/transfer-stock'
 import { reasons } from '@/lib/events/stock-ledger'
+import { isPatchSku } from '@/lib/pos/catalog'
 
 const MoveSchema = z.object({
   items: z.array(z.object({
@@ -58,6 +59,11 @@ export async function moveEventStock(
   const failures: string[] = []
 
   for (const [productId, quantity] of qtyByProduct) {
+    // Patches have no event stock (too many to count): never added or removed.
+    if (isPatchSku(skuOf.get(productId))) {
+      failures.push(`${skuOf.get(productId)}: patches have no event stock, they are always on the POS`)
+      continue
+    }
     const result = await transferStock({
       productId,
       quantity,
