@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'next/navigation'
+import Image from 'next/image'
 import { Search, ScanLine, X, Minus, Plus, Delete, ChevronLeft, Check, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -523,6 +524,29 @@ function CheckoutSheet({ total, onClose, onSubmit, onDone }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<{ sale_no: number; total: number; change: number | null } | null>(null)
+  const [qrFull, setQrFull] = useState(false)
+
+  // Keep the screen awake while the customer is scanning the full-screen QR.
+  // Wake Lock isn't supported everywhere; any failure is ignored silently.
+  useEffect(() => {
+    if (!qrFull) return
+    type Lock = { release: () => Promise<void> }
+    const wl = (navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<Lock> } }).wakeLock
+    if (!wl) return
+    let lock: Lock | null = null
+    let active = true
+    const acquire = () => {
+      wl.request('screen').then((l) => { if (active) lock = l; else l.release().catch(() => {}) }).catch(() => {})
+    }
+    const onVis = () => { if (document.visibilityState === 'visible') acquire() }
+    acquire()
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      active = false
+      document.removeEventListener('visibilitychange', onVis)
+      lock?.release().catch(() => {})
+    }
+  }, [qrFull])
   // One key per checkout: a double tap or a retry after a dropped connection
   // can never record the sale twice.
   const key = useRef(newKey())
@@ -597,7 +621,27 @@ function CheckoutSheet({ total, onClose, onSubmit, onDone }: {
           </div>
         )}
         {method === 'card' && <p className="rounded-lg bg-white border border-gray-200 p-4 text-sm text-gray-700">Charge <b>{rm(total)}</b> on the terminal, then tap <b>Payment received</b>.</p>}
-        {method === 'qr' && <p className="rounded-lg bg-white border border-gray-200 p-4 text-sm text-gray-700">Customer scans the Xocks DuitNow QR. Check <b>{rm(total)}</b> arrived, then tap <b>Payment received</b>.</p>}
+        {method === 'qr' && (
+          <div className="space-y-3">
+            <div className="flex flex-col items-center text-center rounded-lg bg-white border border-gray-200 p-4">
+              <p className="text-3xl font-extrabold text-gray-900">Pay {rm(total)}</p>
+              <button type="button" onClick={() => setQrFull(true)} aria-label="Show QR full screen" className="mt-3 rounded-xl bg-white p-2 shadow-[0_0_0_1px_#e5e7eb] active:opacity-80">
+                <Image src="/wayne-group-qr.jpg" alt="Wayne Group Holding DuitNow QR" width={260} height={260} className="w-[260px] max-w-full h-auto object-contain" priority />
+              </button>
+              <p className="mt-2 text-sm font-medium text-gray-700">DuitNow QR · Wayne Group Holding Sdn Bhd</p>
+              <p className="text-xs text-gray-400">Tap QR to show full screen</p>
+            </div>
+            <p className="rounded-lg bg-white border border-gray-200 p-4 text-sm text-gray-700">Check <b>{rm(total)}</b> arrived, then tap <b>Payment received</b>.</p>
+          </div>
+        )}
+        {method === 'qr' && qrFull && (
+          <div className="fixed inset-0 z-[60] bg-white flex flex-col items-center justify-center px-6 text-center" onClick={() => setQrFull(false)}>
+            <p className="text-5xl font-extrabold text-gray-900">Pay {rm(total)}</p>
+            <Image src="/wayne-group-qr.jpg" alt="Wayne Group Holding DuitNow QR" width={600} height={600} className="mt-6 w-full max-w-[min(90vw,70dvh)] h-auto object-contain" priority />
+            <p className="mt-4 text-base font-medium text-gray-700">DuitNow QR · Wayne Group Holding Sdn Bhd</p>
+            <p className="mt-6 text-sm text-gray-400">Tap anywhere to close</p>
+          </div>
+        )}
       </div>
 
       {error && <p className="mt-3 text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
