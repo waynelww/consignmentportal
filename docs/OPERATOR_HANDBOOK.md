@@ -771,6 +771,58 @@ account for HR; they use the **staff link `/hr`**.
   out of `settings`, Drive columns), then `20261106_hr_join_date_replacement.sql`
   (join_date, custom_entitlement, hr_rest_day_work, leave type replacement).
 
+## Event POS and Event Targets (booth events)
+
+Booth events sell on the **Event POS** (`/pos/[eventId]`), a phone-only page
+that replaces Shopify POS at events. It sells **only from the event's own XCMS
+stock location** (`events.stock_location_id`, filled by "Outbound (to event)"),
+never from Shopify stock. Migration: `supabase/migrations/20261127_event_pos.sql`.
+
+- **Targets live on the event.** The Event Target Calculator is the "Targets"
+  section of each event page (`components/events/target-calculator.tsx`, maths
+  unchanged in `lib/events/target-calc.ts`), saved with `event_targets.event_id`
+  (one per event); name + start date come from the event. Day row N = start
+  date + N−1 days (that's how a sale's date finds its tiers). Global settings
+  are the **Target settings** button on the Events list (admin and ops manager),
+  including `profit_unlock_amount` (default RM1,000). `/admin/events/targets`
+  redirects to `/admin/events`; old unlinked targets show under "Unlinked
+  targets" with "Link to event".
+- **Part-timers** (`pos_staff`, one per person, reused across events;
+  `event_staff` links them to an event, `hidden` = off the POS but sales kept).
+  PIN hashes are in `pos_staff_pins` (server-only like `hr_member_pins`). A
+  blank PIN is generated and shown once. Remove only with no sales on the event.
+- **POS link**: public path (skipped by `proxy.ts`), all data via
+  `/api/pos/[eventId]/*`, which checks the signed cookie `xcms_pos_<event>`
+  (`lib/pos/session.ts`; event + person + PIN fingerprint, 16 h). Works only
+  while the event is `active`. 5 wrong PINs → that person locked 5 minutes
+  (`rate_limit_attempts`, keyed by person, not IP). Barcode scan reuses the
+  ZXing scanner (works on iPhone Safari too).
+- **Catalogue rules** (`lib/pos/catalog.ts`): Special Patches Series never shows;
+  add-ons = patches, tote bags, boxes (not pairs); "Design" = category `design`;
+  "FREE 6 / 10 Patches" are POS items at RM0 that take 6/10 of the RM4 patch
+  product (SKU `Patches`) from event stock.
+- **Discounts** (`pos_discounts`, `lib/pos/discounts.ts`): rules, not RM amounts;
+  one per sale; cheapest pairs go free; % applies after free pairs; a discount
+  that stops qualifying is dropped with a note. `event_id` NULL = global (seeded
+  list). Pinned by `npx tsx scripts/test-pos.ts`.
+- **Sales** are written only by the SQL function `pos_record_sale` (one
+  transaction, event row locked): idempotency key, stock check at the event
+  location, `sale_no` per event, `pos_sales` + `pos_sale_items`, stock out with
+  ledger reason `Event POS sale: <event> #<n>`. Prices and discount are
+  recalculated by the API first. **Void** (admin, event page) = `pos_void_sale`:
+  stock back (`Event POS void: …`), audit row in `pos_sale_audit`.
+- **Bonus**: event profit = POS sales (not voided, after discounts) − the
+  target's `fixed_cost` (sock cost not included). Until profit reaches
+  `profit_unlock_amount`, sales don't count; the crossing sale counts only the
+  part above the line. Stored per sale in `bonus_eligible_amount` (in sale
+  order); recalculated by `pos_recalc_bonus` after a void, a target save/delete
+  or a settings change. Tiers: that day's per-person tier 1/2/3, highest hit
+  only, bonus from settings. No target saved = bonuses off. **Part-timers never
+  see event profit or unlock status** — the POS API doesn't return them.
+- **Closing an event that used the POS**: Sold is pre-filled from POS sales
+  (already out of event stock); only a number above it is deducted as
+  "Sold at event (outside POS)".
+
 ## Payment receipts (store upload)
 
 Stores pay Xocks their transfer amount (`xocks_revenue`) for each monthly invoice and
@@ -998,6 +1050,8 @@ instead, which confirms the stock arrived.
   ("Print slip" in the DO details modal → `/api/delivery-orders/[id]/pdf?slip&inline`,
   admins only, generated every time, nothing stored). One column → two
   columns → extra labels; pinned by `npx tsx scripts/test-packing-slip.ts`.
+- `lib/pos/` — Event POS: catalogue, discount and bonus rules (pure), session,
+  loaders; SQL in `20261127_event_pos.sql` (see "Event POS and Event Targets").
 - `lib/events/target-calc.ts` — Event Target Calculator maths (single source
   of truth; pinned by `scripts/test-event-target-calc.ts`, run with
   `npx tsx`).

@@ -2,15 +2,22 @@ import { type NextRequest } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { requireEventsAccess, loadTargetSettings, EventTargetSchema, saveEventTarget } from '@/lib/events/target-api'
 
-export async function GET() {
+// GET ?event_id=… → that event's target (0 or 1 row); ?unlinked=1 → targets
+// not linked to any event; no params → all.
+export async function GET(request: NextRequest) {
   const ctx = await requireEventsAccess()
   if (ctx.error) return ctx.error
 
   const svc = await createServiceClient()
-  const { data, error } = await svc
+  const eventId = request.nextUrl.searchParams.get('event_id')
+  const unlinked = request.nextUrl.searchParams.get('unlinked') === '1'
+  let q = svc
     .from('event_targets')
     .select('*, event_target_days(*)')
     .order('created_at', { ascending: false })
+  if (eventId) q = q.eq('event_id', eventId)
+  else if (unlinked) q = q.is('event_id', null)
+  const { data, error } = await q
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
   for (const ev of data ?? []) {

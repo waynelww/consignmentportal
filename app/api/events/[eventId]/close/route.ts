@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { transferStock, getLocationIdByType } from '@/lib/inventory/transfer-stock'
+import { posSoldByProduct } from '@/lib/pos/sold'
 
 const CloseSchema = z.object({
   items: z.array(z.object({
@@ -45,11 +46,19 @@ export async function POST(
   // "Taken" per product, read fresh from the ledger, to compute variance.
   const { data: transfers } = await svc
     .from('stock_transfers')
-    .select('product_id, quantity, to_location_id')
+    .select('product_id, quantity, to_location_id, from_location_id')
     .eq('to_location_id', event.stock_location_id)
+    .not('from_location_id', 'is', null) // voided POS sales coming back are not "taken"
 
   const takenByProduct: Record<string, number> = {}
-  for (const t of transfers ?? []) takenByProduct[t.product_id] = (takenByProduct[t.product_id] ?? 0) + t.quantity
+  for (const t of transfers ?? []) {
+    takenByProduct[t.product_id] = (takenByProduct[t.product_id] ?? 0) + t.quantity
+  }
+
+  // Event POS: when the POS was used, its sales (not voided) are the sold
+  // quantities. They already left event stock at the moment of sale, so only
+  // anything entered ABOVE the POS figure is deducted here.
+  const pos = await posSoldByProduct(svc, eventId)
 
   const failures: string[] = []
   const results: Array<{ product_id: string; variance: number }> = []
@@ -58,13 +67,17 @@ export async function POST(
     const taken = takenByProduct[item.product_id] ?? 0
     if (taken === 0) { failures.push(`${item.product_id}: was never checked out to this event`); continue }
 
-    if (item.quantity_sold > 0) {
+    const posSold = pos.usesPos ? (pos.sold[item.product_id] ?? 0) : 0
+    const soldToDeduct = pos.usesPos ? Math.max(0, item.quantity_sold - posSold) : item.quantity_sold
+    const totalSold = pos.usesPos ? posSold + soldToDeduct : item.quantity_sold
+
+    if (soldToDeduct > 0) {
       const soldResult = await transferStock({
         productId: item.product_id,
-        quantity: item.quantity_sold,
+        quantity: soldToDeduct,
         fromLocationId: event.stock_location_id,
         toLocationId: null,
-        reason: `Sold at event (Shopify): ${event.name}`,
+        reason: pos.usesPos ? `Sold at event (outside POS): ${event.name}` : `Sold at event (Shopify): ${event.name}`,
         createdBy: user.id,
       })
       if ('error' in soldResult) { failures.push(`${item.product_id}: ${soldResult.error}`); continue }
@@ -82,7 +95,7 @@ export async function POST(
       if ('error' in returnResult) { failures.push(`${item.product_id}: ${returnResult.error}`); continue }
     }
 
-    const variance = item.quantity_returned - (taken - item.quantity_sold)
+    const variance = item.quantity_returned - (taken - totalSold)
     results.push({ product_id: item.product_id, variance })
   }
 
