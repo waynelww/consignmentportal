@@ -788,7 +788,11 @@ never from Shopify stock. Migration: `supabase/migrations/20261127_event_pos.sql
   - **Close**: sold above POS → `Sold at event (outside POS): …`; then
     everything left in the event location is zeroed with
     `Event closed — returned: <event>` (to = NULL). The admin's Returned
-    figures are the record of what came back; variance = returned − left.
+    figures are kept per SKU in `event_close_counts` (expected left, typed
+    returned, variance, closed_by, closed_at; migration
+    `20261127_event_close_counts.sql`), saved before any stock moves — if the
+    table is missing the close is refused with nothing changed. The closed
+    event page shows "Counted back" and Variance from it.
     Returned stock is **not** added to Office — update Office in Shopify.
   - Add/remove return `done` (product ids applied) so a partly failed batch
     is never applied twice on retry; close checks all quantities before writing.

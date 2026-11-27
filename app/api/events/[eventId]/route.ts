@@ -49,6 +49,19 @@ export async function GET(
   const pos = await posSoldByProduct(svc, eventId)
   for (const pid of Object.keys(pos.sold)) byProduct[pid] ??= { added: 0, soldPos: 0, soldOutside: 0, removed: 0, returned: 0 }
 
+  // Closed events: the admin's typed Returned counts and variance at close
+  // (event_close_counts). Missing table (migration not applied) = no counts.
+  const closeCounts = new Map<string, { expected_left: number; returned: number; variance: number; closed_at: string }>()
+  if (event.status === 'closed') {
+    const { data: cc } = await svc.from('event_close_counts')
+      .select('product_id, expected_left, returned, variance, closed_at')
+      .eq('event_id', eventId)
+    for (const r of cc ?? []) {
+      closeCounts.set(r.product_id, r)
+      byProduct[r.product_id] ??= { added: 0, soldPos: 0, soldOutside: 0, removed: 0, returned: 0 }
+    }
+  }
+
   const productIds = Object.keys(byProduct)
   const { data: products } = productIds.length > 0
     ? await supabase.from('products').select('id, sku, name, image_url').in('id', productIds)
@@ -58,6 +71,7 @@ export async function GET(
 
   const items = productIds.map((pid) => {
     const agg = byProduct[pid]
+    const cc = closeCounts.get(pid)
     return {
       product_id: pid,
       product: productMap.get(pid) ?? null,
@@ -67,8 +81,9 @@ export async function GET(
       quantity_removed: agg.removed,
       quantity_returned: agg.returned,
       quantity_left: leftByProduct.get(pid) ?? 0,
+      close_count: cc ? { expected_left: cc.expected_left, returned: cc.returned, variance: cc.variance } : null,
     }
   }).sort((a, b) => (a.product?.sku ?? '').localeCompare(b.product?.sku ?? ''))
 
-  return Response.json({ event, items, uses_pos: pos.usesPos })
+  return Response.json({ event, items, uses_pos: pos.usesPos, has_close_counts: closeCounts.size > 0 })
 }

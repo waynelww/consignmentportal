@@ -21,7 +21,9 @@ const CloseSchema = z.object({
  *      as "Sold at event …".
  *   2. Whatever is left in the event location is zeroed out with
  *      "Event closed — returned: <event>" (to = NULL), for every product.
- * Variance = returned entered − what was left in the event location.
+ * The typed Returned counts are kept in event_close_counts (expected left,
+ * returned, variance, closed_by, closed_at) — saved first, before any stock
+ * moves. Variance = returned entered − what should have been left.
  */
 export async function POST(
   request: NextRequest,
@@ -86,6 +88,35 @@ export async function POST(
     return Response.json({ error: 'Some quantities do not fit event stock — nothing was changed', details: failures }, { status: 400 })
   }
 
+  // Record the admin's typed Returned counts against what should be left
+  // (event stock after the outside-POS deduction) BEFORE any stock moves, so
+  // the close history can never be missing. Upsert: a retried close
+  // overwrites its own rows instead of duplicating them.
+  const deductBy = new Map(toDeduct.map((d) => [d.product_id, d.qty]))
+  const returnedBy = new Map(parsed.data.items.map((i) => [i.product_id, i.quantity_returned]))
+  const countedIds = new Set<string>([
+    ...parsed.data.items.filter((i) => (ledger[i.product_id]?.added ?? 0) > 0).map((i) => i.product_id),
+    ...[...inEvent].filter(([, q]) => q > 0).map(([pid]) => pid),
+  ])
+  const closedAt = new Date().toISOString()
+  const counts = [...countedIds].map((pid) => ({
+    event_id: eventId,
+    product_id: pid,
+    expected_left: Math.max(0, (inEvent.get(pid) ?? 0) - (deductBy.get(pid) ?? 0)),
+    returned: returnedBy.get(pid) ?? 0,
+    closed_by: user.id,
+    closed_at: closedAt,
+  }))
+  if (counts.length > 0) {
+    const { error: countErr } = await svc.from('event_close_counts').upsert(counts, { onConflict: 'event_id,product_id' })
+    if (countErr) {
+      return Response.json({
+        error: 'Could not save the close counts — nothing was changed',
+        details: [`${countErr.message} (is migration 20261127_event_close_counts.sql applied?)`],
+      }, { status: 500 })
+    }
+  }
+
   // 1. Sold outside the POS.
   for (const { product_id, qty } of toDeduct) {
     const soldResult = await transferStock({
@@ -129,14 +160,15 @@ export async function POST(
     return Response.json({ error: 'Some leftover stock could not be cleared', details: failures }, { status: 500 })
   }
 
-  const results = parsed.data.items.map((item) => ({
-    product_id: item.product_id,
-    left: leftByProduct[item.product_id] ?? 0,
-    returned: item.quantity_returned,
-    variance: item.quantity_returned - (leftByProduct[item.product_id] ?? 0),
+  const results = counts.map((c) => ({
+    product_id: c.product_id,
+    expected_left: c.expected_left,
+    left: leftByProduct[c.product_id] ?? 0,
+    returned: c.returned,
+    variance: c.returned - c.expected_left,
   }))
 
-  await svc.from('events').update({ status: 'closed', closed_at: new Date().toISOString() }).eq('id', eventId)
+  await svc.from('events').update({ status: 'closed', closed_at: closedAt }).eq('id', eventId)
 
   return Response.json({ success: true, results, tallies: results.every((r) => r.variance === 0) })
 }

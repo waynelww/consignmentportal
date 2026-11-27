@@ -32,6 +32,8 @@ interface EventItem {
   quantity_removed: number      // "Remove stock from event" corrections
   quantity_returned: number     // left over and cleared at close
   quantity_left: number         // in the event location right now
+  // Closed events: the admin's typed Returned count vs expected (event_close_counts)
+  close_count: { expected_left: number; returned: number; variance: number } | null
   product: { sku: string; name: string; image_url: string | null } | null
 }
 
@@ -68,6 +70,7 @@ export default function EventDetailPage() {
   const [event, setEvent] = useState<EventDetail | null>(null)
   const [items, setItems] = useState<EventItem[]>([])
   const [usesPos, setUsesPos] = useState(false)
+  const [hasCloseCounts, setHasCloseCounts] = useState(false)
   const [salesKey, setSalesKey] = useState(0)
   const [loading, setLoading] = useState(true)
   const [products, setProducts] = useState<Product[]>([])
@@ -98,6 +101,7 @@ export default function EventDetailPage() {
     setEvent(body.event)
     setItems(body.items ?? [])
     setUsesPos(!!body.uses_pos)
+    setHasCloseCounts(!!body.has_close_counts)
     setLoading(false)
   }, [eventId])
 
@@ -487,6 +491,12 @@ export default function EventDetailPage() {
                 <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500">Sold (POS)</th>
                 <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500">Removed / Returned</th>
                 <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500">Left</th>
+                {!isActive && hasCloseCounts && (
+                  <>
+                    <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500" title="What the admin counted back at close vs what should have been left">Counted back</th>
+                    <th className="text-center px-3 py-2.5 text-xs font-semibold text-gray-500">Variance</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -522,6 +532,29 @@ export default function EventDetailPage() {
                     )}
                   </td>
                   <td className="px-3 py-2.5 text-center font-semibold tabular-nums">{item.quantity_left}</td>
+                  {!isActive && hasCloseCounts && (
+                    <>
+                      <td className="px-3 py-2.5 text-center tabular-nums">
+                        {item.close_count ? (
+                          <>
+                            {item.close_count.returned}
+                            <span className="block text-[10px] text-gray-400">expected {item.close_count.expected_left}</span>
+                          </>
+                        ) : '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        {!item.close_count ? '—' : item.close_count.variance === 0 ? (
+                          <span className="inline-flex items-center gap-1 text-green-600 text-xs font-semibold">
+                            <CheckCircle2 size={12} /> Tallies
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-red-600 text-xs font-semibold">
+                            <AlertTriangle size={12} /> {item.close_count.variance > 0 ? `+${item.close_count.variance}` : item.close_count.variance}
+                          </span>
+                        )}
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -654,7 +687,7 @@ export default function EventDetailPage() {
             <>
               <AlertTriangle size={20} className="text-red-600 shrink-0" />
               <div className="text-sm text-red-800">
-                <p className="font-medium">Some quantities don&apos;t tally (returned − left in event stock):</p>
+                <p className="font-medium">Some quantities don&apos;t tally (counted back − expected left), also shown in the table above:</p>
                 <p className="text-xs mt-1">{closeResult.off.map((r) => `${skuOf(r.product_id)} ${r.variance > 0 ? `+${r.variance}` : r.variance}`).join(' · ')}</p>
               </div>
             </>
