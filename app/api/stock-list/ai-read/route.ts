@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { skuKey, type StockListItem } from '@/lib/stock-list/parse'
-import { isExcludedFromPos } from '@/lib/pos/catalog'
+import { isExcludedFromPos, isPatchSku } from '@/lib/pos/catalog'
 
 // Reads a pasted or photographed restock list with Claude and returns SKUs and
 // pair quantities that have been checked against the active catalogue.
@@ -91,7 +91,8 @@ export async function POST(req: NextRequest) {
   if (!text && images.length === 0) return Response.json({ error: 'Paste a list or add a photo' }, { status: 400 })
 
   // Active catalogue only. scope 'event' (event page Add / Remove stock) also
-  // leaves out the Special Patches Series, same rule as the Event POS.
+  // leaves out the Special Patches Series (same rule as the Event POS) and
+  // patches (SKU "Patches"), which have no event stock.
   const { data: allProducts, error: prodErr } = await supabase
     .from('products')
     .select('id, sku, name')
@@ -99,7 +100,7 @@ export async function POST(req: NextRequest) {
     .order('sku')
   if (prodErr) return Response.json({ error: 'Could not load products' }, { status: 500 })
   const products = body.scope === 'event'
-    ? (allProducts ?? []).filter((p) => !isExcludedFromPos(p.name ?? ''))
+    ? (allProducts ?? []).filter((p) => !isExcludedFromPos(p.name ?? '') && !isPatchSku(p.sku))
     : allProducts
 
   const byKey = new Map<string, { id: string; sku: string }>()

@@ -2,6 +2,8 @@ import { type NextRequest } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { posSoldByProduct } from '@/lib/pos/sold'
 import { summariseEventLedger } from '@/lib/events/stock-ledger'
+import { isPatchSku } from '@/lib/pos/catalog'
+import { patchesGiven } from '@/lib/pos/patches'
 
 export async function GET(
   _request: NextRequest,
@@ -69,7 +71,8 @@ export async function GET(
 
   const productMap = new Map((products ?? []).map((p) => [p.id, p]))
 
-  const items = productIds.map((pid) => {
+  // Patches have no event stock: left out of the stock table (see isPatchSku).
+  const items = productIds.filter((pid) => !isPatchSku(productMap.get(pid)?.sku)).map((pid) => {
     const agg = byProduct[pid]
     const cc = closeCounts.get(pid)
     return {
@@ -85,5 +88,8 @@ export async function GET(
     }
   }).sort((a, b) => (a.product?.sku ?? '').localeCompare(b.product?.sku ?? ''))
 
-  return Response.json({ event, items, uses_pos: pos.usesPos, has_close_counts: closeCounts.size > 0 })
+  // Patches sold (RM4) and given free (FREE 6 / 10) through the POS, per day.
+  const patches = await patchesGiven(svc, eventId)
+
+  return Response.json({ event, items, uses_pos: pos.usesPos, has_close_counts: closeCounts.size > 0, patches })
 }

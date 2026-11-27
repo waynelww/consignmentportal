@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { evaluateDiscount, cartTotals, type DiscountLine, type DiscountType } from '../lib/pos/discounts'
 import { eligibleAmounts, tierHit, tiersForDay, nextTier } from '../lib/pos/bonus'
 import { isAddon, isExcludedFromPos, isPatch, buildPosProducts, remainingFor } from '../lib/pos/catalog'
+import { summarisePatches } from '../lib/pos/patches'
 
 const plain = (qty: number): DiscountLine => ({ unit_price: 13.99, qty, is_pair: true, is_patch: false, design: false })
 const d = (type: DiscountType, params: Record<string, unknown>) => ({ type, params })
@@ -44,16 +45,41 @@ assert.equal(isPatch('Patches Socks (LOKAL Jehhh) - Tiger'), false)
 assert.equal(isPatch('Any Patch Socks'), false)
 assert.equal(isAddon('(RM19.90) Xocks Tote Bag'), true)
 const raw = (id: string, sku: string, name: string, price: number) => ({ id, sku, name, selling_price: price, image_url: null, barcode: null, category: 'ankle' })
+const patchRaw = raw('p1', 'Patches', '(RM4) Per Patches', 4)
 const tiles = buildPosProducts([
-  { product: raw('p1', 'Patches', '(RM4) Per Patches', 4), qty: 20 },
+  { product: raw('p1', 'Patches', '(RM4) Per Patches', 4), qty: 20 }, // a patch stock row is ignored
   { product: raw('p2', 'A1', 'Plain Series - Ankle - Black', 13.99), qty: 3 },
   { product: raw('p3', 'WK', 'Special Patches Series - White Kuih', 19.99), qty: 9 },
   { product: raw('p4', '4FREEPATCHES', 'FREE 6 Patches', 0), qty: 5 },
-])
+], patchRaw)
 assert.deepEqual(tiles.map((x) => x.id).sort(), ['free10patches', 'free6patches', 'p1', 'p2'])
+// Patches: always there, no stock, never run out. Socks keep their event stock.
 const free6 = tiles.find((x) => x.id === 'free6patches')!
-assert.equal(remainingFor(free6, { p1: 3 }, tiles), 2) // 20 − 3 = 17 → two lots of 6
-assert.equal(remainingFor(tiles.find((x) => x.id === 'p1')!, { free10patches: 1 }, tiles), 10)
+assert.equal(free6.unlimited, true)
+assert.equal(free6.stock_per_unit, 6)
+assert.equal(remainingFor(free6, { p1: 300 }, tiles), Infinity)
+assert.equal(remainingFor(tiles.find((x) => x.id === 'p1')!, { free10patches: 50 }, tiles), Infinity)
+const sock = tiles.find((x) => x.id === 'p2')!
+assert.equal(sock.unlimited, false)
+assert.equal(remainingFor(sock, { p2: 2 }, tiles), 1)
+// No event stock at all: patch tiles are still on the POS.
+assert.deepEqual(buildPosProducts([], patchRaw).map((x) => x.id).sort(), ['free10patches', 'free6patches', 'p1'])
+// No patch product passed: no patch tiles, even with a patch stock row.
+assert.deepEqual(buildPosProducts([{ product: patchRaw, qty: 5 }]).map((x) => x.id), [])
+// "Free 1 Set Patch" (2 RM4 patches) still works off the RM4 patch tile.
+const patchTile = tiles.find((x) => x.id === 'p1')!
+assert.equal(off('addon_free', { patches: 2 }, [{ unit_price: patchTile.price, qty: 2, is_pair: patchTile.is_pair, is_patch: patchTile.is_patch, design: false }]), 8)
+
+// Patches given: RM4 lines = sold, FREE 6 / 10 = free (in patches); voided sales and socks ignored.
+const line = (sku: string, qty: number, stock_qty: number, unit_price: number) => ({ sku, qty, stock_qty, unit_price })
+assert.deepEqual(summarisePatches([
+  { event_day: '2026-12-05', voided_at: null, pos_sale_items: [line('Patches', 3, 3, 4), line('Patches', 1, 10, 0)] },
+  { event_day: '2026-12-04', voided_at: null, pos_sale_items: [line('PATCHES', 2, 2, 4), line('Patches', 2, 12, 0), line('A1', 1, 1, 13.99)] },
+  { event_day: '2026-12-04', voided_at: '2026-12-04T10:00:00Z', pos_sale_items: [line('Patches', 9, 9, 4)] },
+]), {
+  days: [{ day: '2026-12-04', sold: 2, free: 12 }, { day: '2026-12-05', sold: 3, free: 10 }],
+  sold: 5, free: 22,
+})
 
 // Bonus unlock: fixed cost 2,000 + unlock 1,000 → threshold 3,000.
 assert.deepEqual(eligibleAmounts([1500, 1400, 300, 50], 2000, 1000), [0, 0, 200, 50])

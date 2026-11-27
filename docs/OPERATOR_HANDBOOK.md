@@ -835,8 +835,26 @@ never from Shopify stock. Migration: `supabase/migrations/20261127_event_pos.sql
   ZXing scanner (works on iPhone Safari too).
 - **Catalogue rules** (`lib/pos/catalog.ts`): Special Patches Series never shows;
   add-ons = patches, tote bags, boxes (not pairs); "Design" = category `design`;
-  "FREE 6 / 10 Patches" are POS items at RM0 that take 6/10 of the RM4 patch
-  product (SKU `Patches`) from event stock.
+  "FREE 6 / 10 Patches" are POS items at RM0 recorded on the RM4 patch product
+  (SKU `Patches`) as 6 / 10 patches.
+- **Patches have no event stock** (too many to count). "(RM4) Per Patches",
+  "FREE 6 Patches" and "FREE 10 Patches" are always in the POS Add-ons tab for
+  every active event, whatever the event stock: no "N left", never greyed out,
+  no stock check, and no stock taken from any location. Socks keep the strict
+  event-stock check. Every patch line is still written to `pos_sale_items`
+  (RM4 = qty sold; FREE 6 / 10 = `stock_qty` 6 / 10 at RM0). "Free 1 Set
+  Patch" (RM8 off = 2 RM4 patches) works off the RM4 patch item as before.
+  Rule: `isPatchSku` in `lib/pos/catalog.ts`; SQL: migration
+  `20261128_event_pos_patches_no_stock.sql` (`pos_record_sale` /
+  `pos_void_sale` skip the stock check, `location_stock` and `stock_transfers`
+  for patch lines). **Apply that migration before deploying this code**, or
+  patch sales fail with "Not enough stock for Patches".
+- Patches are never event stock: not in the Add / Remove stock reader or search
+  (the API refuses them too), not in the event's stock table, not in the close
+  Returned counts, and close leaves any old patch stock row untouched.
+- **Patches given** card on the event page: RM4 patches sold, free patches
+  (FREE 6 / 10) and the total, per day and for the whole event, from POS sales
+  (voided excluded), to plan how many to bring next time (`lib/pos/patches.ts`).
 - **Discounts** (`pos_discounts`, `lib/pos/discounts.ts`): rules, not RM amounts;
   one per sale; cheapest pairs go free; % applies after free pairs; a discount
   that stops qualifying is dropped with a note. `event_id` NULL = global (seeded

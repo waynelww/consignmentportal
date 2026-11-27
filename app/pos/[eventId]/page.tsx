@@ -255,7 +255,8 @@ export default function EventPosPage() {
           {shown.length === 0 && <p className="col-span-2 text-center text-sm text-gray-400 py-10">{products.length ? 'Nothing matches' : 'No stock at this event yet'}</p>}
           {shown.map((p) => {
             const left = remainingFor(p, cart, products)
-            const out = p.left <= 0 || (left <= 0 && !(cart[p.id] > 0))
+            // Patches have no stock at events: never sold out, no "N left".
+            const out = !p.unlimited && (p.left <= 0 || (left <= 0 && !(cart[p.id] > 0)))
             const inCart = cart[p.id] ?? 0
             const n = splitName(p.name)
             return (
@@ -273,9 +274,11 @@ export default function EventPosPage() {
                   <p className="text-[11px] text-gray-400 font-mono truncate">{p.sku}</p>
                   <div className="flex items-baseline justify-between mt-1">
                     <span className="text-sm font-bold text-gray-900">{p.price === 0 ? 'FREE' : rm(p.price)}</span>
-                    <span className={cn('text-[11px] font-medium', out ? 'text-red-500' : left <= 2 ? 'text-amber-600' : 'text-gray-500')}>
-                      {out ? 'Sold out' : `${left} left`}
-                    </span>
+                    {!p.unlimited && (
+                      <span className={cn('text-[11px] font-medium', out ? 'text-red-500' : left <= 2 ? 'text-amber-600' : 'text-gray-500')}>
+                        {out ? 'Sold out' : `${left} left`}
+                      </span>
+                    )}
                   </div>
                 </div>
               </button>

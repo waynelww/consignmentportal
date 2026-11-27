@@ -12,7 +12,8 @@ import { TargetCalculator } from '@/components/events/target-calculator'
 import { PartTimersSection } from '@/components/events/part-timers-section'
 import { PosSalesSection } from '@/components/events/pos-sales-section'
 import { StockListToggle, StockListPanel, type StockListLineIn } from '@/components/stock/StockListReader'
-import { isExcludedFromPos } from '@/lib/pos/catalog'
+import { isExcludedFromPos, isPatchSku } from '@/lib/pos/catalog'
+import type { PatchSummary } from '@/lib/pos/patches'
 
 interface EventDetail {
   id: string
@@ -75,6 +76,7 @@ export default function EventDetailPage() {
   const [items, setItems] = useState<EventItem[]>([])
   const [usesPos, setUsesPos] = useState(false)
   const [hasCloseCounts, setHasCloseCounts] = useState(false)
+  const [patches, setPatches] = useState<PatchSummary | null>(null)
   const [salesKey, setSalesKey] = useState(0)
   const [loading, setLoading] = useState(true)
   const [products, setProducts] = useState<Product[]>([])
@@ -105,6 +107,7 @@ export default function EventDetailPage() {
     setItems(body.items ?? [])
     setUsesPos(!!body.uses_pos)
     setHasCloseCounts(!!body.has_close_counts)
+    setPatches(body.patches ?? null)
     setLoading(false)
   }, [eventId])
 
@@ -271,15 +274,18 @@ export default function EventDetailPage() {
     setCloseBulkOpen(false)
   }
 
+  // Patches (SKU "Patches") are never event stock: not in search or the reader.
+  const stockableProducts = useMemo(() => products.filter((p) => !isPatchSku(p.sku)), [products])
   const searchMatches = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return []
-    return products.filter((p) => p.sku.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)).slice(0, 15)
-  }, [search, products])
+    return stockableProducts.filter((p) => p.sku.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)).slice(0, 15)
+  }, [search, stockableProducts])
 
   // Products that can go to events: the Special Patches Series is left out,
-  // same rule as the Event POS (lib/pos/catalog.ts).
-  const eventProducts = useMemo(() => products.filter((p) => !isExcludedFromPos(p.name ?? '')), [products])
+  // same rule as the Event POS (lib/pos/catalog.ts). Patches too: they have
+  // no event stock and are always on the POS.
+  const eventProducts = useMemo(() => stockableProducts.filter((p) => !isExcludedFromPos(p.name ?? '')), [stockableProducts])
   const eventProductIds = useMemo(() => new Set(eventProducts.map((p) => p.id)), [eventProducts])
 
   if (loading) return <div className="py-12 text-center text-gray-400 text-sm">Loading…</div>
@@ -420,7 +426,7 @@ export default function EventDetailPage() {
                       Preview: {lines.length} SKU{lines.length === 1 ? '' : 's'}, {usable.reduce((s, l) => s + l.use, 0)} pairs to {direction === 'add' ? 'add' : 'remove'}
                     </p>
                     <p className="text-[11px] text-gray-500">
-                      Lines that could not be matched are listed in the note above. Fix them in the text and read again (untick &ldquo;Replace current items&rdquo; to keep these), add them with the search, or leave them out. Special Patches Series never matches here.
+                      Lines that could not be matched are listed in the note above. Fix them in the text and read again (untick &ldquo;Replace current items&rdquo; to keep these), add them with the search, or leave them out. Special Patches Series and patches never match here (patches have no event stock).
                     </p>
                     <div className="max-h-56 overflow-y-auto space-y-1">
                       {lines.map((l) => {
@@ -496,6 +502,43 @@ export default function EventDetailPage() {
               )}
             </button>
           )}
+        </div>
+      )}
+
+      {/* Patches have no event stock; this is what the POS gave out, to plan how many to bring. */}
+      {patches && (patches.sold > 0 || patches.free > 0) && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+          <h3 className="text-sm font-semibold text-gray-900">Patches given</h3>
+          <p className="text-[11px] text-gray-500 mt-0.5 mb-3">
+            From Event POS sales (voided sales excluded). Patches have no event stock, so use this to decide how many to bring next time.
+            RM4 patches include any taken with &ldquo;Free 1 Set Patch&rdquo;.
+          </p>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 text-xs text-gray-500">
+                <th className="text-left py-2 font-semibold">Day</th>
+                <th className="text-center py-2 font-semibold">RM4 patches sold</th>
+                <th className="text-center py-2 font-semibold">Free patches (FREE 6 / 10)</th>
+                <th className="text-center py-2 font-semibold">Total patches</th>
+              </tr>
+            </thead>
+            <tbody>
+              {patches.days.map((d) => (
+                <tr key={d.day} className="border-b border-gray-50">
+                  <td className="py-2 text-gray-700">{formatMYDate(d.day)}</td>
+                  <td className="py-2 text-center tabular-nums">{d.sold}</td>
+                  <td className="py-2 text-center tabular-nums">{d.free}</td>
+                  <td className="py-2 text-center tabular-nums font-semibold">{d.sold + d.free}</td>
+                </tr>
+              ))}
+              <tr className="bg-gray-50 font-semibold">
+                <td className="py-2 pl-1 text-gray-900">Whole event</td>
+                <td className="py-2 text-center tabular-nums">{patches.sold}</td>
+                <td className="py-2 text-center tabular-nums">{patches.free}</td>
+                <td className="py-2 text-center tabular-nums">{patches.sold + patches.free}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       )}
 
