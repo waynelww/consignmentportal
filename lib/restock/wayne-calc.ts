@@ -11,9 +11,10 @@
 //  - Short history: if the first sale is after that start, the period starts
 //    at the first sale and months covered = (last − first sale days) ÷ 30.4,
 //    minimum 1. Under 1 month of sales → no calculation ("start with 30–50").
-//  - Pairs = Σ sales.total_amount ÷ price per pair, where a product with
-//    selling_price ≥ special_min_selling_price is "Special Patches"
-//    (price_special) and everything else is Plain (price_plain).
+//  - Pairs = Σ sales.total_amount ÷ price per pair: Kids (SKU K + number,
+//    e.g. K5) use price_kids (RM11.99, their selling price); otherwise a
+//    product with selling_price ≥ special_min_selling_price is "Special
+//    Patches" (price_special) and everything else is Plain (price_plain).
 //  - Pairs/month = total pairs in the period ÷ months covered.
 //  - The period is split into N consecutive one-month blocks ending on the
 //    last sale; full blocks feed the consistency check.
@@ -35,6 +36,7 @@ export const SPLIT_MODES: SplitMode[] = ['even', 'sales_share']
 export interface WayneSettings {
   price_plain: number
   price_special: number
+  price_kids: number
   special_min_selling_price: number
   target_multiplier: number
   trigger_multiplier: number
@@ -46,6 +48,7 @@ export interface WayneSettings {
 export const DEFAULT_WAYNE_SETTINGS: WayneSettings = {
   price_plain: 13,
   price_special: 19,
+  price_kids: 11.99,
   special_min_selling_price: 19,
   target_multiplier: 4,
   trigger_multiplier: 2,
@@ -58,6 +61,7 @@ export const DEFAULT_WAYNE_SETTINGS: WayneSettings = {
 export const WAYNE_SETTING_KEYS: Record<keyof WayneSettings, string> = {
   price_plain: 'restock_calc_price_plain',
   price_special: 'restock_calc_price_special',
+  price_kids: 'restock_calc_price_kids',
   special_min_selling_price: 'restock_calc_special_min_selling_price',
   target_multiplier: 'restock_calc_target_multiplier',
   trigger_multiplier: 'restock_calc_trigger_multiplier',
@@ -239,6 +243,17 @@ export function isSpecial(p: CalcProduct | undefined, s: WayneSettings): boolean
   return (p?.selling_price ?? 0) >= s.special_min_selling_price
 }
 
+/** Kids socks: SKU "K" + number (K1–K12). Word SKUs such as KHAKIDURIANC31 are not Kids. */
+export function isKids(p: CalcProduct | undefined): boolean {
+  return /^K\d+$/.test((p?.sku ?? '').trim().toUpperCase())
+}
+
+/** RM per pair used to turn a sale's RM into pairs. */
+export function pairPrice(p: CalcProduct | undefined, s: WayneSettings): number {
+  if (isKids(p)) return s.price_kids
+  return isSpecial(p, s) ? s.price_special : s.price_plain
+}
+
 export function calcStore(input: WayneInput): WayneResult {
   const { settings: s, store, products, months: n } = input
   const p = resolvePeriod(input.firstSaleDate, input.lastSaleDate, n)
@@ -283,7 +298,7 @@ export function calcStore(input: WayneInput): WayneResult {
   const start = p.start
   const end = p.end
   const monthsCovered = p.short_history ? Math.min(n, Math.max(1, p.history_months)) : n
-  const pairsOf = (x: CalcSale) => (Number(x.total_amount) || 0) / (isSpecial(products[x.product_id], s) ? s.price_special : s.price_plain)
+  const pairsOf = (x: CalcSale) => (Number(x.total_amount) || 0) / pairPrice(products[x.product_id], s)
 
   const inPeriod = input.sales.filter((x) => x.sale_date >= start && x.sale_date <= end)
   const totalPairs = inPeriod.reduce((a, x) => a + pairsOf(x), 0)
@@ -402,6 +417,7 @@ export function parseWayneSettings(rows: { key: string; value: string | null }[]
   // a zero price would divide by zero
   if (out.price_plain <= 0) out.price_plain = DEFAULT_WAYNE_SETTINGS.price_plain
   if (out.price_special <= 0) out.price_special = DEFAULT_WAYNE_SETTINGS.price_special
+  if (out.price_kids <= 0) out.price_kids = DEFAULT_WAYNE_SETTINGS.price_kids
   return out
 }
 

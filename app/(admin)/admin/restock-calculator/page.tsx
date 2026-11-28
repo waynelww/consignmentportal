@@ -67,6 +67,7 @@ function SkuPill({ onHand, send }: { onHand: number; send: number }) {
 const SETTING_LABELS: Record<keyof WayneSettings, string> = {
   price_plain: 'Plain price (RM/pair)',
   price_special: 'Special Patches price (RM/pair)',
+  price_kids: 'Kids price (RM/pair, K codes)',
   special_min_selling_price: 'Special if selling price ≥ (RM)',
   target_multiplier: 'Target = pairs/month ×',
   trigger_multiplier: 'Trigger = pairs/month ×',
@@ -368,7 +369,7 @@ export default function RestockCalculatorPage() {
         </div>
         {settings && (
           <p className="text-xs text-gray-500 mt-3">
-            Pairs = sales ÷ RM{settings.price_plain} (Plain) or RM{settings.price_special} (Special Patches, selling price ≥ RM{settings.special_min_selling_price}).
+            Pairs = sales ÷ RM{settings.price_plain} (Plain) or RM{settings.price_special} (Special Patches, selling price ≥ RM{settings.special_min_selling_price}) or RM{settings.price_kids} (Kids, K codes).
             Pairs/month = pairs in the period ÷ months covered. Target = pairs/month × {settings.target_multiplier}, trigger = × {settings.trigger_multiplier}.
             Codes share the target {settings.split_mode === 'even' ? 'evenly, each rounded up to a whole pair' : 'by sales share (old method)'}.
           </p>

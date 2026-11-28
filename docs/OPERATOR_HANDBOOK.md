@@ -137,9 +137,13 @@ and ONE NINE NINE STR-019 as of 27 Oct 2026). Separate from
   pairs", no calculation. Because the period ends on the last sale, the
   "last sale more than 7 days ago" warning matters: unentered sales are
   simply not counted.
-- Pairs = sales RM ÷ price per pair; a product counts as Special Patches
-  when its `selling_price` ≥ the `restock_calc_special_min_selling_price`
-  setting (RM19), otherwise Plain. Prices, multipliers, the consistency %
+- Pairs = sales RM ÷ price per pair. **Kids** (SKU K + number, K1–K12) use
+  `restock_calc_price_kids` (RM11.99, their selling price; editable like the
+  other prices, code default 11.99, no migration). Otherwise a product counts
+  as Special Patches when its `selling_price` ≥ the
+  `restock_calc_special_min_selling_price` setting (RM19), else Plain. Word
+  SKUs starting with K (KHAKIDURIANC31) are not Kids. Product prices are never
+  changed by the calculator. Prices, multipliers, the consistency %
   and stale-sale days are `restock_calc_*` rows in `public.settings`,
   editable from the page.
 - **Split across codes** (`restock_calc_split_mode`, default `even`). The
