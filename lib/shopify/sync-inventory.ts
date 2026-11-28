@@ -16,7 +16,10 @@ import {
 //    - renames a linked product's SKU when Shopify's SKU changed (logged in
 //      product_sku_changes), and reports a conflict instead if the new SKU is
 //      already used by another product,
-//    - copies the variant photo (product featured image as fallback) to image_url.
+//    - copies the photo to image_url: variant image, product featured image as
+//      fallback, never from collab products (Luwis / We Want Jam / WWJ) and
+//      Plain Series first when several products share the SKU
+//      (lib/shopify/catalogue-source.ts). Names are never written.
 //    Only sku, image_url and shopify_variant_id are written. See
 //    lib/shopify/catalogue-match.ts for the rules.
 // 2. Office (HQ) stock: reads the "Office (HQ)" location ONLY and writes each
@@ -121,7 +124,7 @@ const CATALOGUE_QUERY = `
         sku
         title
         image { url }
-        product { title featuredImage { url } }
+        product { title status featuredImage { url } }
       }
       pageInfo { hasNextPage endCursor }
     }
@@ -133,7 +136,7 @@ interface CatalogueNode {
   sku: string | null
   title: string
   image: { url: string } | null
-  product: { title: string; featuredImage: { url: string } | null } | null
+  product: { title: string; status: string | null; featuredImage: { url: string } | null } | null
 }
 
 interface CatalogueResponse {
@@ -186,6 +189,7 @@ async function fetchAllVariants(domain: string, token: string): Promise<ShopifyV
         imageUrl: n.image?.url ?? null,
         productTitle: n.product?.title ?? '',
         productImageUrl: n.product?.featuredImage?.url ?? null,
+        productStatus: n.product?.status ?? null,
       })
     }
 

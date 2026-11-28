@@ -58,6 +58,18 @@ assert.deepEqual([...mixed].sort(compareSlipSku), [
 assert.ok(compareSlipSku('A2', 'A11') < 0)
 assert.ok(compareSlipSku('H99', 'C1') < 0) // every Half before any Crew
 
+// ── No Show (V) and Kids (K) sort like A/H/C: … Crew, then No Show, then Kids ──
+const withVK = ['K10', 'KHAKIDURIANC31', 'V27', 'A3', 'K2', 'C5', 'V6', 'H1', 'KOLO MEE']
+assert.deepEqual([...withVK].sort(compareSlipSku), [
+  'A3', 'H1', 'C5', 'V6', 'V27', 'K2', 'K10',
+  'KHAKIDURIANC31', 'KOLO MEE', // word SKUs starting with K are not Kids codes
+])
+assert.ok(compareSlipSku('C99', 'V1') < 0) // every Crew before any No Show
+assert.ok(compareSlipSku('V99', 'K1') < 0) // every No Show before any Kids
+assert.equal(slipItemText('Plain Series - For Kids (4YO to 12 YO) - Pink Ponk', 'kids'), 'Pink Ponk · Kids')
+assert.equal(slipItemText('Plain Series - For Kids (4YO to 12 YO) - Pink Ponk'), 'Pink Ponk · Kids') // cut from the name
+assert.equal(slipItemText('Plain Series - No Show Socks - Classic Black'), 'Classic Black · No Show') // cut from the name
+
 const store = {
   storeName: 'Vaernand store',
   address: '6 jalan daun inai 18 sunway spk damansara\nno 6',

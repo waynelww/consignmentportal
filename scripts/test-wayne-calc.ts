@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict'
 import {
   calcStore, resolvePeriod, monthBlocks, subMonths, describePeriod, formatDateRange,
-  parseWayneSettings, malaysiaToday, DEFAULT_WAYNE_SETTINGS, evenSkuTarget, WAYNE_SETTING_KEYS,
+  parseWayneSettings, malaysiaToday, DEFAULT_WAYNE_SETTINGS, evenSkuTarget, WAYNE_SETTING_KEYS, isKids, pairPrice,
   type CalcProduct, type CalcSale, type WayneInput,
 } from '../lib/restock/wayne-calc'
 
@@ -223,6 +223,22 @@ assert.equal(parseWayneSettings([{ key: 'restock_calc_split_mode', value: 'banan
 assert.equal(parseWayneSettings([{ key: 'restock_calc_split_mode', value: '' }]).split_mode, 'even')
 const withMode = parseWayneSettings([{ key: 'restock_calc_split_mode', value: 'sales_share' }, { key: 'restock_calc_target_multiplier', value: '5' }])
 assert.equal(withMode.target_multiplier, 5) // other settings still parse alongside it
+
+// ── Kids (K codes) count at RM11.99 per pair; others unchanged ─────────
+assert.equal(DEFAULT_WAYNE_SETTINGS.price_kids, 11.99)
+const kidsP = { id: 'k', sku: 'K5', name: 'Plain Series - For Kids (4YO to 12 YO) - Classic Black', selling_price: 11.99 }
+const plainP = { id: 'a', sku: 'A27', name: 'Plain Series - Ankle - Classic Black', selling_price: 13.99 }
+const noShowP = { id: 'v', sku: 'V27', name: 'Plain Series - No Show Socks - Classic Black', selling_price: 13.99 }
+const specialP = { id: 's', sku: 'KHAKIDURIANC31', name: 'Special Patches Series - Khaki Durian', selling_price: 19.99 }
+assert.equal(isKids(kidsP), true)
+assert.equal(isKids(specialP), false, 'word SKU starting with K is not Kids')
+assert.equal(pairPrice(kidsP, DEFAULT_WAYNE_SETTINGS), 11.99)
+assert.equal(pairPrice(plainP, DEFAULT_WAYNE_SETTINGS), 13)
+assert.equal(pairPrice(noShowP, DEFAULT_WAYNE_SETTINGS), 13)
+assert.equal(pairPrice(specialP, DEFAULT_WAYNE_SETTINGS), 19)
+const sk = parseWayneSettings([{ key: 'restock_calc_price_kids', value: '0' }])
+assert.equal(sk.price_kids, 11.99, 'invalid Kids price → default')
+assert.equal(parseWayneSettings([{ key: 'restock_calc_price_kids', value: '12.5' }]).price_kids, 12.5)
 
 console.log('wayne-calc: all assertions passed')
 console.log(`Hyperground (3 mo): ${describePeriod(h3.period)} → ${h3.pairs_per_month} pairs/month, target ${h3.target_stock}, trigger ${h3.restock_trigger}, on hand ${h3.on_hand}, ${h3.status}`)

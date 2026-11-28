@@ -23,10 +23,10 @@ You are given the active product catalogue as SKU: name, then the list as pasted
 
 Rules:
 - Use only SKUs from the catalogue. Never guess or invent a code, and never invent a quantity.
-- Codes: A, H, C or V followed by a number mean Ankle, Half, Crew or No Show (V1 to V99 are No Show). MX + number is also a code. Accept any spelling: "A 21", "a-21", "A021" are all A21; "V 26", "v-26", "V026" are all V26.
-- Cut headers: a line with only "Ankle", "Half", "Crew" or "No Show" (also "noshow") sets the cut for the lines below it. "Ankle 06, 15, 21 x3" means A6, A15 and A21, 3 pairs each. A quantity written only on the last number applies to all numbers in that list.
+- Codes: A, H, C, V or K followed by a number mean Ankle, Half, Crew, No Show or Kids (V codes are No Show, K1 to K12 are Kids). MX + number is also a code. Accept any spelling: "A 21", "a-21", "A021" are all A21; "V 26", "v-26", "V026" are all V26; "K 3", "k-3", "K03" are all K3. A word SKU that only starts with K (e.g. KHAKIDURIANC31) is not a Kids code.
+- Cut words: "Ankle", "Half", "Crew", "No Show" (also "noshow", "no-show", "invisible") and "Kids" (also "kid"). A line with only a cut word sets the cut for the lines below it. "Ankle 06, 15, 21 x3" means A6, A15 and A21, 3 pairs each; "Kids 1, 5, 9 x3" means K1, K5 and K9, 3 pairs each; "No show 26 x2" means V26. A quantity written only on the last number applies to all numbers in that list.
 - Quantities are pairs. Markers: x3, ×3, *3, = 3, : 3, - 3, "3 pairs", "3 pcs", "3 pasang", "3 psg", "3 helai", "3 units", or a single number on the line.
-- Colour names (e.g. "Teddy Brown 5") match catalogue names. If the colour exists in more than one cut and the line does not say Ankle, Half, Crew or No Show, put it in unread and name the possible SKUs.
+- Colour names (e.g. "Teddy Brown 5") match the colour at the end of catalogue names. With a cut word, use that cut only: "No show black 6" is the No Show SKU whose colour contains "Black" (V27 Classic Black) when only one No Show colour fits. If the colour exists in more than one cut and the line does not say Ankle, Half, Crew, No Show or Kids, or more than one colour in that cut fits, put it in unread and name the possible SKUs.
 - Special Patches SKUs are words (e.g. WHITEKUIHC26). Match the exact SKU or the product name.
 - Several items on one line can be separated by commas, semicolons, slashes, "&", "and" or "dan".
 - A colour with no cut and no catalogue match goes to unread.

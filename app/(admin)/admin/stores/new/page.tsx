@@ -18,6 +18,7 @@ import type { Product, StoreTypeRow } from '@/types'
 import { useXocksTeam } from '@/components/admin/useXocksTeam'
 import { DailyReportSettings } from '@/components/admin/DailyReportSettings'
 import { StockListToggle, StockListPanel } from '@/components/stock/StockListReader'
+import { CutSections } from '@/components/products/CutSections'
 import { validateDailyReportSettings } from '@/lib/daily-report/settings'
 
 // ── Step schemas ──────────────────────────────────────────────────────────────
@@ -1115,7 +1116,10 @@ function NewStorePage() {
                     <div>
                       <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">All Other SKUs</h4>
                       <div className="border border-gray-200 rounded-xl overflow-hidden max-h-80 overflow-y-auto">
-                        {otherItems.map((sel) => (
+                        {/* Ankle/Half/Crew and others as before; No Show and Kids in their own sections */}
+                        <CutSections items={otherItems} keyOf={(sel) => sel.product_id} productOf={(sel) => sel.product}
+                          sectionNote={(xs) => `${xs.length} SKU${xs.length !== 1 ? 's' : ''}`}
+                          renderItem={(sel) => (
                           <label
                             key={sel.product_id}
                             className="flex items-center gap-3 px-3 py-2 border-b border-gray-100 last:border-b-0 cursor-pointer hover:bg-gray-50"
@@ -1136,7 +1140,7 @@ function NewStorePage() {
                               </span>
                             )}
                           </label>
-                        ))}
+                        )} />
                       </div>
                     </div>
                   )}
@@ -1241,7 +1245,16 @@ function NewStorePage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {selectedItems.map((sel) => (
+                        <CutSections items={selectedItems} keyOf={(sel) => sel.product_id} productOf={(sel) => sel.product}
+                          sectionNote={(xs) => `${xs.length} SKU${xs.length !== 1 ? 's' : ''} · ${xs.reduce((n, x) => n + x.quantity, 0)} pairs`}
+                          renderHeader={(label, note) => (
+                            <tr className="bg-gray-50 border-b border-gray-100">
+                              <td colSpan={4} className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-600">
+                                {label}{note ? <span className="ml-1 font-normal normal-case tracking-normal text-gray-400">· {note}</span> : null}
+                              </td>
+                            </tr>
+                          )}
+                          renderItem={(sel) => (
                           <tr key={sel.product_id} className="border-b border-gray-50">
                             <td className="px-3 py-2 font-mono text-xs text-gray-500">{sel.product.sku}</td>
                             <td className="px-3 py-2 text-gray-800">
@@ -1285,7 +1298,7 @@ function NewStorePage() {
                               </div>
                             </td>
                           </tr>
-                        ))}
+                        )} />
                         {selectedItems.length === 0 && (
                           <tr>
                             <td colSpan={4} className="text-center py-6 text-xs text-gray-400">

@@ -80,6 +80,8 @@ const stripLeadingNumber = (s: string) => s.replace(/^\s*\d+[\s.)\-:]*/, '').tri
 
 /**
  * "Plain Series - Ankle - Charcoal Blue"     → "Charcoal Blue · Ankle"
+ * "Plain Series - No Show Socks - Aqua Blue" → "Aqua Blue · No Show"
+ * "Plain Series - For Kids (4YO to 12 YO) - Pink Ponk" → "Pink Ponk · Kids"
  * "Special Patches Series - White Kuih"      → "White Kuih · Patches"
  * "Patches Socks (LOKAL Jehhh) - Tiger"      → "Tiger · LOKAL Jehhh"
  * "Raya Socks 2026 - Mentari Raya"           → "Mentari Raya · Raya Socks 2026"
@@ -96,7 +98,9 @@ export function slipItemText(name: string, category?: string | null): string {
   const design = parts.slice(1).join(' - ')
   if (/^plain series$/i.test(series)) {
     const colour = stripLeadingNumber(parts[parts.length - 1]) || parts[parts.length - 1]
-    const cutPart = parts.slice(1, -1).map((p) => p.replace(/\(.*?\)/g, '').trim())
+    // "For Kids (4YO to 12 YO)" → "Kids"; "No Show Socks" → "No Show".
+    const cutPart = parts.slice(1, -1)
+      .map((p) => p.replace(/\(.*?\)/g, '').replace(/^for\s+/i, '').replace(/\s+socks?$/i, '').trim())
       .reverse().find((p) => CUTS.some((c) => c.toLowerCase() === p.toLowerCase()))
     const cut = cutPart ? titleCase(cutPart.toLowerCase()) : category ? titleCase(category) : null
     return cut ? `${colour} · ${cut}` : colour
@@ -110,12 +114,14 @@ export function slipItemText(name: string, category?: string | null): string {
   return `${design} · ${series}`
 }
 
-// Picking order: Ankle (A1, A2 … A56), then Half (H…), then Crew (C…), each
-// by number; everything else (patches etc.) after, alphabetically.
-const CUT_ORDER: Record<string, number> = { A: 0, H: 1, C: 2 }
+// Picking order: Ankle (A1, A2 … A56), then Half (H…), then Crew (C…), then
+// No Show (V…), then Kids (K…), each by number; everything else (patches etc.)
+// after, alphabetically. Only whole codes count ("K1" yes, "KHAKIDURIANC31" no).
+const CUT_ORDER: Record<string, number> = { A: 0, H: 1, C: 2, V: 3, K: 4 }
+const CUT_CODE_RE = /^([AHCVK])(\d+)$/i
 export function compareSlipSku(a: string, b: string): number {
-  const ma = /^([AHC])(\d+)$/i.exec(a.trim())
-  const mb = /^([AHC])(\d+)$/i.exec(b.trim())
+  const ma = CUT_CODE_RE.exec(a.trim())
+  const mb = CUT_CODE_RE.exec(b.trim())
   if (ma && mb) {
     return CUT_ORDER[ma[1].toUpperCase()] - CUT_ORDER[mb[1].toUpperCase()] || Number(ma[2]) - Number(mb[2])
   }

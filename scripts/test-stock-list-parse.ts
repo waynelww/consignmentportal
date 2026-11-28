@@ -230,6 +230,79 @@ test('"SKU x3, 5" is two quantities, not guessed', () => {
   assert.ok(r.unread.some((u) => u.includes('more than one quantity')), JSON.stringify(r.unread))
 })
 
+// ── Kids (K) and No Show (V) with real catalogue names ──────────────────────
+// Names as XCMS stores them ("Plain Series - <cut> - <colour>").
+const REAL: StockListProduct[] = [
+  { id: 'r-A18', sku: 'A18', name: 'Plain Series - Ankle - Grey Black', is_active: true },
+  { id: 'r-A27', sku: 'A27', name: 'Plain Series - Ankle - Classic Black', is_active: true },
+  { id: 'r-C27', sku: 'C27', name: 'Plain Series - Crew - Classic Black', is_active: true },
+  { id: 'r-A6', sku: 'A6', name: 'Plain Series - Ankle - Aqua Blue', is_active: true },
+  { id: 'r-V6', sku: 'V6', name: 'Plain Series - No Show Socks - Aqua Blue', is_active: true },
+  { id: 'r-V26', sku: 'V26', name: 'Plain Series - No Show Socks - Clean White', is_active: true },
+  { id: 'r-V27', sku: 'V27', name: 'Plain Series - No Show Socks - Classic Black', is_active: true },
+  { id: 'r-K1', sku: 'K1', name: 'Plain Series - For Kids (4YO to 12 YO) - Aqua Blue', is_active: true },
+  { id: 'r-K4', sku: 'K4', name: 'Plain Series - For Kids (4YO to 12 YO) - Clean White', is_active: true },
+  { id: 'r-K5', sku: 'K5', name: 'Plain Series - For Kids (4YO to 12 YO) - Classic Black', is_active: true },
+  { id: 'r-K9', sku: 'K9', name: 'Plain Series - For Kids (4YO to 12 YO) - Pink Ponk', is_active: true },
+  { id: 'r-KD', sku: 'KHAKIDURIANC31', name: 'Special Patches Series - Khaki Durian', is_active: true },
+]
+const real = (text: string) => {
+  const r = parseStockList(text, REAL)
+  return { items: r.items.map((i) => `${i.sku}x${i.quantity}`), noQuantity: r.noQuantity, notFound: r.notFound, unread: r.unread }
+}
+
+test('Kids cut list: "Kids 1, 5, 9 x3"', () => {
+  assert.deepEqual(real('Kids 1, 5, 9 x3').items, ['K1x3', 'K5x3', 'K9x3'])
+  assert.deepEqual(real('kid 4 x2').items, ['K4x2'])
+})
+
+test('Kids / Kid header sets the cut for the lines below', () => {
+  assert.deepEqual(real('Kids\n1 x2\n9 x1').items, ['K1x2', 'K9x1'])
+  assert.deepEqual(real('Kid:\n4, 5 x3').items, ['K4x3', 'K5x3'])
+})
+
+test('K codes read like A/H/C/V', () => {
+  for (const line of ['K5 x2', 'k5 x2', 'K 5 x2', 'k-5 = 2', 'K05 - 2', 'K5 2 pairs']) {
+    assert.deepEqual(real(line).items, ['K5x2'], line)
+  }
+  assert.equal(skuKey('k-05'), 'K5')
+})
+
+test('a word SKU starting with K is not a Kids code', () => {
+  assert.deepEqual(real('KHAKIDURIANC31 x2').items, ['KHAKIDURIANC31x2'])
+})
+
+test('No Show: "No show black 6", "V27 x4", noshow / invisible', () => {
+  assert.deepEqual(real('No show black 6').items, ['V27x6'])
+  assert.deepEqual(real('V27 x4').items, ['V27x4'])
+  assert.deepEqual(real('noshow clean white x2').items, ['V26x2'])
+  assert.deepEqual(real('invisible 26 x3').items, ['V26x3'])
+  assert.deepEqual(real('Invisible\n6, 27 x1').items, ['V6x1', 'V27x1'])
+})
+
+test('colour with a cut picks that cut only', () => {
+  assert.deepEqual(real('Kids aqua blue 2').items, ['K1x2'])
+  assert.deepEqual(real('Kids\nPink Ponk = 3').items, ['K9x3'])
+  assert.deepEqual(real('No Show Aqua Blue x1').items, ['V6x1'])
+  assert.deepEqual(real('Crew classic black 4').items, ['C27x4'])
+})
+
+test('colour in several cuts with no cut is reported, not guessed', () => {
+  const r = real('Aqua Blue 3')
+  assert.deepEqual(r.items, [])
+  assert.ok(r.unread.some((u) => u.includes('A6') && u.includes('V6') && u.includes('K1')), JSON.stringify(r.unread))
+})
+
+test('part of a colour matching two in one cut is reported, not guessed', () => {
+  const r = real('Ankle black 2') // A18 Grey Black and A27 Classic Black
+  assert.deepEqual(r.items, [])
+  assert.ok(r.unread.some((u) => u.includes('A18') && u.includes('A27')), JSON.stringify(r.unread))
+})
+
+test('Kids number with no such Kids SKU is not found', () => {
+  assert.deepEqual(real('Kids 12 x2').notFound, ['K12'])
+})
+
 // ── Lines that must not be read ─────────────────────────────────────────────
 test('chatter and prices go to unread', () => {
   const r = view('Good morning bro\nRM 45')

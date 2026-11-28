@@ -50,7 +50,7 @@ export const VIRTUAL_ITEMS: VirtualItem[] = [
   { key: 'free10patches', label: 'FREE 10 Patches', patches: 10 },
 ]
 
-export type PosChip = 'all' | 'combos' | 'ankle' | 'half' | 'crew' | 'no_show' | 'design' | 'addons'
+export type PosChip = 'all' | 'combos' | 'ankle' | 'half' | 'crew' | 'no_show' | 'kids' | 'design' | 'addons'
 export const POS_CHIPS: { key: PosChip; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'combos', label: 'Combos' },
@@ -58,6 +58,7 @@ export const POS_CHIPS: { key: PosChip; label: string }[] = [
   { key: 'half', label: 'Half' },
   { key: 'crew', label: 'Crew' },
   { key: 'no_show', label: 'No Show' },
+  { key: 'kids', label: 'Kids' },
   { key: 'design', label: 'Design' },
   { key: 'addons', label: 'Add-ons' },
 ]

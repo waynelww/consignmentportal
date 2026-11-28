@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { evaluateDiscount, cartTotals, type DiscountLine, type DiscountType } from '../lib/pos/discounts'
 import { eligibleAmounts, tierHit, tiersForDay, nextTier } from '../lib/pos/bonus'
-import { isAddon, isExcludedFromPos, isPatch, buildPosProducts, remainingFor } from '../lib/pos/catalog'
+import { isAddon, isExcludedFromPos, isPatch, buildPosProducts, remainingFor, chipMatches, POS_CHIPS } from '../lib/pos/catalog'
 import { summarisePatches } from '../lib/pos/patches'
 
 const plain = (qty: number): DiscountLine => ({ unit_price: 13.99, qty, is_pair: true, is_patch: false, design: false })
@@ -91,5 +91,31 @@ assert.deepEqual(tierHit(520, tiers, bonus), { tier: 2, bonus: 50 })
 assert.deepEqual(tierHit(100, tiers, bonus), { tier: 0, bonus: 0 })
 assert.deepEqual(nextTier(520, tiers), { tier: 3, more: 230 })
 assert.equal(tiersForDay('2026-12-04', '2026-12-05', days), null)
+
+// ── Kids (RM11.99) and No Show (RM13.99) ──────────────────────────────────
+// Chips: Kids sits right after No Show.
+const chipKeys = POS_CHIPS.map((c) => c.key)
+assert.equal(chipKeys.indexOf('kids'), chipKeys.indexOf('no_show') + 1)
+assert.equal(POS_CHIPS.find((c) => c.key === 'kids')?.label, 'Kids')
+const vkTiles = buildPosProducts([
+  { product: { id: 'k1', sku: 'K1', name: 'Plain Series - For Kids (4YO to 12 YO) - Aqua Blue', selling_price: 11.99, image_url: null, barcode: null, category: 'kids' }, qty: 4 },
+  { product: { id: 'v27', sku: 'V27', name: 'Plain Series - No Show Socks - Classic Black', selling_price: 13.99, image_url: null, barcode: null, category: 'no_show' }, qty: 4 },
+  { product: raw('a1', 'A1', 'Plain Series - Ankle - Black', 13.99), qty: 4 },
+])
+const kidsTile = vkTiles.find((x) => x.id === 'k1')!
+const noShowTile = vkTiles.find((x) => x.id === 'v27')!
+assert.equal(kidsTile.is_pair, true, 'Kids are pairs')
+assert.equal(noShowTile.is_pair, true, 'No Show are pairs')
+assert.ok(chipMatches(kidsTile, 'kids') && !chipMatches(kidsTile, 'no_show') && !chipMatches(kidsTile, 'ankle'))
+assert.ok(chipMatches(noShowTile, 'no_show') && !chipMatches(noShowTile, 'kids'))
+assert.deepEqual(vkTiles.filter((x) => chipMatches(x, 'kids')).map((x) => x.id), ['k1'])
+// Discounts: Kids and No Show count as pairs.
+const kids = (qty: number): DiscountLine => ({ unit_price: 11.99, qty, is_pair: true, is_patch: false, design: false })
+assert.equal(off('free_cheapest', { min_pairs: 5, free: 1 }, [kids(2), plain(3)]), 11.99) // cheapest pair (Kids) free
+assert.equal(evaluateDiscount(d('free_cheapest', { min_pairs: 5, free: 1 }), [kids(2), plain(3)]).qualifies, true)
+assert.equal(cartTotals([kids(2), plain(1)], null).pairs, 3)
+// "RM11.99 per pair" (RM2 off RM13.99 pairs) never touches RM11.99 Kids pairs.
+assert.equal(off('per_pair_off', { amount: 2, unit_price: 13.99 }, [kids(3), plain(2)]), 4.0)
+assert.equal(evaluateDiscount(d('per_pair_off', { amount: 2, unit_price: 13.99 }), [kids(3)]).qualifies, false)
 
 console.log('test-pos: all passed')

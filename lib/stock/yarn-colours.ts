@@ -1,5 +1,8 @@
-// Plain Series yarn colours. A/H/C + number, e.g. A19 = yarn 19 Dark Coffee.
-// The number is the yarn number; the letter is the cut and is kept separately.
+// Plain Series yarn colours. A/H/C/V + number, e.g. A19 = yarn 19 Dark Coffee,
+// V26 = yarn 26 Clean White (No Show). The number is the yarn number; the
+// letter is the cut and is kept separately.
+// Kids (K1–K12) are numbered on their own, so K codes map to a yarn through
+// KIDS_COLOURS below; a K code with no known yarn has no colour.
 
 export interface YarnColour {
   no: number
@@ -74,13 +77,54 @@ export const CATALOGUE_YARN_NOS: ReadonlySet<number> = new Set([
 export const yarnColourByNo = (no: number): YarnColour | undefined => YARN_COLOURS.find((c) => c.no === no)
 
 export interface PlainCode {
-  letter: 'A' | 'H' | 'C'
+  letter: 'A' | 'H' | 'C' | 'V' | 'K'
   no: number
 }
 
-/** "A19" → { letter: 'A', no: 19 }. Anything else (other series, extra characters) → null. */
+/**
+ * "A19" → { letter: 'A', no: 19 }; also V (No Show) and K (Kids) codes.
+ * Anything else (other series, extra characters) → null.
+ */
 export function parsePlainCode(sku: string | null | undefined): PlainCode | null {
-  const m = /^([AHC])(\d+)$/.exec((sku ?? '').trim().toUpperCase())
+  const m = /^([AHCVK])(\d+)$/.exec((sku ?? '').trim().toUpperCase())
   if (!m) return null
   return { letter: m[1] as PlainCode['letter'], no: Number(m[2]) }
+}
+
+/** No Show colours whose shop name differs from the yarn name (same yarn). */
+const NO_SHOW_NAMES: Record<number, string> = { 46: 'Green Tiffany', 55: 'Grey Clay' }
+
+/**
+ * Kids code → yarn number, by colour (Shopify "Plain Series - For Kids" variants).
+ * K11 Soft Purple and K12 Pearl Grey have no yarn in YARN_COLOURS, so they get
+ * no colour: no suggestions for them and they are never suggested.
+ */
+export const KIDS_COLOURS: Record<number, { yarn: number; name: string }> = {
+  1: { yarn: 6, name: 'Aqua Blue' },
+  2: { yarn: 17, name: 'Light Grey' },
+  3: { yarn: 21, name: 'Teddy Brown' },
+  4: { yarn: 26, name: 'Clean White' },
+  5: { yarn: 27, name: 'Classic Black' },
+  6: { yarn: 29, name: 'Classic Maroon' },
+  7: { yarn: 31, name: 'Dessert Army' },
+  8: { yarn: 32, name: 'Light Yellow' },
+  9: { yarn: 35, name: 'Pink Ponk' },
+  10: { yarn: 44, name: 'Juicy Orange' },
+}
+
+/**
+ * Colour (name + hex) of a Plain Series code, or undefined when it has none.
+ * A/H/C use the yarn number; V uses the yarn number with its shop name; K goes
+ * through KIDS_COLOURS.
+ */
+export function colourOfCode(code: PlainCode): YarnColour | undefined {
+  if (code.letter === 'K') {
+    const k = KIDS_COLOURS[code.no]
+    const yarn = k ? yarnColourByNo(k.yarn) : undefined
+    return yarn && k ? { no: yarn.no, name: k.name, hex: yarn.hex } : undefined
+  }
+  const yarn = yarnColourByNo(code.no)
+  if (!yarn) return undefined
+  if (code.letter === 'V' && NO_SHOW_NAMES[code.no]) return { ...yarn, name: NO_SHOW_NAMES[code.no] }
+  return yarn
 }

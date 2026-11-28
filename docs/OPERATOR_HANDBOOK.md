@@ -137,9 +137,13 @@ and ONE NINE NINE STR-019 as of 27 Oct 2026). Separate from
   pairs", no calculation. Because the period ends on the last sale, the
   "last sale more than 7 days ago" warning matters: unentered sales are
   simply not counted.
-- Pairs = sales RM ÷ price per pair; a product counts as Special Patches
-  when its `selling_price` ≥ the `restock_calc_special_min_selling_price`
-  setting (RM19), otherwise Plain. Prices, multipliers, the consistency %
+- Pairs = sales RM ÷ price per pair. **Kids** (SKU K + number, K1–K12) use
+  `restock_calc_price_kids` (RM11.99, their selling price; editable like the
+  other prices, code default 11.99, no migration). Otherwise a product counts
+  as Special Patches when its `selling_price` ≥ the
+  `restock_calc_special_min_selling_price` setting (RM19), else Plain. Word
+  SKUs starting with K (KHAKIDURIANC31) are not Kids. Product prices are never
+  changed by the calculator. Prices, multipliers, the consistency %
   and stale-sale days are `restock_calc_*` rows in `public.settings`,
   editable from the page.
 - **Split across codes** (`restock_calc_split_mode`, default `even`). The
@@ -254,14 +258,46 @@ only. Nothing else (no other Shopify location) feeds these numbers.
 - Migration: `supabase/migrations/20261109_shopify_variant_sku_sync.sql` must be
   applied before the next refresh.
 
+### Which Shopify product a photo comes from (shared SKUs, collabs)
+
+Several Shopify products reuse our regular SKUs (A/C/H/V/K numbers): "Plain Series - …",
+"… (Offline)", colour bundles ("Cool Blues", "Playful Pinks", …) and collab products
+("Xocks x Luwis — Socks", "We Want Jam x Xocks (Adults)" / "(Kids)"). Both photo syncs
+(hourly / nightly / **Refresh from Shopify**, and the daily image sync /
+**Products → Sync images**) pick the photo with one rule, `lib/shopify/catalogue-source.ts`
+(pinned by `npx tsx scripts/test-catalogue-source.ts`):
+
+1. A product whose title contains **Luwis**, **We Want Jam** or **WWJ** is never used.
+2. ARCHIVED and DRAFT products are used only when no ACTIVE product has the SKU.
+3. Order: title starting **Plain Series** (not a "Trial Bundle"), then title ending
+   **(Offline)**, then any other active product.
+4. The variant's own photo first, then the product's featured photo.
+
+- **Names are never written by any sync** (Shopify variant titles carry the colour number,
+  e.g. "28 Orange Ginger", which XCMS names leave out). Kids names stay
+  "Plain Series - For Kids (4YO to 12 YO) - <colour>". No sync creates XCMS products.
+- SKU links and the HQ stock step are unchanged by this rule.
+- **Dry run (read-only):** `npx tsx scripts/dry-run-catalogue-sync.ts` lists every link,
+  SKU and photo change the next runs would make, without writing anything.
+- The old one-off scripts `scripts/backfill-shopify-images.mjs` and
+  `backfill-images-from-mcp.mjs` used "last variant wins" and now refuse to run.
+
 ### Similar colours (suggestions)
 
-For a Plain Series code (A/H/C + yarn number) that HQ is short of, the warning
+For a Plain Series code (A/H/C/V/K + number) that HQ is short of, the warning
 also shows up to two "Similar" colours. They are picked by closeness of colour
-(CIEDE2000 on each yarn's hex colour, `lib/stock/yarn-colours.ts`), from the
-catalogue list only, with the same cut letter and at least 3 pairs at HQ. Colours
+(CIEDE2000 on each yarn's hex colour, `lib/stock/yarn-colours.ts`), with the same
+cut letter (Kids only for Kids, No Show only for No Show) and at least 3 pairs at HQ.
+Ankle / Half / Crew suggestions come from the catalogue list only. Colours
 with enough stock for the quantity come first. Colours already in the same restock
 or DO are skipped. Anything that is not a Plain Series code gets no suggestion.
+
+- **No Show (V):** the number is the yarn number (V27 = yarn 27 Classic Black); V46 and
+  V55 show their shop names, Green Tiffany and Grey Clay.
+- **Kids (K):** K numbers are not yarn numbers; `KIDS_COLOURS` maps K1–K10 to their yarn.
+  K11 Soft Purple and K12 Pearl Grey have no yarn colour yet, so they get no suggestions
+  and are never suggested. Add them to `KIDS_COLOURS` (with a yarn in `YARN_COLOURS`)
+  when their colours are known.
 
 - **Swap** (Restocks review and DO create/edit) changes that line's colour and
   keeps the quantity. Nothing swaps automatically. On Restocks the swap is saved
@@ -310,10 +346,18 @@ you press **Create DO**, **Save** or the store's save, as before.
   the note. **Create DO**, **Edit DO** and **Add Store** refuse to save until every line has
   pairs above 0, so no zero-pair line reaches a DO or a store's first stock.
 - **No Show (V codes, Plain Series - No Show Socks)** are sold to consignment and read like
-  Ankle, Half and Crew: "V26 x5" is V26, 5 pairs. "No Show" (or "noshow") works as a cut
-  header, and a colour written with "No Show" matches the V product.
-- **Cuts:** a line with only Ankle, Half, Crew or No Show sets the cut for the lines below. A colour
-  in more than one cut is never guessed: it is reported with the possible SKUs.
+  Ankle, Half and Crew: "V26 x5" is V26, 5 pairs. "No Show" (or "noshow", "no-show",
+  "invisible") works as a cut word, and a colour written with "No Show" matches the V product
+  ("No show black 6" = V27 Classic Black, 6 pairs).
+- **Kids (K codes, Plain Series - For Kids)** read the same way: "K5 x2", "Kids 1, 5, 9 x3"
+  (K1, K5, K9, 3 pairs each), "Kids" / "Kid" as a cut word. A word SKU that only starts with K
+  (KHAKIDURIANC31) is not a Kids code.
+- **Colours:** a coded product also matches by the colour at the end of its name
+  ("Plain Series - Crew - Classic Black" → "classic black"). With a cut word, part of a colour
+  is enough when only one colour in that cut fits ("No show black" → V27); "Ankle black" fits
+  A18 Grey Black and A27 Classic Black, so it is reported, not guessed.
+- **Cuts:** a line with only Ankle, Half, Crew, No Show or Kids sets the cut for the lines below.
+  A colour in more than one cut is never guessed: it is reported with the possible SKUs.
 - The note always says "Check the quantities before saving." Re-read the Items list before saving.
 
 ## Test accounts (`stores.is_test`)
@@ -835,6 +879,9 @@ never from Shopify stock. Migration: `supabase/migrations/20261127_event_pos.sql
   ZXing scanner (works on iPhone Safari too).
 - **Catalogue rules** (`lib/pos/catalog.ts`): Special Patches Series never shows;
   add-ons = patches, tote bags, boxes (not pairs); "Design" = category `design`;
+  chips Ankle / Half / Crew / No Show / Kids follow the product category; Kids (RM11.99)
+  and No Show (RM13.99) are pairs for every discount, and "RM11.99 per pair" (RM2 off
+  RM13.99 pairs) never applies to RM11.99 Kids pairs;
   "FREE 6 / 10 Patches" are POS items at RM0 recorded on the RM4 patch product
   (SKU `Patches`) as 6 / 10 patches.
 - **Patches have no event stock** (too many to count). "(RM4) Per Patches",
@@ -1103,7 +1150,12 @@ instead, which confirms the stock arrived.
 - `lib/pdf/generate-slip.ts` — 4 x 6 in packing slip for restock and initial DOs
   ("Print slip" in the DO details modal → `/api/delivery-orders/[id]/pdf?slip&inline`,
   admins only, generated every time, nothing stored). One column → two
-  columns → extra labels; pinned by `npx tsx scripts/test-packing-slip.ts`.
+  columns → extra labels; picking order Ankle → Half → Crew → No Show (V) → Kids (K),
+  each by number, then everything else A–Z; pinned by `npx tsx scripts/test-packing-slip.ts`.
+- `lib/products/cut.ts` — the five sock cuts (A Ankle, H Half, C Crew, V No Show, K Kids):
+  cut of a product (SKU code first, then category) and the "own section" split used by
+  Create / Edit DO, the DO details view and Add Store (No Show and Kids get their own
+  labelled sections after the Ankle / Half / Crew lines, which keep their order).
 - `lib/pos/` — Event POS: catalogue, discount and bonus rules (pure), session,
   loaders; SQL in `20261127_event_pos.sql` (see "Event POS and Event Targets").
 - `lib/events/target-calc.ts` — Event Target Calculator maths (single source
